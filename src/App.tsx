@@ -51,16 +51,16 @@ type Group = {
 };
 
 type Channel = {
-  id: number;
-  groupId: number;
+  id: string | number;
+  groupId: string | number;
   name: string;
   type: 'text_chat' | 'voice_room';
 };
 
 type MessageItem = {
-  id: number;
+  id: string | number;
   conversationId: string;
-  senderId: number;
+  senderId: string | number;
   contentType: string;
   content: string;
   createdAt: string;

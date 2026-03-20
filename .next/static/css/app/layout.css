@@ -394,6 +394,9 @@
   .max-w-\[160px\] {
     max-width: 160px;
   }
+  .max-w-\[260px\] {
+    max-width: 260px;
+  }
   .max-w-lg {
     max-width: var(--container-lg);
   }
@@ -648,6 +651,9 @@
   }
   .text-left {
     text-align: left;
+  }
+  .text-right {
+    text-align: right;
   }
   .font-sans {
     font-family: var(--font-sans);

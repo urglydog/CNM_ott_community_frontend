@@ -1,7 +1,11 @@
+"use client";
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
+
+import { useEffect, useState } from 'react';
 
 import {
   AtSign,
@@ -39,7 +43,131 @@ import {
   X
 } from 'lucide-react';
 
+type Group = {
+  groupId: string | number;
+  name: string;
+  description?: string;
+  topic?: string;
+};
+
+type Channel = {
+  id: number;
+  groupId: number;
+  name: string;
+  type: 'text_chat' | 'voice_room';
+};
+
+type MessageItem = {
+  id: number;
+  conversationId: string;
+  senderId: number;
+  contentType: string;
+  content: string;
+  createdAt: string;
+};
+
 export default function App() {
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState<boolean>(false);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
+  const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [loadingChannels, setLoadingChannels] = useState<boolean>(false);
+  const [channelsError, setChannelsError] = useState<string | null>(null);
+  const [loadingMessages, setLoadingMessages] = useState<boolean>(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchGroups() {
+      try {
+        setLoadingGroups(true);
+        setGroupsError(null);
+
+        const res = await fetch('http://localhost:4000/api/groups');
+        if (!res.ok) {
+          throw new Error(`Failed to load groups (${res.status})`);
+        }
+        const data = await res.json();
+        const list: Group[] = Array.isArray(data) ? data : [];
+        setGroups(list);
+        if (list.length > 0) {
+          setSelectedGroup(list[0]);
+        }
+      } catch (error: any) {
+        setGroupsError(error?.message || 'Không tải được danh sách cộng đồng');
+      } finally {
+        setLoadingGroups(false);
+      }
+    }
+
+    fetchGroups();
+  }, []);
+
+  // Khi chọn group, tải danh sách channel của group đó
+  useEffect(() => {
+    async function fetchChannels() {
+      if (!selectedGroup) {
+        setChannels([]);
+        setSelectedChannel(null);
+        return;
+      }
+      try {
+        setLoadingChannels(true);
+        setChannelsError(null);
+        setChannels([]);
+        setSelectedChannel(null);
+
+        const res = await fetch(`http://localhost:4000/api/channels/group/${selectedGroup.groupId}`);
+        if (!res.ok) {
+          throw new Error(`Failed to load channels (${res.status})`);
+        }
+        const data = await res.json();
+        const list: Channel[] = Array.isArray(data) ? data : [];
+        setChannels(list);
+        if (list.length > 0) {
+          setSelectedChannel(list[0]);
+        }
+      } catch (error: any) {
+        setChannelsError(error?.message || 'Không tải được danh sách kênh');
+      } finally {
+        setLoadingChannels(false);
+      }
+    }
+
+    fetchChannels();
+  }, [selectedGroup]);
+
+  // Khi chọn channel, tải messages của channel đó
+  useEffect(() => {
+    async function fetchMessages() {
+      if (!selectedChannel) {
+        setMessages([]);
+        return;
+      }
+      try {
+        setLoadingMessages(true);
+        setMessagesError(null);
+        setMessages([]);
+
+        const res = await fetch(`http://localhost:4000/api/messages/channel/${selectedChannel.id}`);
+        if (!res.ok) {
+          throw new Error(`Failed to load messages (${res.status})`);
+        }
+        const data = await res.json();
+        const list: MessageItem[] = Array.isArray(data) ? data : [];
+        setMessages(list);
+      } catch (error: any) {
+        setMessagesError(error?.message || 'Không tải được tin nhắn');
+      } finally {
+        setLoadingMessages(false);
+      }
+    }
+
+    fetchMessages();
+  }, [selectedChannel]);
+
   return (
     <div className="flex h-screen w-full bg-gray-100 overflow-hidden font-sans text-sm">
       {/* 1. Left Main Navigation Sidebar */}
@@ -130,89 +258,62 @@ export default function App() {
 
         {/* Chat List */}
         <div className="flex-1 overflow-y-auto">
-          {/* Truyền File */}
-          <div className="flex items-center px-4 py-3 hover:bg-gray-50 cursor-pointer">
-            <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mr-3 flex-shrink-0">
-              <Cloud className="w-6 h-6 text-blue-500" fill="currentColor" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-baseline mb-0.5">
-                <span className="font-medium text-gray-900 truncate">Truyền File</span>
-              </div>
-              <p className="text-xs text-gray-500 truncate">Trao đổi file giữa các thiết bị của bạn</p>
-            </div>
-          </div>
-
-          {/* Mẹ */}
-          <div className="flex items-center px-4 py-3 hover:bg-gray-50 cursor-pointer">
-            <div className="w-12 h-12 rounded-full bg-pink-200 flex items-center justify-center mr-3 flex-shrink-0 text-pink-700 font-semibold">
-              M
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-baseline mb-0.5">
-                <span className="font-medium text-gray-900 truncate">Mẹ</span>
-                <span className="text-xs text-gray-400">17 giờ</span>
-              </div>
-              <p className="text-xs text-gray-500 truncate">Bạn: [Sticker]</p>
-            </div>
-          </div>
-
-          {/* KN (Selected) */}
+          {/* Dòng đầu tiên cố định cho "Cộng đồng" */}
           <div className="flex items-center px-4 py-3 bg-gray-100 cursor-pointer">
-            <div className="w-12 h-12 rounded-full bg-purple-200 flex items-center justify-center mr-3 flex-shrink-0 text-purple-700 font-semibold relative">
-              K
-              <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+            <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mr-3 flex-shrink-0">
+              <LayoutGrid className="w-6 h-6 text-blue-500" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex justify-between items-baseline mb-0.5">
-                <span className="font-medium text-gray-900 truncate">KN</span>
-                <span className="text-xs text-gray-400">20 giờ</span>
+                <span className="font-medium text-gray-900 truncate">Cộng đồng của bạn</span>
               </div>
-              <p className="text-xs text-gray-500 truncate">[Hình ảnh]</p>
+              <p className="text-xs text-gray-500 truncate">
+                Danh sách nhóm được tải từ backend
+              </p>
             </div>
           </div>
 
-          {/* Zalo Hỗ Trợ PC */}
-          <div className="flex items-center px-4 py-3 hover:bg-gray-50 cursor-pointer">
-            <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center mr-3 flex-shrink-0 text-white font-bold text-xl">
-              Z
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-baseline mb-0.5">
-                <span className="font-medium text-gray-900 truncate">Zalo Hỗ Trợ PC</span>
-                <span className="text-xs text-gray-400">Hôm qua</span>
-              </div>
-              <p className="text-xs text-gray-500 truncate">Cập nhật phiên bản v.19.12.01: Zalo PC...</p>
-            </div>
-          </div>
+          {loadingGroups && (
+            <div className="px-4 py-3 text-xs text-gray-500">Đang tải danh sách cộng đồng...</div>
+          )}
 
-          {/* Tqh */}
-          <div className="flex items-center px-4 py-3 hover:bg-gray-50 cursor-pointer">
-            <div className="w-12 h-12 rounded-full bg-green-200 flex items-center justify-center mr-3 flex-shrink-0 text-green-700 font-semibold">
-              T
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-baseline mb-0.5">
-                <span className="font-medium text-gray-900 truncate">Tqh</span>
-                <span className="text-xs text-gray-400">2 ngày</span>
-              </div>
-              <p className="text-xs text-gray-500 truncate">Ok em</p>
-            </div>
-          </div>
+          {groupsError && !loadingGroups && (
+            <div className="px-4 py-3 text-xs text-red-500">{groupsError}</div>
+          )}
 
-          {/* 1 */}
-          <div className="flex items-center px-4 py-3 hover:bg-gray-50 cursor-pointer">
-            <div className="w-12 h-12 rounded-full bg-orange-200 flex items-center justify-center mr-3 flex-shrink-0 text-orange-700 font-semibold">
-              1
+          {!loadingGroups && !groupsError && groups.length === 0 && (
+            <div className="px-4 py-3 text-xs text-gray-500">
+              Chưa có cộng đồng nào. Hãy tạo group mới trong backend.
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-baseline mb-0.5">
-                <span className="font-medium text-gray-900 truncate">1</span>
-                <span className="text-xs text-gray-400">3 ngày</span>
+          )}
+
+          {!loadingGroups && !groupsError && groups.map((group) => {
+            const initial = group.name?.trim()?.charAt(0)?.toUpperCase() || '?';
+            const topic = group.topic || 'community';
+
+            return (
+              <div
+                key={group.groupId}
+                className={`flex items-center px-4 py-3 hover:bg-gray-50 cursor-pointer ${
+                  selectedGroup?.groupId === group.groupId ? 'bg-blue-50' : ''
+                }`}
+                onClick={() => setSelectedGroup(group)}
+              >
+                <div className="w-12 h-12 rounded-full bg-purple-200 flex items-center justify-center mr-3 flex-shrink-0 text-purple-700 font-semibold">
+                  {initial}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-baseline mb-0.5">
+                    <span className="font-medium text-gray-900 truncate">{group.name}</span>
+                    <span className="text-xs text-gray-400 uppercase">{topic}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 truncate">
+                    {group.description || 'Nhóm cộng đồng OTT' }
+                  </p>
+                </div>
               </div>
-              <p className="text-xs text-gray-500 truncate">Bạn: [Cuộc gọi đi]</p>
-            </div>
-          </div>
+            );
+          })}
         </div>
 
         {/* Call Preview Pop-up */}
@@ -253,12 +354,18 @@ export default function App() {
         <div className="h-[68px] bg-white border-b border-gray-200 flex items-center justify-between px-4 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 font-semibold text-xl relative">
-              K
+              {(selectedGroup?.name || 'K').trim().charAt(0).toUpperCase()}
               <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
             </div>
             <div>
-              <h2 className="font-semibold text-gray-900 text-base leading-tight">KN</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Truy cập 18 phút trước</p>
+              <h2 className="font-semibold text-gray-900 text-base leading-tight">
+                {selectedGroup?.name || 'Chọn một cộng đồng'}
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {selectedGroup
+                  ? 'Nhóm cộng đồng trong OTT Community'
+                  : 'Truy cập 18 phút trước'}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-1 pr-32"> {/* Padding right to avoid window controls */}
@@ -282,105 +389,85 @@ export default function App() {
         </div>
 
         {/* Chat History Area */}
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-5">
-          {/* Date Divider */}
-          <div className="flex justify-center">
-            <span className="bg-black/20 text-white text-[11px] px-3 py-1 rounded-full font-medium">
-              12:22 20/12/2019
-            </span>
-          </div>
-
-          {/* Friendship Card */}
-          <div className="mx-auto w-[420px] bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col items-center relative overflow-hidden">
-            {/* Confetti Graphics */}
-            <div className="absolute top-3 left-3 text-yellow-400 opacity-80"><Sparkles className="w-6 h-6" /></div>
-            <div className="absolute top-3 right-3 text-pink-400 opacity-80"><Sparkles className="w-6 h-6" /></div>
-            <div className="absolute bottom-3 left-3 text-blue-400 opacity-80"><Sparkles className="w-4 h-4" /></div>
-            <div className="absolute bottom-3 right-3 text-green-400 opacity-80"><Sparkles className="w-5 h-5" /></div>
-            
-            {/* Emotion Icons */}
-            <div className="flex gap-3 mb-5 text-gray-400">
-              <ThumbsUp className="w-5 h-5 text-blue-500 fill-current" />
-              <Heart className="w-5 h-5 text-red-500 fill-current" />
-              <Smile className="w-5 h-5 text-yellow-500 fill-current" />
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+          {!selectedGroup && (
+            <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
+              Chọn một cộng đồng để xem tin nhắn
             </div>
+          )}
 
-            {/* Central Avatar */}
-            <div className="w-20 h-20 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 font-bold text-3xl mb-4 relative shadow-sm">
-              K
-              <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-blue-100 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-blue-600 font-bold overflow-hidden">
-                <img src="https://picsum.photos/seed/avatar/30/30" alt="KN" className="w-full h-full object-cover" />
+          {selectedGroup && (
+            <>
+              {/* Thông tin kênh hiện tại */}
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-gray-500">
+                  Kênh:
+                  <span className="font-medium text-gray-800 ml-1">
+                    {selectedChannel ? selectedChannel.name : 'Chưa có kênh'}
+                  </span>
+                </div>
+                {loadingChannels && (
+                  <span className="text-xs text-gray-400">Đang tải kênh...</span>
+                )}
               </div>
-            </div>
 
-            <h3 className="font-bold text-gray-800 text-base mb-1.5">Bạn và KN đã trở thành bạn</h3>
-            <p className="text-sm text-gray-500 mb-6">Chọn một sticker dưới đây để bắt đầu trò chuyện</p>
+              {channelsError && (
+                <div className="text-xs text-red-500 mb-2">{channelsError}</div>
+              )}
 
-            {/* Sticker Selection */}
-            <div className="flex items-center justify-between w-full px-2">
-              <button className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors">
-                <ChevronLeft className="w-6 h-6" />
-              </button>
-              <div className="flex gap-6">
-                {/* Sticker 1 */}
-                <div className="flex flex-col items-center cursor-pointer hover:-translate-y-1 transition-transform group">
-                  <div className="w-16 h-16 bg-blue-50 rounded-xl flex items-center justify-center mb-2 group-hover:bg-blue-100 transition-colors">
-                    <span className="text-3xl">🐰</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-blue-500 uppercase tracking-wide">Hii!</span>
+              {/* Danh sách kênh (nếu muốn chọn tay, hiện tại chỉ hiển thị) */}
+              {channels.length > 1 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {channels.map((ch) => (
+                    <button
+                      key={ch.id}
+                      onClick={() => setSelectedChannel(ch)}
+                      className={`px-3 py-1 rounded-full text-xs border ${
+                        selectedChannel?.id === ch.id
+                          ? 'bg-blue-100 text-blue-700 border-blue-300'
+                          : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      {ch.name}
+                    </button>
+                  ))}
                 </div>
-                {/* Sticker 2 */}
-                <div className="flex flex-col items-center cursor-pointer hover:-translate-y-1 transition-transform group">
-                  <div className="w-16 h-16 bg-orange-50 rounded-xl flex items-center justify-center mb-2 group-hover:bg-orange-100 transition-colors">
-                    <span className="text-3xl">🐶</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-orange-500 uppercase tracking-wide">HELP!</span>
+              )}
+
+              {/* Nội dung tin nhắn */}
+              {loadingMessages && (
+                <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
+                  Đang tải tin nhắn...
                 </div>
-                {/* Sticker 3 */}
-                <div className="flex flex-col items-center cursor-pointer hover:-translate-y-1 transition-transform group">
-                  <div className="w-16 h-16 bg-green-50 rounded-xl flex items-center justify-center mb-2 group-hover:bg-green-100 transition-colors">
-                    <span className="text-3xl">🐕</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-green-500 uppercase tracking-wide">HELLO!</span>
+              )}
+
+              {messagesError && !loadingMessages && (
+                <div className="text-sm text-red-500">{messagesError}</div>
+              )}
+
+              {!loadingMessages && !messagesError && messages.length === 0 && (
+                <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
+                  Chưa có tin nhắn nào trong kênh này.
                 </div>
-              </div>
-              <button className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors">
-                <ChevronRight className="w-6 h-6" />
-              </button>
-            </div>
-          </div>
+              )}
 
-          {/* Date Divider */}
-          <div className="flex justify-center mt-2">
-            <span className="bg-black/20 text-white text-[11px] px-3 py-1 rounded-full font-medium">
-              12:23
-            </span>
-          </div>
-
-          {/* User Message */}
-          <div className="flex justify-end items-end gap-2">
-            <div className="bg-[#e5efff] text-gray-800 px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[70%] shadow-sm border border-blue-100 text-[15px]">
-              Hello cô ba
-            </div>
-            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600 overflow-hidden flex-shrink-0">
-              <img src="https://picsum.photos/seed/user/32/32" alt="User" className="w-full h-full object-cover" />
-            </div>
-          </div>
-
-          {/* Date Divider */}
-          <div className="flex justify-center mt-2">
-            <span className="bg-black/20 text-white text-[11px] px-3 py-1 rounded-full font-medium">
-              13:24 20/12/2019
-            </span>
-          </div>
-
-          {/* Notification */}
-          <div className="flex justify-center">
-            <span className="text-gray-500 text-xs flex items-center gap-1.5 bg-white/50 px-3 py-1 rounded-full">
-              <span className="text-[6px] text-gray-400">●</span> Kim Ngân
-            </span>
-          </div>
-
+              {!loadingMessages && !messagesError && messages.length > 0 && (
+                <div className="flex flex-col gap-2 mt-1">
+                  {messages.map((msg) => (
+                    <div key={msg.id} className="flex justify-start items-end gap-2">
+                      <div className="bg-white text-gray-800 px-3 py-2 rounded-2xl rounded-bl-sm max-w-[70%] shadow-sm border border-gray-200 text-[14px]">
+                        <div className="text-xs text-gray-500 mb-0.5">Người gửi #{msg.senderId}</div>
+                        <div>{msg.content || '[Không có nội dung]'}</div>
+                        <div className="mt-1 text-[10px] text-gray-400">
+                          {new Date(msg.createdAt).toLocaleString('vi-VN')}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Input Area */}
@@ -404,7 +491,9 @@ export default function App() {
           {/* Text Input */}
           <div className="flex items-end px-4 py-3 gap-2">
             <textarea 
-              placeholder="Nhập @, tin nhắn tới KN" 
+              placeholder={selectedGroup
+                ? `Nhập tin nhắn tới ${selectedGroup.name}`
+                : 'Nhập tin nhắn vào cuộc trò chuyện'} 
               className="flex-1 resize-none h-11 max-h-32 focus:outline-none text-[15px] text-gray-800 pt-2.5 placeholder-gray-400"
               rows={1}
             ></textarea>

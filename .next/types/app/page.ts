@@ -1,4 +1,4 @@
-// File: D:\Code\CongNgheMoi\DoAn\CNM_ott_community_frontend\app\page.tsx
+// File: D:\NAM_TU\HK2\CNM\BT_LON\CNM_ott_community_frontend\app\page.tsx
 import * as entry from '../../../app/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

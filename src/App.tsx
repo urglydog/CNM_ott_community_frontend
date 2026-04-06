@@ -1,197 +1,180 @@
 "use client";
 
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import { useCallback, useEffect, useState } from "react";
 
-import { useEffect, useState, FormEvent } from 'react';
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { SocketProvider, useSocket } from "./contexts/SocketContext";
+import { ToastProvider, useToast } from "./contexts/ToastContext";
+import { useFriendSocket } from "./hooks/useFriendSocket";
+import { useJoinFriendDmRooms } from "./hooks/useJoinFriendDmRooms";
+import { friendIdFromConversationId, type DmActivityPayload } from "./hooks/useDirectMessage";
+import AuthScreen from "./components/auth/AuthScreen";
+import Sidebar from "./components/layout/Sidebar";
+import ChatListPanel from "./components/chat/ChatListPanel";
+import type { ConversationPreview } from "./components/chat/ChatListPanel";
+import ChatWindow from "./components/chat/ChatWindow";
+import ProfileOverlay from "./components/profile/ProfileOverlay";
+import ToastContainer from "./components/common/ToastContainer";
+import { fetchPendingFriendRequests, getFriendsList } from "./api/client";
+import type { FriendItem } from "./types";
 
-import { Channel, Group, MessageItem, AuthUser } from './types';
-import AuthScreen, { AuthFormState, AuthMode } from './components/auth/AuthScreen';
-import Sidebar from './components/layout/Sidebar';
-import ChatListPanel from './components/chat/ChatListPanel';
-import ChatWindow from './components/chat/ChatWindow';
-import ProfileOverlay from './components/profile/ProfileOverlay';
-import {
-  authRequest,
-  fetchGroups as apiFetchGroups,
-  fetchChannelsByGroup as apiFetchChannelsByGroup,
-  fetchMessagesByChannel as apiFetchMessagesByChannel
-} from './api/client';
+function AppInner() {
+  const { user, isAuthenticated, logout } = useAuth();
+  const { addToast } = useToast();
+  const { socket, onReceiveMessage } = useSocket();
 
-export default function App() {
-  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
-  const [authLoading, setAuthLoading] = useState<boolean>(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [authForm, setAuthForm] = useState<AuthFormState>({
-    username: '',
-    password: '',
-    email: '',
-    displayName: ''
-  });
+  const [pendingFriendCount, setPendingFriendCount] = useState(0);
 
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [loadingGroups, setLoadingGroups] = useState<boolean>(false);
-  const [groupsError, setGroupsError] = useState<string | null>(null);
-  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
-  const [messages, setMessages] = useState<MessageItem[]>([]);
-  const [loadingChannels, setLoadingChannels] = useState<boolean>(false);
-  const [channelsError, setChannelsError] = useState<string | null>(null);
-  const [loadingMessages, setLoadingMessages] = useState<boolean>(false);
-  const [messagesError, setMessagesError] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<'chat' | 'profile'>('chat');
+  const [friends, setFriends] = useState<FriendItem[]>([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [friendsError, setFriendsError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function loadGroups() {
-      try {
-        setLoadingGroups(true);
-        setGroupsError(null);
+  const [selectedFriend, setSelectedFriend] = useState<FriendItem | null>(null);
+  const [conversationPreview, setConversationPreview] = useState<Record<string, ConversationPreview>>({});
+  /** Số tin nhắn chưa đọc theo friend_id */
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
 
-        const list: Group[] = await apiFetchGroups();
-        setGroups(list);
-        if (list.length > 0) {
-          setSelectedGroup(list[0]);
-        }
-      } catch (error: any) {
-        setGroupsError(error?.message || 'Không tải được danh sách cộng đồng');
-      } finally {
-        setLoadingGroups(false);
-      }
+  const [activeView, setActiveView] = useState<"chat" | "profile">("chat");
+
+  const loadFriends = useCallback(async () => {
+    try {
+      setLoadingFriends(true);
+      setFriendsError(null);
+      const list = await getFriendsList();
+      setFriends(list);
+    } catch (err: unknown) {
+      setFriendsError(err instanceof Error ? err.message : "Không tải được danh sách bạn bè");
+      setFriends([]);
+    } finally {
+      setLoadingFriends(false);
     }
-
-    loadGroups();
   }, []);
 
-  // Khi chọn group, tải danh sách channel của group đó
   useEffect(() => {
-    async function loadChannels() {
-      if (!selectedGroup) {
-        setChannels([]);
-        setSelectedChannel(null);
-        return;
-      }
-      try {
-        setLoadingChannels(true);
-        setChannelsError(null);
-        setChannels([]);
-        setSelectedChannel(null);
+    if (!isAuthenticated) return;
 
-        const list: Channel[] = await apiFetchChannelsByGroup(selectedGroup.groupId);
-        setChannels(list);
-        if (list.length > 0) {
-          setSelectedChannel(list[0]);
-        }
-      } catch (error: any) {
-        setChannelsError(error?.message || 'Không tải được danh sách kênh');
-      } finally {
-        setLoadingChannels(false);
+    async function loadPendingCount() {
+      try {
+        const list = await fetchPendingFriendRequests();
+        setPendingFriendCount(list.length);
+      } catch {
+        // badge phụ — bỏ qua lỗi
       }
     }
 
-    loadChannels();
-  }, [selectedGroup]);
+    loadPendingCount();
+    loadFriends();
+  }, [isAuthenticated, loadFriends]);
 
-  // Khi chọn channel, tải messages của channel đó
+  useJoinFriendDmRooms(isAuthenticated ? friends : null, user?.id);
+
   useEffect(() => {
-    async function loadMessages() {
-      if (!selectedChannel) {
-        setMessages([]);
-        return;
-      }
-      try {
-        setLoadingMessages(true);
-        setMessagesError(null);
-        setMessages([]);
+    if (!socket || !isAuthenticated) return;
 
-        const list: MessageItem[] = await apiFetchMessagesByChannel(selectedChannel.id);
-        setMessages(list);
-      } catch (error: any) {
-        setMessagesError(error?.message || 'Không tải được tin nhắn');
-      } finally {
-        setLoadingMessages(false);
+    const off = onReceiveMessage((msg) => {
+      const cid = msg.conversationId;
+      const friendId = friendIdFromConversationId(cid);
+      if (!friendId) return;
+
+      // Cập nhật preview
+      setConversationPreview((prev) => ({
+        ...prev,
+        [friendId]: { content: msg.content, createdAt: msg.createdAt },
+      }));
+
+      // Tăng badge chỉ khi KHÔNG đang mở cuộc trò chuyện này
+      if (selectedFriend?.friend_id !== friendId) {
+        setUnreadCounts((prev) => ({
+          ...prev,
+          [friendId]: (prev[friendId] || 0) + 1,
+        }));
       }
+    });
+
+    return off;
+  }, [socket, isAuthenticated, onReceiveMessage, selectedFriend]);
+
+  const handleDmActivity = useCallback((payload: DmActivityPayload) => {
+    const friendId = friendIdFromConversationId(payload.conversationId);
+    if (!friendId) return;
+    setConversationPreview((prev) => ({
+      ...prev,
+      [friendId]: { content: payload.content, createdAt: payload.createdAt },
+    }));
+  }, []);
+
+  useFriendSocket(
+    (sender) => {
+      if (!sender) return;
+      setPendingFriendCount((prev) => prev + 1);
+      addToast(`${sender.display_name} vừa gửi cho bạn một lời mời kết bạn`, "friend_request");
+    },
+    (receiver) => {
+      if (!receiver) return;
+      addToast(`${receiver.display_name} đã chấp nhận lời mời kết bạn của bạn`, "friend_accepted");
+      loadFriends();
     }
-
-    loadMessages();
-  }, [selectedChannel]);
-
-  async function handleAuthSubmit(e: FormEvent) {
-    e.preventDefault();
-    try {
-      setAuthLoading(true);
-      setAuthError(null);
-
-      const body: any = {
-        username: authForm.username,
-        password: authForm.password
-      };
-      if (authMode === 'register') {
-        body.email = authForm.email || `${authForm.username}@example.com`;
-        body.displayName = authForm.displayName || authForm.username;
-      }
-
-      const { user, token } = await authRequest(authMode, body);
-      setAuthUser({
-        id: user.id,
-        username: user.username,
-        displayName: user.display_name || user.displayName || user.username,
-        email: user.email,
-        token
-      });
-    } catch (error: any) {
-      setAuthError(error?.message || 'Đăng nhập/Đăng ký thất bại');
-    } finally {
-      setAuthLoading(false);
-    }
-  }
+  );
 
   function handleLogout() {
-    setAuthUser(null);
-    setSelectedGroup(null);
-    setChannels([]);
-    setSelectedChannel(null);
-    setMessages([]);
-    setActiveView('chat');
+    logout();
+    setActiveView("chat");
+    setPendingFriendCount(0);
+    setSelectedFriend(null);
+    setFriends([]);
+    setConversationPreview({});
+    setUnreadCounts({});
   }
 
-  if (!authUser) {
-    return (
-      <AuthScreen
-        authMode={authMode}
-        authForm={authForm}
-        authLoading={authLoading}
-        authError={authError}
-        onAuthModeChange={setAuthMode}
-        onAuthFormChange={setAuthForm}
-        onSubmit={handleAuthSubmit}
-      />
-    );
+  if (!isAuthenticated) {
+    return <AuthScreen />;
   }
 
   return (
     <div className="flex h-screen w-full bg-gray-100 overflow-hidden font-sans text-sm relative">
-      <Sidebar />
+      <Sidebar
+        pendingFriendCount={pendingFriendCount}
+        onPendingCountChange={(delta) => setPendingFriendCount((prev) => Math.max(0, prev + delta))}
+        onOpenDmChat={(friend) => {
+          setSelectedFriend(friend);
+          setActiveView("chat");
+        }}
+      />
       <ChatListPanel
-        authUser={authUser}
-        groups={groups}
-        selectedGroup={selectedGroup}
-        loadingGroups={loadingGroups}
-        groupsError={groupsError}
-        onSelectGroup={setSelectedGroup}
-        activeView={activeView}
+        authUser={user!}
+        friends={friends}
+        loadingFriends={loadingFriends}
+        friendsError={friendsError}
+        selectedFriend={selectedFriend}
+        onSelectFriend={(friend) => {
+          setSelectedFriend(friend);
+          // Xóa badge khi mở cuộc trò chuyện
+          setUnreadCounts((prev) => ({ ...prev, [friend.friend_id]: 0 }));
+        }}
+        conversationPreview={conversationPreview}
+        unreadCounts={unreadCounts}
         onActiveViewChange={setActiveView}
       />
-      <ChatWindow selectedGroup={selectedGroup} messages={messages} />
+      <ChatWindow selectedFriend={selectedFriend} authUser={user!} onDmActivity={handleDmActivity} />
       <ProfileOverlay
         activeView={activeView}
-        authUser={authUser}
-        onClose={() => setActiveView('chat')}
+        authUser={user!}
+        onClose={() => setActiveView("chat")}
         onLogout={handleLogout}
       />
+      <ToastContainer />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <SocketProvider>
+        <ToastProvider>
+          <AppInner />
+        </ToastProvider>
+      </SocketProvider>
+    </AuthProvider>
   );
 }

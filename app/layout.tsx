@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import '../src/index.css';
 
 export const metadata: Metadata = {
-  title: 'My Google AI Studio App',
+  title: 'OTT Community',
 };
 
 export default function RootLayout({

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { FormEvent } from "react";
-import { AuthUser } from "../../types";
+import { useAuth } from "../../contexts/AuthContext";
 
 export type AuthMode = "login" | "register";
 
@@ -12,27 +12,20 @@ export type AuthFormState = {
   displayName: string;
 };
 
-interface AuthScreenProps {
-  authMode: AuthMode;
-  authForm: AuthFormState;
-  authLoading: boolean;
-  authError: string | null;
-  onAuthModeChange: (mode: AuthMode) => void;
-  onAuthFormChange: (form: AuthFormState) => void;
-  onSubmit: (e: FormEvent) => void;
-}
+export default function AuthScreen() {
+  const { login, register, isLoading, error, form, setForm } = useAuth();
+  const [authMode, setAuthMode] = React.useState<AuthMode>("login");
 
-export default function AuthScreen({
-  authMode,
-  authForm,
-  authLoading,
-  authError,
-  onAuthModeChange,
-  onAuthFormChange,
-  onSubmit
-}: AuthScreenProps) {
+  function handleSubmit(e: FormEvent) {
+    if (authMode === "login") {
+      login(e as unknown as React.FormEvent);
+    } else {
+      register(e as unknown as React.FormEvent);
+    }
+  }
+
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-gray-100 font-sans">
+    <div suppressHydrationWarning className="flex h-screen w-full items-center justify-center bg-gray-100 font-sans">
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-6 border border-gray-200">
         <h1 className="text-xl font-semibold text-gray-900 mb-1 text-center">
           OTT Community - Đăng nhập
@@ -48,7 +41,7 @@ export default function AuthScreen({
                 ? "bg-blue-600 text-white border-blue-600"
                 : "bg-white text-gray-700 border-gray-300"
             }`}
-            onClick={() => onAuthModeChange("login")}
+            onClick={() => setAuthMode("login")}
           >
             Đăng nhập
           </button>
@@ -59,12 +52,12 @@ export default function AuthScreen({
                 ? "bg-blue-50 text-blue-700 border-blue-300"
                 : "bg-white text-gray-700 border-gray-300"
             }`}
-            onClick={() => onAuthModeChange("register")}
+            onClick={() => setAuthMode("register")}
           >
             Đăng ký
           </button>
         </div>
-        <form onSubmit={onSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
               Tên đăng nhập
@@ -72,8 +65,8 @@ export default function AuthScreen({
             <input
               type="text"
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-              value={authForm.username}
-              onChange={(e) => onAuthFormChange({ ...authForm, username: e.target.value })}
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
               required
             />
           </div>
@@ -84,8 +77,8 @@ export default function AuthScreen({
             <input
               type="password"
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-              value={authForm.password}
-              onChange={(e) => onAuthFormChange({ ...authForm, password: e.target.value })}
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
               required
             />
           </div>
@@ -98,8 +91,8 @@ export default function AuthScreen({
                 <input
                   type="email"
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  value={authForm.email}
-                  onChange={(e) => onAuthFormChange({ ...authForm, email: e.target.value })}
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
                 />
               </div>
               <div>
@@ -109,21 +102,21 @@ export default function AuthScreen({
                 <input
                   type="text"
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  value={authForm.displayName}
+                  value={form.displayName}
                   onChange={(e) =>
-                    onAuthFormChange({ ...authForm, displayName: e.target.value })
+                    setForm({ ...form, displayName: e.target.value })
                   }
                 />
               </div>
             </>
           )}
-          {authError && <p className="text-xs text-red-500">{authError}</p>}
+          {error && <p className="text-xs text-red-500">{error}</p>}
           <button
             type="submit"
             className="w-full mt-1 bg-blue-600 text-white rounded-md py-2 text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-60"
-            disabled={authLoading}
+            disabled={isLoading}
           >
-            {authLoading
+            {isLoading
               ? "Đang xử lý..."
               : authMode === "login"
               ? "Đăng nhập"

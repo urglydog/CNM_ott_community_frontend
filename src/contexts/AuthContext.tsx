@@ -21,6 +21,7 @@ interface AuthContextValue {
   login: (e: FormEvent) => Promise<void>;
   register: (e: FormEvent) => Promise<void>;
   logout: () => void;
+  updateUser: (updates: Partial<AuthUser>) => void;
   setError: (err: string | null) => void;
   form: {
     username: string;
@@ -79,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true);
       setError(null);
       try {
-        const body: Record<string, string> = {
+        const body: { username: string; password: string; email?: string; displayName?: string } = {
           username: form.username,
           password: form.password,
         };
@@ -124,6 +125,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
   }, []);
 
+  const updateUser = useCallback((updates: Partial<AuthUser>) => {
+    setUser((prev: AuthUser | null) => {
+      if (!prev) return null;
+      const updated = { ...prev, ...updates };
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -134,6 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         register,
         logout,
+        updateUser,
         setError,
         form,
         setForm,

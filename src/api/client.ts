@@ -37,7 +37,8 @@ export async function authRequest(
     username: string;
     password: string;
     email?: string;
-    displayName?: string;
+    fullName?: string;
+    phone?: string;
   },
 ): Promise<AuthResponse> {
   const endpoint =
@@ -180,4 +181,114 @@ export async function rejectFriendRequest(
     body: JSON.stringify(payload),
   });
   await handleJson<{ message: string }>(res);
+}
+
+// ── Profile Management API ─────────────────────────────────────────────────────
+
+export interface UpdateProfilePayload {
+  displayName?: string;
+  email?: string;
+  phone?: string;
+}
+
+export interface ChangePasswordPayload {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface VerifyEmailPayload {
+  email: string;
+  otp: string;
+}
+
+export interface VerifyPhonePayload {
+  phone: string;
+  otp: string;
+}
+
+export interface SendOTPResponse {
+  message: string;
+  expiresIn: number;
+}
+
+/**
+ * Cập nhật thông tin profile
+ */
+export async function updateProfile(
+  payload: UpdateProfilePayload,
+): Promise<{ user: any; message: string }> {
+  const res = await authFetch(`${API_BASE}/api/users/profile`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  return handleJson<{ user: any; message: string }>(res);
+}
+
+/**
+ * Gửi OTP xác thực email
+ */
+export async function sendEmailOTP(email: string): Promise<SendOTPResponse> {
+  const res = await authFetch(`${API_BASE}/api/users/verify/email/send`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+  return handleJson<SendOTPResponse>(res);
+}
+
+/**
+ * Xác thực email bằng OTP
+ */
+export async function verifyEmailOTP(
+  payload: VerifyEmailPayload,
+): Promise<{ message: string }> {
+  const res = await authFetch(`${API_BASE}/api/users/verify/email/confirm`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return handleJson<{ message: string }>(res);
+}
+
+/**
+ * Gửi OTP xác thực số điện thoại
+ */
+export async function sendPhoneOTP(phone: string): Promise<SendOTPResponse> {
+  const res = await authFetch(`${API_BASE}/api/users/verify/phone/send`, {
+    method: "POST",
+    body: JSON.stringify({ phone }),
+  });
+  return handleJson<SendOTPResponse>(res);
+}
+
+/**
+ * Xác thực số điện thoại bằng OTP
+ */
+export async function verifyPhoneOTP(
+  payload: VerifyPhonePayload,
+): Promise<{ message: string }> {
+  const res = await authFetch(`${API_BASE}/api/users/verify/phone/confirm`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return handleJson<{ message: string }>(res);
+}
+
+/**
+ * Đổi mật khẩu
+ */
+export async function changePassword(
+  payload: ChangePasswordPayload,
+): Promise<{ message: string }> {
+  const res = await authFetch(`${API_BASE}/api/users/change-password`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return handleJson<{ message: string }>(res);
+}
+
+/**
+ * Lấy thông tin profile hiện tại
+ */
+export async function getCurrentProfile(): Promise<any> {
+  const res = await authFetch(`${API_BASE}/api/users/me`);
+  return handleJson<any>(res);
 }

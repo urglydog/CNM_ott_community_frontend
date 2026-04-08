@@ -19,7 +19,7 @@ interface ChatListPanelProps {
   onSelectFriend: (friend: FriendItem) => void;
   conversationPreview: Record<string, ConversationPreview>;
   unreadCounts: Record<string, number>;
-  onActiveViewChange: (view: "chat" | "profile") => void;
+  onActiveViewChange: (open: boolean) => void;
 }
 
 function formatListTime(isoString: string) {
@@ -83,7 +83,7 @@ export default function ChatListPanel({
         <div className="flex items-center justify-between gap-2 mb-4">
           <button
             type="button"
-            onClick={() => onActiveViewChange("profile")}
+            onClick={() => onActiveViewChange(true)}
             className="flex items-center gap-2 group"
           >
             <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-xs">
@@ -161,7 +161,7 @@ export default function ChatListPanel({
                 type="button"
                 onClick={() => {
                   onSelectFriend(friend);
-                  onActiveViewChange("chat");
+                  onActiveViewChange(false);
                 }}
                 className={`w-full flex items-center px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-50 transition-colors ${
                   isSel ? "bg-blue-50 hover:bg-blue-50" : ""

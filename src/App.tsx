@@ -7,6 +7,7 @@
 
 import { useEffect, useState, FormEvent } from 'react';
 
+<<<<<<< Updated upstream
 import {
   AtSign,
   CheckSquare,
@@ -42,6 +43,13 @@ import {
   Video,
   X
 } from 'lucide-react';
+=======
+<<<<<<< Updated upstream
+function AppInner() {
+  const { user, isAuthenticated, logout } = useAuth();
+  const { addToast } = useToast();
+  const { socket, onReceiveMessage } = useSocket();
+>>>>>>> Stashed changes
 
 type Group = {
   groupId: string | number;
@@ -50,12 +58,125 @@ type Group = {
   topic?: string;
 };
 
+<<<<<<< Updated upstream
 type Channel = {
   id: number;
   groupId: number;
   name: string;
   type: 'text_chat' | 'voice_room';
 };
+=======
+  const [friends, setFriends] = useState<FriendItem[]>([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [friendsError, setFriendsError] = useState<string | null>(null);
+=======
+import { Channel, Group, MessageItem, AuthUser } from './types';
+import AuthScreen, { AuthFormState, AuthMode } from './components/auth/AuthScreen';
+import Sidebar from './components/layout/Sidebar';
+import ChatListPanel from './components/chat/ChatListPanel';
+import ChatWindow from './components/chat/ChatWindow';
+import ProfilePage from './components/profile/ProfilePage';
+import LogoutConfirmDialog from './components/profile/LogoutConfirmDialog';
+import {
+  authRequest,
+  refreshAccessToken,
+  fetchGroups as apiFetchGroups,
+  fetchChannelsByGroup as apiFetchChannelsByGroup,
+  fetchMessagesByChannel as apiFetchMessagesByChannel
+} from './api/client';
+
+const LS_AUTH = 'ott_auth_session';
+
+function isTokenValid(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    if (!payload.exp) return true;
+    return payload.exp * 1000 > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function readStoredAuth(): AuthUser | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(LS_AUTH);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AuthUser;
+    if (!parsed?.token || !parsed?.refreshToken) return null;
+    if (!isTokenValid(parsed.token) && !isTokenValid(parsed.refreshToken)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function persistAuth(user: AuthUser | null) {
+  if (typeof window === 'undefined') return;
+  if (!user) {
+    localStorage.removeItem(LS_AUTH);
+    return;
+  }
+  localStorage.setItem(LS_AUTH, JSON.stringify(user));
+}
+
+export default function App() {
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [authLoading, setAuthLoading] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authForm, setAuthForm] = useState<AuthFormState>({
+    username: '',
+    password: '',
+    email: '',
+    displayName: ''
+  });
+
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState<boolean>(false);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
+  const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [loadingChannels, setLoadingChannels] = useState<boolean>(false);
+  const [channelsError, setChannelsError] = useState<string | null>(null);
+  const [loadingMessages, setLoadingMessages] = useState<boolean>(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<'chat' | 'profile'>('chat');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const stored = readStoredAuth();
+      if (!stored?.refreshToken) return;
+      try {
+        const r = await refreshAccessToken(stored.refreshToken);
+        if (cancelled) return;
+        const next: AuthUser = {
+          id: stored.id,
+          username: stored.username,
+          displayName: stored.displayName,
+          email: stored.email,
+          token: r.accessToken,
+          refreshToken: r.refreshToken
+        };
+        setAuthUser(next);
+        persistAuth(next);
+      } catch {
+        if (!cancelled) {
+          persistAuth(null);
+          setAuthUser(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
 
 type MessageItem = {
   id: number;
@@ -127,6 +248,7 @@ export default function App() {
     fetchGroups();
   }, []);
 
+<<<<<<< Updated upstream
   // Khi chọn group, tải danh sách channel của group đó
   useEffect(() => {
     async function fetchChannels() {
@@ -188,6 +310,33 @@ export default function App() {
     }
 
     fetchMessages();
+=======
+  useFriendSocket(
+    (sender) => {
+      if (!sender) return;
+      setPendingFriendCount((prev) => prev + 1);
+      addToast(`${sender.display_name} vừa gửi cho bạn một lời mời kết bạn`, "friend_request");
+    },
+    (receiver) => {
+      if (!receiver) return;
+      addToast(`${receiver.display_name} đã chấp nhận lời mời kết bạn của bạn`, "friend_accepted");
+      loadFriends();
+    }
+<<<<<<< Updated upstream
+  );
+
+  function handleLogout() {
+    logout();
+    setActiveView("chat");
+    setPendingFriendCount(0);
+    setSelectedFriend(null);
+    setFriends([]);
+    setConversationPreview({});
+    setUnreadCounts({});
+=======
+
+    loadMessages();
+>>>>>>> Stashed changes
   }, [selectedChannel]);
 
   async function handleAuthSubmit(e: FormEvent) {
@@ -196,7 +345,10 @@ export default function App() {
       setAuthLoading(true);
       setAuthError(null);
 
+<<<<<<< Updated upstream
       const endpoint = authMode === 'login' ? '/api/users/login' : '/api/users/register';
+=======
+>>>>>>> Stashed changes
       const body: any = {
         username: authForm.username,
         password: authForm.password
@@ -206,6 +358,7 @@ export default function App() {
         body.displayName = authForm.displayName || authForm.username;
       }
 
+<<<<<<< Updated upstream
       const res = await fetch(`${apiBase}${endpoint}`, {
         method: 'POST',
         headers: {
@@ -221,17 +374,47 @@ export default function App() {
       const user = data.user;
       const token = data.token as string;
       setAuthUser({
+=======
+      const { user, accessToken, refreshToken } = await authRequest(authMode, body);
+      const next: AuthUser = {
+>>>>>>> Stashed changes
         id: user.id,
         username: user.username,
         displayName: user.display_name || user.displayName || user.username,
         email: user.email,
+<<<<<<< Updated upstream
         token
       });
+=======
+        token: accessToken,
+        refreshToken
+      };
+      setAuthUser(next);
+      persistAuth(next);
+>>>>>>> Stashed changes
     } catch (error: any) {
       setAuthError(error?.message || 'Đăng nhập/Đăng ký thất bại');
     } finally {
       setAuthLoading(false);
     }
+<<<<<<< Updated upstream
+=======
+  }
+
+  function handleLogout() {
+    setShowLogoutConfirm(true);
+  }
+
+  function confirmLogout() {
+    persistAuth(null);
+    setAuthUser(null);
+    setAuthMode('login');
+    setAuthForm({ username: '', password: '', email: '', displayName: '' });
+    setAuthError(null);
+    setActiveView('chat');
+    setShowLogoutConfirm(false);
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
   }
 
   function handleLogout() {
@@ -338,6 +521,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-gray-100 overflow-hidden font-sans text-sm relative">
+<<<<<<< Updated upstream
       {/* 1. Left Main Navigation Sidebar */}
       <div className="w-[64px] bg-[#005ae0] flex flex-col items-center py-4 justify-between z-20">
         <div className="flex flex-col items-center gap-4 w-full">
@@ -557,6 +741,61 @@ export default function App() {
           </div>
         </div>
       )}
+=======
+      <Sidebar
+        pendingFriendCount={pendingFriendCount}
+        onPendingCountChange={(delta) => setPendingFriendCount((prev) => Math.max(0, prev + delta))}
+        onOpenDmChat={(friend) => {
+          setSelectedFriend(friend);
+          setActiveView("chat");
+        }}
+      />
+      <ChatListPanel
+        authUser={user!}
+        friends={friends}
+        loadingFriends={loadingFriends}
+        friendsError={friendsError}
+        selectedFriend={selectedFriend}
+        onSelectFriend={(friend) => {
+          setSelectedFriend(friend);
+          // Xóa badge khi mở cuộc trò chuyện
+          setUnreadCounts((prev) => ({ ...prev, [friend.friend_id]: 0 }));
+        }}
+        conversationPreview={conversationPreview}
+        unreadCounts={unreadCounts}
+        onActiveViewChange={setActiveView}
+      />
+<<<<<<< Updated upstream
+      <ChatWindow selectedFriend={selectedFriend} authUser={user!} onDmActivity={handleDmActivity} />
+      <ProfileOverlay
+        activeView={activeView}
+        authUser={user!}
+        onClose={() => setActiveView("chat")}
+        onLogout={handleLogout}
+      />
+      <ToastContainer />
+=======
+      {activeView === 'chat' ? (
+        <ChatWindow selectedGroup={selectedGroup} messages={messages} />
+      ) : (
+        <ProfilePage
+          user={authUser}
+          onBack={() => setActiveView('chat')}
+          onLogout={handleLogout}
+          onUserUpdate={(updated) => {
+            setAuthUser(updated);
+            persistAuth(updated);
+          }}
+        />
+      )}
+      {showLogoutConfirm && (
+        <LogoutConfirmDialog
+          onConfirm={confirmLogout}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
     </div>
   );
 }

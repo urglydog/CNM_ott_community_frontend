@@ -19,7 +19,7 @@ import { fetchPendingFriendRequests, getFriendsList } from "./api/client";
 import type { FriendItem } from "./types";
 
 function AppInner() {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, updateUser } = useAuth();
   const { addToast } = useToast();
   const { socket, onReceiveMessage } = useSocket();
 
@@ -161,6 +161,7 @@ function AppInner() {
         authUser={user!}
         onClose={() => setActiveView("chat")}
         onLogout={handleLogout}
+        onUpdateUser={updateUser}
       />
       <ToastContainer />
     </div>

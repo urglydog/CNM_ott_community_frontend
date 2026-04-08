@@ -27,6 +27,7 @@ export type AuthUser = {
   username: string;
   displayName: string;
   email?: string;
+  phone?: string;
   token: string;
 };
 

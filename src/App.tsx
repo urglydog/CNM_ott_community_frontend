@@ -13,7 +13,7 @@ import Sidebar from "./components/layout/Sidebar";
 import ChatListPanel from "./components/chat/ChatListPanel";
 import type { ConversationPreview } from "./components/chat/ChatListPanel";
 import ChatWindow from "./components/chat/ChatWindow";
-import ProfileOverlay from "./components/profile/ProfileOverlay";
+import ProfileSidebar from "./components/profile/ProfileSidebar";
 import ToastContainer from "./components/common/ToastContainer";
 import { fetchPendingFriendRequests, getFriendsList } from "./api/client";
 import type { FriendItem } from "./types";
@@ -34,7 +34,7 @@ function AppInner() {
   /** Số tin nhắn chưa đọc theo friend_id */
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
 
-  const [activeView, setActiveView] = useState<"chat" | "profile">("chat");
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const loadFriends = useCallback(async () => {
     try {
@@ -118,7 +118,7 @@ function AppInner() {
 
   function handleLogout() {
     logout();
-    setActiveView("chat");
+    setProfileOpen(false);
     setPendingFriendCount(0);
     setSelectedFriend(null);
     setFriends([]);
@@ -137,7 +137,6 @@ function AppInner() {
         onPendingCountChange={(delta) => setPendingFriendCount((prev) => Math.max(0, prev + delta))}
         onOpenDmChat={(friend) => {
           setSelectedFriend(friend);
-          setActiveView("chat");
         }}
       />
       <ChatListPanel
@@ -148,18 +147,17 @@ function AppInner() {
         selectedFriend={selectedFriend}
         onSelectFriend={(friend) => {
           setSelectedFriend(friend);
-          // Xóa badge khi mở cuộc trò chuyện
           setUnreadCounts((prev) => ({ ...prev, [friend.friend_id]: 0 }));
         }}
         conversationPreview={conversationPreview}
         unreadCounts={unreadCounts}
-        onActiveViewChange={setActiveView}
+        onActiveViewChange={setProfileOpen}
       />
       <ChatWindow selectedFriend={selectedFriend} authUser={user!} onDmActivity={handleDmActivity} />
-      <ProfileOverlay
-        activeView={activeView}
+      <ProfileSidebar
+        isOpen={profileOpen}
         authUser={user!}
-        onClose={() => setActiveView("chat")}
+        onClose={() => setProfileOpen(false)}
         onLogout={handleLogout}
         onUpdateUser={updateUser}
       />

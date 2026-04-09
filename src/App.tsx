@@ -6,6 +6,8 @@
  */
 
 import { useEffect, useState, FormEvent } from 'react';
+import { io, Socket } from 'socket.io-client';
+import dynamic from 'next/dynamic';
 
 import { Channel, Group, MessageItem, AuthUser } from './types';
 import AuthScreen, { AuthFormState, AuthMode } from './components/auth/AuthScreen';
@@ -19,6 +21,12 @@ import {
   fetchChannelsByGroup as apiFetchChannelsByGroup,
   fetchMessagesByChannel as apiFetchMessagesByChannel
 } from './api/client';
+
+// Import dong va tat SSR cho component goi video de tranh loi khi render tren server.
+const VideoCallRoom = dynamic(
+  () => import('./components/chat/VideoCallRoom'),
+  { ssr: false }
+);
 
 export default function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -44,6 +52,88 @@ export default function App() {
   const [loadingMessages, setLoadingMessages] = useState<boolean>(false);
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'chat' | 'profile'>('chat');
+  const [isInCall, setIsInCall] = useState<boolean>(false);
+  const [incomingCall, setIncomingCall] = useState<{
+    conversationId: string;
+    callerName: string;
+  } | null>(null);
+  const [socketInstance, setSocketInstance] = useState<Socket | null>(null);
+
+  const SOCKET_URL =
+    process.env.NEXT_PUBLIC_SOCKET_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    'http://localhost:4000';
+
+  useEffect(() => {
+    if (!authUser) {
+      if (socketInstance) {
+        socketInstance.disconnect();
+      }
+      setSocketInstance(null);
+      return;
+    }
+
+    const socket = io(SOCKET_URL, {
+      transports: ['websocket'],
+      autoConnect: true
+    });
+
+    setSocketInstance(socket);
+
+    return () => {
+      socket.disconnect();
+      setSocketInstance(null);
+    };
+  }, [authUser, SOCKET_URL]);
+
+  useEffect(() => {
+    if (!socketInstance || !selectedGroup) {
+      return;
+    }
+
+    // Join room theo conversation/group hien tai de nhan signaling event.
+    socketInstance.emit('join-conversation', String(selectedGroup.groupId));
+  }, [socketInstance, selectedGroup]);
+
+  useEffect(() => {
+    if (!socketInstance) {
+      return;
+    }
+
+    const onIncomingCall = (payload: any) => {
+      setIncomingCall({
+        conversationId: String(payload?.conversationId || ''),
+        callerName: payload?.callerName || 'Nguoi dung'
+      });
+    };
+
+    const onCallAccepted = () => {
+      setIsInCall(true);
+      setIncomingCall(null);
+    };
+
+    const onCallRejected = () => {
+      setIsInCall(false);
+      setIncomingCall(null);
+    };
+
+    const onEndCall = () => {
+      setIsInCall(false);
+      setIncomingCall(null);
+    };
+
+    socketInstance.on('incoming-call', onIncomingCall);
+    socketInstance.on('call-accepted', onCallAccepted);
+    socketInstance.on('call-rejected', onCallRejected);
+    socketInstance.on('end-call', onEndCall);
+
+    return () => {
+      socketInstance.off('incoming-call', onIncomingCall);
+      socketInstance.off('call-accepted', onCallAccepted);
+      socketInstance.off('call-rejected', onCallRejected);
+      socketInstance.off('end-call', onEndCall);
+    };
+  }, [socketInstance]);
 
   useEffect(() => {
     async function loadGroups() {
@@ -156,6 +246,65 @@ export default function App() {
     setSelectedChannel(null);
     setMessages([]);
     setActiveView('chat');
+    setIsInCall(false);
+    setIncomingCall(null);
+  }
+
+  function handleStartCall() {
+    if (!socketInstance || !selectedGroup || !authUser) {
+      return;
+    }
+
+    const conversationId = String(selectedGroup.groupId);
+    socketInstance.emit('call-request', {
+      conversationId,
+      callerId: String(authUser.id),
+      callerName: authUser.displayName || authUser.username
+    });
+
+    setIsInCall(true);
+  }
+
+  function handleAcceptCall() {
+    if (!socketInstance || !authUser || !incomingCall) {
+      return;
+    }
+
+    socketInstance.emit('call-accepted', {
+      conversationId: incomingCall.conversationId,
+      calleeId: String(authUser.id),
+      calleeName: authUser.displayName || authUser.username
+    });
+
+    setIsInCall(true);
+    setIncomingCall(null);
+  }
+
+  function handleDeclineCall() {
+    if (!socketInstance || !authUser || !incomingCall) {
+      return;
+    }
+
+    socketInstance.emit('call-rejected', {
+      conversationId: incomingCall.conversationId,
+      calleeId: String(authUser.id)
+    });
+
+    setIncomingCall(null);
+  }
+
+  function handleLeaveCall() {
+    const activeConversationId = incomingCall?.conversationId || (selectedGroup ? String(selectedGroup.groupId) : null);
+
+    if (socketInstance && activeConversationId && authUser) {
+      socketInstance.emit('end-call', {
+        conversationId: activeConversationId,
+        userId: String(authUser.id)
+      });
+    }
+
+    setIsInCall(false);
+    setIncomingCall(null);
   }
 
   if (!authUser) {
@@ -168,6 +317,17 @@ export default function App() {
         onAuthModeChange={setAuthMode}
         onAuthFormChange={setAuthForm}
         onSubmit={handleAuthSubmit}
+      />
+    );
+  }
+
+  if (isInCall && selectedGroup) {
+    return (
+      <VideoCallRoom
+        roomID={String(selectedGroup.groupId)}
+        userID={String(authUser.id)}
+        userName={authUser.displayName || authUser.username}
+        onLeaveCall={handleLeaveCall}
       />
     );
   }
@@ -185,7 +345,14 @@ export default function App() {
         activeView={activeView}
         onActiveViewChange={setActiveView}
       />
-      <ChatWindow selectedGroup={selectedGroup} messages={messages} />
+      <ChatWindow
+        selectedGroup={selectedGroup}
+        messages={messages}
+        incomingCall={incomingCall}
+        onStartCall={handleStartCall}
+        onAcceptCall={handleAcceptCall}
+        onDeclineCall={handleDeclineCall}
+      />
       <ProfileOverlay
         activeView={activeView}
         authUser={authUser}

@@ -6,9 +6,23 @@ import { Group, MessageItem } from "../../types";
 interface ChatWindowProps {
   selectedGroup: Group | null;
   messages: MessageItem[];
+  incomingCall: {
+    conversationId: string;
+    callerName: string;
+  } | null;
+  onStartCall: () => void;
+  onAcceptCall: () => void;
+  onDeclineCall: () => void;
 }
 
-export default function ChatWindow({ selectedGroup, messages }: ChatWindowProps) {
+export default function ChatWindow({
+  selectedGroup,
+  messages,
+  incomingCall,
+  onStartCall,
+  onAcceptCall,
+  onDeclineCall,
+}: ChatWindowProps) {
   return (
     <div className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0">
       <div className="absolute top-0 right-0 flex z-50">
@@ -45,9 +59,15 @@ export default function ChatWindow({ selectedGroup, messages }: ChatWindowProps)
           <div className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors" title="Gọi thoại">
             <Phone className="w-5 h-5" />
           </div>
-          <div className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors" title="Gọi video">
+          <button
+            type="button"
+            onClick={onStartCall}
+            disabled={!selectedGroup}
+            className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors disabled:opacity-50"
+            title="Gọi video"
+          >
             <Video className="w-5 h-5" />
-          </div>
+          </button>
           <div className="w-px h-5 bg-gray-300 mx-1"></div>
           <div className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors" title="Tìm kiếm">
             <Search className="w-5 h-5" />
@@ -101,6 +121,34 @@ export default function ChatWindow({ selectedGroup, messages }: ChatWindowProps)
           </div>
         </div>
       </div>
+
+      {incomingCall && (
+        <div className="absolute inset-0 bg-black/35 flex items-center justify-center z-[60] p-4">
+          <div className="w-full max-w-sm bg-white rounded-xl shadow-xl p-5 border border-gray-100">
+            <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Cuoc goi den</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">{incomingCall.callerName}</h3>
+            <p className="text-sm text-gray-600 mb-4">Dang muon goi video voi ban.</p>
+
+            {/* Popup incoming call de team demo duoc luong accept/reject */}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-2 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm"
+                onClick={onDeclineCall}
+              >
+                Tu choi
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded-md bg-green-600 text-white hover:bg-green-700 text-sm"
+                onClick={onAcceptCall}
+              >
+                Chap nhan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

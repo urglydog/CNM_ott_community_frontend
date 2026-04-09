@@ -1,36 +1,89 @@
 "use client";
 
-import { ChevronDown, LayoutGrid, Phone, PhoneOff, Search, UserPlus, Users } from "lucide-react";
-import { AuthUser, Group } from "../../types";
+import { useMemo, useState } from "react";
+import { Loader2, MessageCircle, Search, UserPlus } from "lucide-react";
+import AddFriendModal from "../friends/AddFriendModal";
+import { AuthUser, FriendItem } from "../../types";
+
+export type ConversationPreview = {
+  content: string;
+  createdAt: string;
+};
 
 interface ChatListPanelProps {
   authUser: AuthUser;
-  groups: Group[];
-  selectedGroup: Group | null;
-  loadingGroups: boolean;
-  groupsError: string | null;
-  onSelectGroup: (group: Group) => void;
-  activeView: "chat" | "profile";
-  onActiveViewChange: (view: "chat" | "profile") => void;
+  friends: FriendItem[];
+  loadingFriends: boolean;
+  friendsError: string | null;
+  selectedFriend: FriendItem | null;
+  onSelectFriend: (friend: FriendItem) => void;
+  conversationPreview: Record<string, ConversationPreview>;
+  unreadCounts: Record<string, number>;
+  onActiveViewChange: (open: boolean) => void;
+}
+
+function formatListTime(isoString: string) {
+  try {
+    const d = new Date(isoString);
+    const now = new Date();
+    const sameDay =
+      d.getDate() === now.getDate() &&
+      d.getMonth() === now.getMonth() &&
+      d.getFullYear() === now.getFullYear();
+    if (sameDay) {
+      return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
+function snippet(text: string, max = 52) {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}…`;
 }
 
 export default function ChatListPanel({
   authUser,
-  groups,
-  selectedGroup,
-  loadingGroups,
-  groupsError,
-  onSelectGroup,
-  activeView,
-  onActiveViewChange
+  friends,
+  loadingFriends,
+  friendsError,
+  selectedFriend,
+  onSelectFriend,
+  conversationPreview,
+  unreadCounts,
+  onActiveViewChange,
 }: ChatListPanelProps) {
+  const [addFriendOpen, setAddFriendOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const sortedFriends = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let list = friends.slice();
+    if (q) {
+      list = list.filter(
+        (f) =>
+          f.friend_display_name.toLowerCase().includes(q) ||
+          f.friend_username.toLowerCase().includes(q)
+      );
+    }
+    list.sort((a, b) => {
+      const ta = conversationPreview[a.friend_id]?.createdAt || a.updated_at;
+      const tb = conversationPreview[b.friend_id]?.createdAt || b.updated_at;
+      return new Date(tb).getTime() - new Date(ta).getTime();
+    });
+    return list;
+  }, [friends, query, conversationPreview]);
+
   return (
-    <div className="w-[340px] bg-white border-r border-gray-200 flex flex-col z-10 relative flex-shrink-0">
+    <div className="w-[340px] bg-white border-r border-gray-200 flex flex-col z-10 relative shrink-0">
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between gap-2 mb-4">
           <button
             type="button"
-            onClick={() => onActiveViewChange("profile")}
+            onClick={() => onActiveViewChange(true)}
             className="flex items-center gap-2 group"
           >
             <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-xs">
@@ -40,17 +93,20 @@ export default function ChatListPanel({
               <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wide group-hover:text-gray-700">
                 Hồ sơ của tôi
               </span>
-              <span className="font-semibold text-gray-800 text-sm truncate">
-                {authUser.displayName}
-              </span>
-              <span className="text-[11px] text-gray-500 truncate">
-                @{authUser.username}
-              </span>
+              <span className="font-semibold text-gray-800 text-sm truncate">{authUser.displayName}</span>
+              <span className="text-[11px] text-gray-500 truncate">@{authUser.username}</span>
             </div>
           </button>
-          <div className="flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-gray-600 cursor-pointer hover:text-gray-800" />
-            <Users className="w-5 h-5 text-gray-600 cursor-pointer hover:text-gray-800" />
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              title="Thêm bạn"
+              aria-label="Thêm bạn"
+              onClick={() => setAddFriendOpen(true)}
+              className="p-1.5 rounded-md text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            >
+              <UserPlus className="w-5 h-5" />
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -58,94 +114,92 @@ export default function ChatListPanel({
             <Search className="w-4 h-4 absolute left-2.5 top-2 text-gray-500" />
             <input
               type="text"
-              placeholder="Tìm bạn bè, nhóm và tin nhắn"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Tìm bạn bè"
               className="w-full bg-gray-100 text-xs rounded-md pl-8 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
             />
           </div>
         </div>
       </div>
 
-      <div className="px-4 py-2 border-b border-gray-200">
-        <div className="flex items-center justify-between mb-2 cursor-pointer group">
-          <span className="text-xs font-semibold text-gray-500 group-hover:text-gray-700">Phân loại</span>
-          <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-gray-600" />
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          <span className="whitespace-nowrap px-3 py-1 bg-blue-100 text-blue-600 text-xs rounded-full font-medium cursor-pointer">
-            Tất cả
-          </span>
-          <span className="whitespace-nowrap px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full font-medium cursor-pointer hover:bg-gray-200">
-            Khách hàng
-          </span>
-          <span className="whitespace-nowrap px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full font-medium cursor-pointer hover:bg-gray-200">
-            Gia đình
-          </span>
-        </div>
+      <div className="px-4 py-2 border-b border-gray-200 flex items-center gap-2">
+        <MessageCircle className="w-4 h-4 text-blue-600 shrink-0" />
+        <span className="text-xs font-semibold text-gray-700">Tin nhắn</span>
+        {friends.length > 0 && (
+          <span className="text-[10px] text-gray-500 ml-auto">{friends.length} bạn</span>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="flex items-center px-4 py-3 bg-gray-100 cursor-pointer">
-          <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mr-3 flex-shrink-0">
-            <LayoutGrid className="w-6 h-6 text-blue-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex justify-between items-baseline mb-0.5">
-              <span className="font-medium text-gray-900 truncate">Cộng đồng của bạn</span>
-            </div>
-            <p className="text-xs text-gray-500 truncate">Danh sách nhóm được tải từ backend</p>
-          </div>
-        </div>
-
-        {loadingGroups && (
-          <div className="px-4 py-3 text-xs text-gray-500">
-            Đang tải danh sách cộng đồng...
+        {loadingFriends && (
+          <div className="px-4 py-6 text-xs text-gray-500 flex items-center gap-2">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Đang tải danh sách bạn bè...
           </div>
         )}
 
-        {groupsError && !loadingGroups && (
-          <div className="px-4 py-3 text-xs text-red-500">{groupsError}</div>
+        {friendsError && !loadingFriends && (
+          <div className="px-4 py-4 text-xs text-red-500">{friendsError}</div>
         )}
 
-        {!loadingGroups && !groupsError &&
-          groups.map((group) => (
-            <div
-              key={group.groupId}
-              className={`flex items-center px-4 py-3 hover:bg-gray-50 cursor-pointer ${
-                selectedGroup?.groupId === group.groupId ? "bg-blue-50" : ""
-              }`}
-              onClick={() => onSelectGroup(group)}
-            >
-              <div className="w-12 h-12 rounded-full bg-purple-200 flex items-center justify-center mr-3 flex-shrink-0 text-purple-700 font-semibold">
-                {group.name?.trim()?.charAt(0)?.toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-baseline mb-0.5">
-                  <span className="font-medium text-gray-900 truncate">{group.name}</span>
+        {!loadingFriends && !friendsError && friends.length === 0 && (
+          <div className="px-4 py-8 text-center text-xs text-gray-500">
+            Chưa có bạn bè. Dùng icon tìm kiếm hoặc <span className="text-blue-600">Thêm bạn</span> để kết nối.
+          </div>
+        )}
+
+        {!loadingFriends &&
+          !friendsError &&
+          sortedFriends.map((friend) => {
+            const isSel = selectedFriend?.friend_id === friend.friend_id;
+            const prev = conversationPreview[friend.friend_id];
+            const unread = unreadCounts[friend.friend_id] || 0;
+            return (
+              <button
+                key={friend.friendshipId}
+                type="button"
+                onClick={() => {
+                  onSelectFriend(friend);
+                  onActiveViewChange(false);
+                }}
+                className={`w-full flex items-center px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-50 transition-colors ${
+                  isSel ? "bg-blue-50 hover:bg-blue-50" : ""
+                }`}
+              >
+                <div className="relative mr-3 shrink-0">
+                  <div className="w-11 h-11 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 font-semibold text-sm overflow-hidden">
+                    {friend.friend_avatar_url ? (
+                      <img src={friend.friend_avatar_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      (friend.friend_display_name || "?").charAt(0).toUpperCase()
+                    )}
+                  </div>
+                  {unread > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 shadow-sm">
+                      {unread > 99 ? "99+" : unread}
+                    </span>
+                  )}
                 </div>
-                <p className="text-xs text-gray-500 truncate">
-                  {group.description || "Nhóm cộng đồng OTT"}
-                </p>
-              </div>
-            </div>
-          ))}
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-baseline gap-2 mb-0.5">
+                    <span className={`font-medium truncate text-sm ${isSel ? "text-blue-800" : "text-gray-900"}`}>
+                      {friend.friend_display_name}
+                    </span>
+                    {prev?.createdAt && (
+                      <span className="text-[10px] text-gray-400 shrink-0">{formatListTime(prev.createdAt)}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 truncate text-left">
+                    {prev ? snippet(prev.content) : `@${friend.friend_username}`}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
       </div>
 
-      <div className="absolute bottom-4 left-4 right-4 bg-white rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.1)] border border-gray-200 p-3 flex items-center justify-between z-30">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold">
-            KN
-          </div>
-          <span className="text-sm font-medium text-gray-800">Kim Ngân đang gọi...</span>
-        </div>
-        <div className="flex gap-2">
-          <button className="w-10 h-10 rounded-full bg-red-500 flex items-center justify-center text-white hover:bg-red-600 transition-colors">
-            <PhoneOff className="w-5 h-5" fill="currentColor" />
-          </button>
-          <button className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white hover:bg-green-600 transition-colors animate-pulse">
-            <Phone className="w-5 h-5" fill="currentColor" />
-          </button>
-        </div>
-      </div>
+      {addFriendOpen && <AddFriendModal onClose={() => setAddFriendOpen(false)} />}
     </div>
   );
 }

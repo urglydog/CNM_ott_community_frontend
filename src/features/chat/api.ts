@@ -117,3 +117,35 @@ export async function sendDirectFileMessage(
 
   return response.data?.data;
 }
+
+/**
+ * Lấy lịch sử tin nhắn nhóm.
+ * Backend sử dụng conversationId = groupId nên dùng chung endpoint với DM.
+ */
+export async function getGroupMessages(
+  groupId: string | number,
+): Promise<DirectMessageItem[]> {
+  const conversationId = String(groupId);
+  const response = await apiClient.get<DirectMessageItem[]>(
+    `/api/messages/conversations/${encodeURIComponent(conversationId)}`,
+  );
+  return response.data || [];
+}
+
+/**
+ * Lấy danh sách thành viên nhóm để hiển thị avatar/tên người gửi trong chat nhóm.
+ */
+export async function getGroupMembers(
+  groupId: string | number,
+): Promise<Array<{
+  userId: string;
+  displayName: string;
+  username: string;
+  avatarUrl: string | null;
+  role: string;
+}>> {
+  const response = await apiClient.get(
+    `/api/groups/${groupId}/members`,
+  );
+  return response.data || [];
+}

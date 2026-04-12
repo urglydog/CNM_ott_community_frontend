@@ -48,7 +48,12 @@ export function useFriendsList() {
   };
 }
 
-export function useFriendRequests() {
+interface UseFriendRequestsOptions {
+  onPendingCountChange?: (delta: number) => void;
+}
+
+export function useFriendRequests(options: UseFriendRequestsOptions = {}) {
+  const { onPendingCountChange } = options;
   const { addToast } = useToast();
   const { pendingFriendCount, setPendingFriendCount, incrementPending, decrementPending } =
     useContactsStore();
@@ -81,6 +86,7 @@ export function useFriendRequests() {
         await acceptFriendRequest({ requestId });
         setRequests((prev) => prev.filter((r) => r.id !== requestId));
         decrementPending();
+        onPendingCountChange?.(-1);
         loadFriends();
         addToast("Đã đồng ý kết bạn", "success");
       } catch (err: unknown) {
@@ -90,7 +96,7 @@ export function useFriendRequests() {
         );
       }
     },
-    [decrementPending, loadFriends, addToast]
+    [decrementPending, onPendingCountChange, loadFriends, addToast]
   );
 
   const handleReject = useCallback(
@@ -99,6 +105,7 @@ export function useFriendRequests() {
         await rejectFriendRequest({ requestId });
         setRequests((prev) => prev.filter((r) => r.id !== requestId));
         decrementPending();
+        onPendingCountChange?.(-1);
         addToast("Đã từ chối lời mời", "info");
       } catch (err: unknown) {
         addToast(
@@ -107,7 +114,7 @@ export function useFriendRequests() {
         );
       }
     },
-    [decrementPending, addToast]
+    [decrementPending, onPendingCountChange, addToast]
   );
 
   return {

@@ -48,6 +48,25 @@ apiClient.interceptors.response.use(
       window.location.href = "/login";
     }
 
+    // Normalize error message from various backend response formats
+    let message = "Đã xảy ra lỗi. Vui lòng thử lại.";
+    const data = error.response?.data;
+    if (typeof data === "string" && data.trim()) {
+      // Backend returned plain text HTML/error
+      try {
+        const parsed = JSON.parse(data);
+        message = parsed?.message || parsed?.error || parsed?.msg || data;
+      } catch {
+        // It's plain text error like "SyntaxError: ..."
+        message = data.substring(0, 200);
+      }
+    } else if (data && typeof data === "object") {
+      message = data?.message || data?.error || data?.msg || message;
+    }
+
+    // Replace error with normalized one
+    error.message = message;
+
     return Promise.reject(error);
   }
 );

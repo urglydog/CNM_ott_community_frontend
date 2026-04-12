@@ -29,11 +29,17 @@ export function dmConversationId(
 }
 
 export function friendIdFromConversationId(
-  conversationId: string
+  conversationId: string,
+  currentUserId?: string | number | null
 ): string | null {
   if (!conversationId || !conversationId.startsWith("dm:")) return null;
   const parts = conversationId.slice(3).split(":");
   if (parts.length !== 2) return null;
+
+  if (currentUserId != null) {
+    return Number(parts[0]) === Number(currentUserId) ? parts[1] : parts[0];
+  }
+
   return parts[1];
 }
 
@@ -147,7 +153,7 @@ export function useDirectMessage(
       if (newMsg.conversationId !== currentRoomId) return;
 
       // Cập nhật preview trong store
-      const friendId = friendIdFromConversationId(newMsg.conversationId);
+      const friendId = friendIdFromConversationId(newMsg.conversationId, user?.id);
       if (friendId) {
         setConversationPreview(friendId, {
           content: newMsg.content,
@@ -359,7 +365,7 @@ export function useJoinFriendDmRooms(
 }
 
 // Hook để cập nhật preview khi nhận message
-export function useMessagePreviewUpdater() {
+export function useMessagePreviewUpdater(currentUserId?: string | number) {
   const { socket, onReceiveMessage } = useSocket();
   const { selectedFriend, setConversationPreview, incrementUnread } = useChatStore();
 
@@ -368,7 +374,7 @@ export function useMessagePreviewUpdater() {
 
     const off = onReceiveMessage((msg) => {
       const cid = msg.conversationId;
-      const friendId = friendIdFromConversationId(cid);
+      const friendId = friendIdFromConversationId(cid, currentUserId);
       if (!friendId) return;
 
       // Cập nhật preview
@@ -384,5 +390,5 @@ export function useMessagePreviewUpdater() {
     });
 
     return off;
-  }, [socket, onReceiveMessage, selectedFriend, setConversationPreview, incrementUnread]);
+  }, [socket, onReceiveMessage, currentUserId, selectedFriend, setConversationPreview, incrementUnread]);
 }

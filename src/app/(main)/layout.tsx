@@ -81,7 +81,7 @@ export default function MainLayout({
 
     const off = onReceiveMessage((msg) => {
       const cid = msg.conversationId;
-      const friendId = friendIdFromConversationId(cid);
+      const friendId = friendIdFromConversationId(cid, user?.id);
       if (!friendId) return;
 
       setConversationPreview(friendId, {

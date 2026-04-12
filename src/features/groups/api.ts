@@ -1,0 +1,152 @@
+import apiClient from "../../lib/axios";
+import type { Group, InviteInfo } from "./types";
+import type { AuthUser } from "../../types";
+
+function getUserId(): string | null {
+  try {
+    const stored = localStorage.getItem("ott_auth_user");
+    if (stored) {
+      const user: AuthUser = JSON.parse(stored);
+      return String(user.id || user.userId);
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export interface CreateGroupPayload {
+  name: string;
+  description?: string;
+  type?: string;
+}
+
+export interface JoinGroupPayload {
+  userId?: string | number;
+}
+
+export interface GroupsResponse {
+  message?: string;
+  data?: Group[];
+  count?: number;
+}
+
+export interface GroupDetailResponse {
+  groupId: string | number;
+  name: string;
+  description?: string;
+  topic?: string;
+  inviteCode?: string;
+  ownerId?: string;
+  memberCount?: number;
+  createdAt?: string;
+  members?: Array<{
+    userId: string;
+    displayName: string;
+    username: string;
+    avatarUrl: string | null;
+    role: string;
+  }>;
+}
+
+/**
+ * Tạo nhóm mới
+ * POST /api/groups
+ * Header: Authorization: Bearer <token> (userId tự động lấy từ token)
+ */
+export async function createGroup(
+  payload: CreateGroupPayload
+): Promise<Group> {
+  const response = await apiClient.post<Group>("/api/groups", payload);
+  return response.data;
+}
+
+/**
+ * Lấy danh sách tất cả nhóm (không cần auth)
+ * GET /api/groups
+ */
+export async function fetchAllGroups(): Promise<Group[]> {
+  const response = await apiClient.get<Group[]>("/api/groups");
+  return response.data;
+}
+
+/**
+ * Lấy chi tiết một nhóm
+ * GET /api/groups/:groupId
+ */
+export async function fetchGroupById(
+  groupId: string | number
+): Promise<GroupDetailResponse> {
+  const response = await apiClient.get<GroupDetailResponse>(
+    `/api/groups/${groupId}`
+  );
+  return response.data;
+}
+
+/**
+ * Lấy danh sách nhóm của tôi
+ * GET /api/groups/user/:userId
+ * userId được lấy tự động từ localStorage
+ */
+export async function fetchMyGroups(): Promise<Group[]> {
+  const userId = getUserId();
+  if (!userId) {
+    return [];
+  }
+  const response = await apiClient.get<GroupsResponse>(`/api/groups/user/${userId}`);
+  if (response.data?.data) {
+    return response.data.data;
+  }
+  if (Array.isArray(response.data)) {
+    return response.data as Group[];
+  }
+  return [];
+}
+
+/**
+ * Tham gia nhóm bằng mã mời
+ * POST /api/groups/join/:inviteCode
+ * Header: Authorization: Bearer <token> (userId tự động lấy từ token)
+ */
+export async function joinGroupByCode(
+  inviteCode: string
+): Promise<{ message: string; group?: Group }> {
+  const encodedCode = encodeURIComponent(inviteCode);
+  const userId = getUserId();
+
+  const response = await apiClient.post<{ message: string; group?: Group }>(
+    `/api/groups/join/${encodedCode}`,
+    { userId }
+  );
+  return response.data;
+}
+
+/**
+ * Lấy mã mời của nhóm
+ * GET /api/groups/:groupId/invite
+ * Header: Authorization: Bearer <token>
+ */
+export async function fetchGroupInvite(
+  groupId: string | number
+): Promise<InviteInfo> {
+  const response = await apiClient.get<InviteInfo>(
+    `/api/groups/${groupId}/invite`
+  );
+  return response.data;
+}
+
+/**
+ * Thêm thành viên vào nhóm
+ * POST /api/groups/:groupId/members
+ */
+export async function addMemberToGroup(
+  groupId: string | number,
+  userId: string | number,
+  role: string = "member"
+): Promise<{ message: string }> {
+  const response = await apiClient.post<{ message: string }>(
+    `/api/groups/${groupId}/members`,
+    { userId, role }
+  );
+  return response.data;
+}

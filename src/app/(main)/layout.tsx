@@ -7,6 +7,7 @@ import { useSocket } from "../../contexts/SocketContext";
 import { useToast } from "../../contexts/ToastContext";
 import { useChatStore } from "../../features/chat/store/chatStore";
 import { useContactsStore } from "../../features/contacts/store/contactsStore";
+import { useGroupsStore } from "../../features/groups/store/groupsStore";
 import { useJoinFriendDmRooms, friendIdFromConversationId } from "../../features/chat/hooks/useChatHooks";
 import { useFriendSocket } from "../../hooks/useFriendSocket";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
@@ -40,6 +41,7 @@ export default function MainLayout({
   } = useChatStore();
 
   const { pendingFriendCount, setPendingFriendCount, resetPending } = useContactsStore();
+  const { reset: resetGroupsStore } = useGroupsStore();
 
   // Load friends list
   const loadFriends = useCallback(async () => {
@@ -140,6 +142,7 @@ export default function MainLayout({
     setProfileOpen(false);
     resetPending();
     resetChatStore();
+    resetGroupsStore();
   };
 
   if (!isInitialized) return null;

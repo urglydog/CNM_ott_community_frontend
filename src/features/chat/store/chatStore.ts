@@ -1,5 +1,8 @@
 import { create } from "zustand";
 import type { FriendItem } from "../../../types";
+import type { Group } from "../../groups/types";
+
+export type ChatMode = "PRIVATE" | "GROUP";
 
 export type ConversationPreview = {
   content: string;
@@ -7,7 +10,11 @@ export type ConversationPreview = {
 };
 
 interface ChatState {
-  // Danh sách bạn bè
+  // ── Chế độ chat (nhóm hoặc riêng tư) ──────────────────────────────────
+  chatMode: ChatMode;
+  setChatMode: (mode: ChatMode) => void;
+
+  // ── Danh sách bạn bè ───────────────────────────────────────────────────
   friends: FriendItem[];
   setFriends: (friends: FriendItem[]) => void;
   isLoadingFriends: boolean;
@@ -15,26 +22,38 @@ interface ChatState {
   friendsError: string | null;
   setFriendsError: (error: string | null) => void;
 
-  // Bạn đang chat
+  // ── Bạn đang chat riêng tư ──────────────────────────────────────────────
   selectedFriend: FriendItem | null;
   setSelectedFriend: (friend: FriendItem | null) => void;
 
-  // Preview tin nhắn
+  // ── Nhóm đang chat ─────────────────────────────────────────────────────
+  selectedGroup: Group | null;
+  setSelectedGroup: (group: Group | null) => void;
+
+  // ── Preview tin nhắn ───────────────────────────────────────────────────
   conversationPreview: Record<string, ConversationPreview>;
   setConversationPreview: (friendId: string, preview: ConversationPreview) => void;
 
-  // Số tin nhắn chưa đọc
+  // Preview nhóm
+  groupConversationPreview: Record<string, ConversationPreview>;
+  setGroupConversationPreview: (groupId: string, preview: ConversationPreview) => void;
+
+  // ── Số tin nhắn chưa đọc ───────────────────────────────────────────────
   unreadCounts: Record<string, number>;
   incrementUnread: (friendId: string) => void;
   clearUnread: (friendId: string) => void;
   resetUnread: () => void;
 
-  // Reset khi logout
+  // ── Reset khi logout ───────────────────────────────────────────────────
   reset: () => void;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
-  // Friends
+export const useChatStore = create<ChatState>((set) => ({
+  // ── Chat mode ──────────────────────────────────────────────────────────
+  chatMode: "PRIVATE",
+  setChatMode: (mode) => set({ chatMode: mode }),
+
+  // ── Friends ─────────────────────────────────────────────────────────────
   friends: [],
   setFriends: (friends) => set({ friends }),
   isLoadingFriends: false,
@@ -42,11 +61,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   friendsError: null,
   setFriendsError: (error) => set({ friendsError: error }),
 
-  // Selected friend
+  // ── Selected friend ─────────────────────────────────────────────────────
   selectedFriend: null,
-  setSelectedFriend: (friend) => set({ selectedFriend: friend }),
+  setSelectedFriend: (friend) =>
+    set({ selectedFriend: friend, chatMode: friend ? "PRIVATE" : "PRIVATE" }),
 
-  // Conversation preview
+  // ── Selected group ─────────────────────────────────────────────────────
+  selectedGroup: null,
+  setSelectedGroup: (group) =>
+    set({ selectedGroup: group, chatMode: group ? "GROUP" : "PRIVATE" }),
+
+  // ── Conversation preview ────────────────────────────────────────────────
   conversationPreview: {},
   setConversationPreview: (friendId, preview) =>
     set((state) => ({
@@ -56,7 +81,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
     })),
 
-  // Unread counts
+  // ── Group conversation preview ──────────────────────────────────────────
+  groupConversationPreview: {},
+  setGroupConversationPreview: (groupId, preview) =>
+    set((state) => ({
+      groupConversationPreview: {
+        ...state.groupConversationPreview,
+        [groupId]: preview,
+      },
+    })),
+
+  // ── Unread counts ──────────────────────────────────────────────────────
   unreadCounts: {},
   incrementUnread: (friendId) =>
     set((state) => ({
@@ -74,14 +109,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })),
   resetUnread: () => set({ unreadCounts: {} }),
 
-  // Reset
+  // ── Reset ──────────────────────────────────────────────────────────────
   reset: () =>
     set({
+      chatMode: "PRIVATE",
       friends: [],
       isLoadingFriends: false,
       friendsError: null,
       selectedFriend: null,
+      selectedGroup: null,
       conversationPreview: {},
+      groupConversationPreview: {},
       unreadCounts: {},
     }),
 }));

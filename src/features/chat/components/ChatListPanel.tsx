@@ -66,8 +66,11 @@ export default function ChatListPanel({
     selectedGroup,
     setSelectedFriend,
     conversationPreview,
+    groupConversationPreview,
     unreadCounts,
+    groupUnreadCounts,
     clearUnread,
+    clearGroupUnread,
     chatMode,
   } = useChatStore();
 
@@ -95,7 +98,6 @@ export default function ChatListPanel({
   }, [setMyGroups, setIsLoadingGroups]);
 
   // ── sortedChatItems: gộp friends + groups, tìm kiếm, sắp xếp ──────────────
-  const { groupConversationPreview } = useChatStore();
 
   const sortedChatItems = useMemo<ChatItem[]>(() => {
     const q = query.trim().toLowerCase();
@@ -159,7 +161,7 @@ export default function ChatListPanel({
     });
 
     return merged;
-  }, [friends, myGroups, query, conversationPreview, groupConversationPreview]);
+  }, [friends, myGroups, query, conversationPreview, groupConversationPreview, groupUnreadCounts]);
 
   // Tổng số cuộc trò chuyện
   const totalCount = friends.length + myGroups.length;
@@ -285,8 +287,11 @@ export default function ChatListPanel({
                   String(selectedGroup.groupId) === String(item.groupId) &&
                   chatMode === "GROUP"
                 }
+                preview={groupConversationPreview[String(item.groupId)]}
+                unread={groupUnreadCounts[String(item.groupId)] || 0}
                 onClick={() => {
                   useChatStore.getState().setSelectedGroup(item);
+                  clearGroupUnread(String(item.groupId));
                   onActiveViewChange(false);
                 }}
               />
@@ -373,12 +378,12 @@ function PrivateChatRow({
 interface GroupChatRowProps {
   item: GroupChatItem;
   isSelected: boolean;
+  preview: { content: string; createdAt: string } | undefined;
+  unread: number;
   onClick: () => void;
 }
 
-function GroupChatRow({ item, isSelected, onClick }: GroupChatRowProps) {
-  const { groupConversationPreview } = useChatStore();
-  const preview = groupConversationPreview[String(item.groupId)];
+function GroupChatRow({ item, isSelected, preview, unread, onClick }: GroupChatRowProps) {
 
   return (
     <button
@@ -396,6 +401,11 @@ function GroupChatRow({ item, isSelected, onClick }: GroupChatRowProps) {
         <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
           <Users className="w-2.5 h-2.5 text-white" />
         </span>
+        {unread > 0 && (
+          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 shadow-sm">
+            {unread > 99 ? "99+" : unread}
+          </span>
+        )}
       </div>
 
       {/* Name + preview */}

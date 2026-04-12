@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSocket } from "../contexts/SocketContext";
 import { useAuth } from "../contexts/AuthContext";
+import { useChatStore } from "../features/chat/store/chatStore";
 import { getDirectMessages } from "../api/client";
 import type { DirectMessageItem } from "../types";
 
@@ -81,6 +82,7 @@ export function useDirectMessage(
     onUserTyping,
     onUserStoppedTyping,
   } = useSocket();
+  const { setConversationPreview } = useChatStore();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -156,6 +158,15 @@ export function useDirectMessage(
         if (exists) return prev;
         return [...prev, { ...newMsg, isOwn: false, sendStatus: 'received' as const }];
       });
+
+      // Cập nhật preview để cuộc trò chuyện trồi lên đầu trong ChatListPanel
+      const fid = friendIdFromConversationId(currentRoomId);
+      if (fid) {
+        setConversationPreview(fid, {
+          content: newMsg.content,
+          createdAt: newMsg.createdAt,
+        });
+      }
     });
 
     const unsubTyping = onUserTyping(({ userId, userName }) => {
@@ -250,6 +261,16 @@ export function useDirectMessage(
             content: finalMsg.content,
             createdAt: finalMsg.createdAt,
           });
+
+          // Cập nhật preview để cuộc trò chuyện trồi lên đầu trong ChatListPanel
+          const fid = friendIdFromConversationId(currentRoomId);
+          if (fid) {
+            setConversationPreview(fid, {
+              content: finalMsg.content,
+              createdAt: finalMsg.createdAt,
+            });
+          }
+
           setMessages((prev) =>
             prev.map((m) =>
               m.id === tempId
@@ -274,7 +295,7 @@ export function useDirectMessage(
         setIsSending(false);
       }
     },
-    [currentRoomId, emitSendMessage, emitTypingStop, user?.id, onDmActivity]
+    [currentRoomId, emitSendMessage, emitTypingStop, user?.id, onDmActivity, setConversationPreview]
   );
 
   return {

@@ -44,6 +44,11 @@ interface ChatState {
   clearUnread: (friendId: string) => void;
   resetUnread: () => void;
 
+  // Group unread counts
+  groupUnreadCounts: Record<string, number>;
+  incrementGroupUnread: (groupId: string) => void;
+  clearGroupUnread: (groupId: string) => void;
+
   // ── Reset khi logout ───────────────────────────────────────────────────
   reset: () => void;
 }
@@ -109,6 +114,23 @@ export const useChatStore = create<ChatState>((set) => ({
     })),
   resetUnread: () => set({ unreadCounts: {} }),
 
+  // ── Group unread counts ──────────────────────────────────────────────
+  groupUnreadCounts: {},
+  incrementGroupUnread: (groupId) =>
+    set((state) => ({
+      groupUnreadCounts: {
+        ...state.groupUnreadCounts,
+        [groupId]: (state.groupUnreadCounts[groupId] || 0) + 1,
+      },
+    })),
+  clearGroupUnread: (groupId) =>
+    set((state) => ({
+      groupUnreadCounts: {
+        ...state.groupUnreadCounts,
+        [groupId]: 0,
+      },
+    })),
+
   // ── Reset ──────────────────────────────────────────────────────────────
   reset: () =>
     set({
@@ -121,5 +143,6 @@ export const useChatStore = create<ChatState>((set) => ({
       conversationPreview: {},
       groupConversationPreview: {},
       unreadCounts: {},
+      groupUnreadCounts: {},
     }),
 }));

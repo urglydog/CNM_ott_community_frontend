@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSocket } from "../contexts/SocketContext";
-import { useAuth } from "../contexts/AuthContext";
-import { getDirectMessages } from "../api/client";
-import type { DirectMessageItem } from "../types";
+import { useSocket } from "../../../contexts/SocketContext";
+import { useAuth } from "../../../contexts/AuthContext";
+import { useChatStore } from "../store/chatStore";
+import { getDirectMessages } from "../api";
+import type { DirectMessageItem } from "../../../types";
 
 export type MessageSendStatus = "sending" | "sent" | "failed" | "received";
 
@@ -13,26 +14,33 @@ export interface ChatMessage extends DirectMessageItem {
   isOwn?: boolean;
 }
 
-/**
- * Tạo conversationId cố định cho DM giữa 2 user.
- * Luôn dùng userId nhỏ hơn trước để sender và receiver
- * dùng cùng conversationId.
- */
-export function dmConversationId(userId: string | number, friendId: string | number): string {
+export type DmActivityPayload = {
+  conversationId: string;
+  content: string;
+  createdAt: string;
+};
+
+export function dmConversationId(
+  userId: string | number,
+  friendId: string | number
+): string {
   const ids = [Number(userId), Number(friendId)].sort((a, b) => a - b);
   return `dm:${ids[0]}:${ids[1]}`;
 }
 
-/**
- * Trích friendId từ conversationId cố định.
- * conversationId dạng "dm:A:B" → trả về friendId (số lớn hơn).
- * Dùng khi nhận tin nhắn realtime để cập nhật preview.
- */
-export function friendIdFromConversationId(conversationId: string): string | null {
-  if (!conversationId || !conversationId.startsWith('dm:')) return null;
-  const parts = conversationId.slice(3).split(':');
+export function friendIdFromConversationId(
+  conversationId: string,
+  currentUserId?: string | number | null
+): string | null {
+  if (!conversationId || !conversationId.startsWith("dm:")) return null;
+  const parts = conversationId.slice(3).split(":");
   if (parts.length !== 2) return null;
-  return parts[1]; // luôn là friendId (lớn hơn)
+
+  if (currentUserId != null) {
+    return Number(parts[0]) === Number(currentUserId) ? parts[1] : parts[0];
+  }
+
+  return parts[1];
 }
 
 interface UseDirectMessageReturn {
@@ -42,7 +50,6 @@ interface UseDirectMessageReturn {
   currentRoomId: string | null;
   sendMessage: (content: string) => Promise<void>;
   isSending: boolean;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   bottomSentinelRef: React.RefObject<HTMLDivElement | null>;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   typingUsers: string[];
@@ -50,16 +57,6 @@ interface UseDirectMessageReturn {
 }
 
 const DEBOUNCE_MS_DEFAULT = 100;
-
-/**
- * Hook quản lý cuộc trò chuyện trực tiếp (DM) với bạn bè.
- * Tương tự useChatRoom nhưng dùng cho DM.
- */
-export type DmActivityPayload = {
-  conversationId: string;
-  content: string;
-  createdAt: string;
-};
 
 export function useDirectMessage(
   friendId: string | null,
@@ -81,6 +78,12 @@ export function useDirectMessage(
     onUserTyping,
     onUserStoppedTyping,
   } = useSocket();
+  const {
+    setConversationPreview,
+    incrementUnread,
+    selectedFriend,
+    clearUnread,
+  } = useChatStore();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -89,15 +92,15 @@ export function useDirectMessage(
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
 
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const prevRoomIdRef = useRef<string | null>(null);
   const scrollDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const currentRoomId = friendId != null ? dmConversationId(user?.id ?? 0, friendId) : null;
+  const currentRoomId =
+    friendId != null ? dmConversationId(user?.id ?? 0, friendId) : null;
 
-  // ── Load lịch sử tin nhắn DM ──────────────────────────────────────────
+  // Load lịch sử tin nhắn DM
   useEffect(() => {
     if (!friendId) {
       setMessages([]);
@@ -120,7 +123,9 @@ export function useDirectMessage(
         setMessages(enriched);
       } catch (err: unknown) {
         setHistoryError(
-          err instanceof Error ? err.message : "Không tải được lịch sử tin nhắn"
+          err instanceof Error
+            ? err.message
+            : "Không tải được lịch sử tin nhắn"
         );
         setMessages([]);
       } finally {
@@ -137,34 +142,44 @@ export function useDirectMessage(
     prevRoomIdRef.current = roomId;
   }, [friendId, user?.id, emitLeaveRoom]);
 
-  // ── Join phòng DM + lắng nghe tin nhắn realtime ────────────────────
+  // Join phòng DM + lắng nghe tin nhắn realtime
   useEffect(() => {
     if (!currentRoomId) return;
 
     emitJoinRoom(currentRoomId);
 
     const unsubReceive = onReceiveMessage((newMsg) => {
-      // Bỏ qua nếu là tin nhắn của chính mình (đã có optimistic message)
       if (Number(newMsg.senderId) === Number(user?.id)) return;
-
-      // Bỏ qua nếu tin nhắn không thuộc phòng hiện tại
       if (newMsg.conversationId !== currentRoomId) return;
 
-      // Thay thế optimistic message bằng tin nhắn thực từ server
-      setMessages((prev) => {
-        const hasOptimistic = prev.some((m) => m.id !== undefined && String(m.id).startsWith('temp-'));
-        const replaced = prev.map((m) =>
-          String(m.id).startsWith('temp-')
-            ? { ...newMsg, isOwn: false, sendStatus: 'received' as const }
-            : m
-        );
-        // Nếu không có optimistic message nào, kiểm tra duplicate
-        if (!hasOptimistic) {
-          const exists = prev.some((m) => m.id === newMsg.id);
-          if (exists) return prev;
-          return [...prev, { ...newMsg, isOwn: false, sendStatus: 'received' as const }];
+      // Cập nhật preview trong store
+      const friendId = friendIdFromConversationId(newMsg.conversationId, user?.id);
+      if (friendId) {
+        setConversationPreview(friendId, {
+          content: newMsg.content,
+          createdAt: newMsg.createdAt,
+        });
+        // Tăng unread nếu không phải đang chat với người này
+        if (selectedFriend?.friend_id !== friendId) {
+          incrementUnread(friendId);
         }
-        return replaced;
+      }
+
+      // Thay thế optimistic message
+      setMessages((prev) => {
+        const hasOptimistic = prev.some(
+          (m) => m.id !== undefined && String(m.id).startsWith("temp-")
+        );
+        if (hasOptimistic) {
+          return prev.map((m) =>
+            String(m.id).startsWith("temp-")
+              ? { ...newMsg, isOwn: false, sendStatus: "received" }
+              : m
+          );
+        }
+        const exists = prev.some((m) => m.id === newMsg.id);
+        if (exists) return prev;
+        return [...prev, { ...newMsg, isOwn: false, sendStatus: "received" }];
       });
     });
 
@@ -172,7 +187,6 @@ export function useDirectMessage(
       setTypingUsers((prev) =>
         prev.includes(userName) ? prev : [...prev, userName]
       );
-      // Tự động xóa sau 3 giây nếu không có typing_stop
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
         setTypingUsers((prev) => prev.filter((n) => n !== userName));
@@ -190,9 +204,19 @@ export function useDirectMessage(
       unsubStopTyping();
       emitLeaveRoom(currentRoomId);
     };
-  }, [currentRoomId, emitJoinRoom, emitLeaveRoom, onReceiveMessage, onUserTyping, onUserStoppedTyping, user?.id]);
+  }, [
+    currentRoomId,
+    emitJoinRoom,
+    emitLeaveRoom,
+    onReceiveMessage,
+    onUserTyping,
+    onUserStoppedTyping,
+    user?.id,
+    selectedFriend,
+    setConversationPreview,
+    incrementUnread,
+  ]);
 
-  // ── onTypingChange: bật/tắt typing indicator ──────────────────────
   const onTypingChange = useCallback(
     (isTyping: boolean) => {
       if (!currentRoomId) return;
@@ -205,7 +229,7 @@ export function useDirectMessage(
     [currentRoomId, emitTypingStart, emitTypingStop]
   );
 
-  // ── Auto-scroll khi có tin nhắn mới ──────────────────────────────────────
+  // Auto-scroll khi có tin nhắn mới
   useEffect(() => {
     if (messages.length === 0) return;
 
@@ -224,7 +248,7 @@ export function useDirectMessage(
     };
   }, [messages, scrollDebounceMs]);
 
-  // ── Gửi tin nhắn DM ─────────────────────────────────────────────────
+  // Gửi tin nhắn DM
   const sendMessage = useCallback(
     async (content: string) => {
       if (!currentRoomId || !content.trim()) return;
@@ -255,11 +279,22 @@ export function useDirectMessage(
         if (result.ok && result.message) {
           const finalMsg = result.message;
           emitTypingStop(currentRoomId);
+
+          // Cập nhật preview
+          const friendId = friendIdFromConversationId(finalMsg.conversationId);
+          if (friendId) {
+            setConversationPreview(friendId, {
+              content: finalMsg.content,
+              createdAt: finalMsg.createdAt,
+            });
+          }
+
           onDmActivity?.({
             conversationId: finalMsg.conversationId,
             content: finalMsg.content,
             createdAt: finalMsg.createdAt,
           });
+
           setMessages((prev) =>
             prev.map((m) =>
               m.id === tempId
@@ -284,7 +319,14 @@ export function useDirectMessage(
         setIsSending(false);
       }
     },
-    [currentRoomId, emitSendMessage, emitTypingStop, user?.id, onDmActivity]
+    [
+      currentRoomId,
+      emitSendMessage,
+      emitTypingStop,
+      user?.id,
+      onDmActivity,
+      setConversationPreview,
+    ]
   );
 
   return {
@@ -294,10 +336,59 @@ export function useDirectMessage(
     currentRoomId,
     sendMessage,
     isSending,
-    setMessages,
     bottomSentinelRef,
     scrollContainerRef,
     typingUsers,
     onTypingChange,
   };
+}
+
+// Hook để join tất cả phòng DM của bạn bè
+export function useJoinFriendDmRooms(
+  friends: { friend_id: string }[] | null,
+  authUserId?: string | number
+) {
+  const { emitJoinRoom, emitLeaveRoom } = useSocket();
+
+  useEffect(() => {
+    if (!friends?.length || !authUserId) return;
+
+    const roomIds = friends.map((f) =>
+      dmConversationId(authUserId, f.friend_id)
+    );
+    roomIds.forEach((roomId) => emitJoinRoom(roomId));
+
+    return () => {
+      roomIds.forEach((roomId) => emitLeaveRoom(roomId));
+    };
+  }, [friends, authUserId, emitJoinRoom, emitLeaveRoom]);
+}
+
+// Hook để cập nhật preview khi nhận message
+export function useMessagePreviewUpdater(currentUserId?: string | number) {
+  const { socket, onReceiveMessage } = useSocket();
+  const { selectedFriend, setConversationPreview, incrementUnread } = useChatStore();
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const off = onReceiveMessage((msg) => {
+      const cid = msg.conversationId;
+      const friendId = friendIdFromConversationId(cid, currentUserId);
+      if (!friendId) return;
+
+      // Cập nhật preview
+      setConversationPreview(friendId, {
+        content: msg.content,
+        createdAt: msg.createdAt,
+      });
+
+      // Tăng unread nếu không phải đang chat với người này
+      if (selectedFriend?.friend_id !== friendId) {
+        incrementUnread(friendId);
+      }
+    });
+
+    return off;
+  }, [socket, onReceiveMessage, currentUserId, selectedFriend, setConversationPreview, incrementUnread]);
 }

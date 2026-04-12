@@ -11,7 +11,7 @@ import React, {
 
 // ── Types ────────────────────────────────────────────────────────────────────────
 
-export type ToastType = "success" | "error" | "info" | "friend_request" | "friend_accepted";
+export type ToastType = "success" | "error" | "info" | "friend_request" | "friend_accepted" | "message";
 
 export interface Toast {
   id: string;

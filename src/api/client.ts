@@ -42,7 +42,7 @@ export async function authRequest(
   },
 ): Promise<AuthResponse> {
   const endpoint =
-    mode === "login" ? "/api/users/login" : "/api/users/register";
+    mode === "login" ? "/api/auth/login" : "/api/auth/register";
 
   const res = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",

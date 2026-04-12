@@ -12,11 +12,11 @@ export default function RootLayout({
     <html lang="vi">
       <body>
         <AuthProvider>
-          <SocketProvider>
-            <ToastProvider>
+          <ToastProvider>
+            <SocketProvider>
               {children}
-            </ToastProvider>
-          </SocketProvider>
+            </SocketProvider>
+          </ToastProvider>
         </AuthProvider>
       </body>
     </html>

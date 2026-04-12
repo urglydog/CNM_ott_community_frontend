@@ -144,8 +144,17 @@ export async function getGroupMembers(
   avatarUrl: string | null;
   role: string;
 }>> {
+  // Defensive normalization: prevent passing call-room ids like "group_call_xxx" to the members API.
+  const normalizedGroupId = String(groupId)
+    .replace(/^group_call_/, "")
+    .trim();
+
+  if (!normalizedGroupId) {
+    throw new Error("groupId không hợp lệ khi gọi API lấy thành viên nhóm");
+  }
+
   const response = await apiClient.get(
-    `/api/groups/${groupId}/members`,
+    `/api/groups/${encodeURIComponent(normalizedGroupId)}/members`,
   );
   return response.data || [];
 }

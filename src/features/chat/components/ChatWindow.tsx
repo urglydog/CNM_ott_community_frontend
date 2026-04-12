@@ -24,14 +24,19 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dmConversationId, useDirectMessage } from "../hooks/useChatHooks";
-import { useGroupChat, isSystemMessage, type GroupChatMessage } from "../hooks/useGroupChat";
+import {
+  groupConversationId,
+  useGroupChat,
+  isSystemMessage,
+  type GroupChatMessage,
+} from "../hooks/useGroupChat";
 import { getGroupMembers } from "../api";
 import { useSocket, type CallSignalPayload } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
-import { buildOneToOneCallRoomId } from "../api";
 import apiClient from "../../../lib/axios";
 import type { AuthUser } from "../../../types";
-import VideoCallRoom from "../../../components/chat/VideoCallRoom";
+import VideoCallGroup from "../../../components/chat/VideoCallGroup";
+import VideoCall1vs1 from "../../../components/chat/VideoCall1vs1";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
 
@@ -49,6 +54,7 @@ interface ActiveCallData {
   callerId: string;
   callerName: string;
   receiverId: string;
+  isGroupCall: boolean;
 }
 
 interface IncomingCallData {
@@ -57,6 +63,7 @@ interface IncomingCallData {
   callerId: string;
   callerName: string;
   receiverId: string;
+  isGroupCall: boolean;
 }
 
 function sanitizeRoomId(roomId: string): string {
@@ -389,6 +396,9 @@ function PrivateMessageBubble({
 export default function ChatWindow({ authUser }: ChatWindowProps) {
   const { selectedFriend, selectedGroup, chatMode } = useChatStore();
 
+  const currentUserId = String((authUser as any)._id || authUser.id || "");
+  const currentUserName = authUser.displayName || authUser.username || "User";
+
   // ── Private mode ───────────────────────────────────────────────────────
   const friendId = selectedFriend?.friend_id ?? null;
   const {
@@ -424,7 +434,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       setGroupMembers([]);
       return;
     }
-    getGroupMembers(selectedGroup.groupId)
+    const groupIdForMembers = selectedGroup.groupId;
+
+    getGroupMembers(groupIdForMembers)
       .then((members) => {
         const normalized: GroupMember[] = members.map((m) => ({
           userId: String(m.userId),
@@ -439,9 +451,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }, [selectedGroup]);
 
   const {
+    socket,
     status,
-    emitCallUser,
-    emitCallAccepted,
+    onIncomingCall,
     emitCallDeclined,
     emitEndCall,
     onCallAccepted,
@@ -478,39 +490,47 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }, [inputValue]);
 
   useEffect(() => {
-    const offAccepted = onCallAccepted((payload: CallSignalPayload) => {
-      if (String(payload.callerId) !== String(authUser.id)) return;
-      if (!payload.token || !payload.appId) return;
+    const offIncoming = onIncomingCall((payload: CallSignalPayload) => {
+      console.debug("[ChatWindow][onIncomingCall] payload:", payload);
+      if (String(payload.callerId) === currentUserId) return;
 
-      setCallData({
-        roomId: sanitizeRoomId(payload.roomId),
-        token: payload.token,
-        appId: payload.appId,
-        userId: String(authUser.id),
-        userName: authUser.displayName || authUser.username,
-        conversationId: payload.conversationId,
+      const isGroupCall = Boolean(payload.isGroupCall);
+
+      if (!isGroupCall && String(payload.receiverId ?? "") !== currentUserId) {
+        return;
+      }
+
+      setIncomingCallData({
+        conversationId: String(payload.conversationId || payload.roomId),
+        roomId: String(payload.roomId),
         callerId: String(payload.callerId),
         callerName: payload.callerName,
-        receiverId: String(payload.receiverId),
+        receiverId: String(payload.receiverId ?? currentUserId),
+        isGroupCall,
       });
-      setIsInCall(true);
+    });
+
+    const offAccepted = onCallAccepted((_payload: CallSignalPayload) => {
+      console.debug("[ChatWindow][onCallAccepted] payload:", _payload);
       setIsStartingCall(false);
     });
 
     const offDeclined = onCallDeclined((payload: CallSignalPayload) => {
-      if (String(payload.callerId) !== String(authUser.id)) return;
+      console.debug("[ChatWindow][onCallDeclined] payload:", payload);
+      if (String(payload.callerId) !== currentUserId) return;
+      addToast("Người dùng đã từ chối cuộc gọi", "info");
       setIsInCall(false);
       setCallData(null);
       setIsStartingCall(false);
     });
 
     const offEndCall = onEndCall((payload: CallSignalPayload) => {
-      const endedCurrentCall =
-        !callData || payload.conversationId === callData.conversationId;
+      console.debug("[ChatWindow][onEndCall] payload:", payload);
+      const endedCurrentCall = !callData || payload.roomId === callData.roomId;
 
       if (!endedCurrentCall) return;
 
-      addToast("Cuoc goi da ket thuc", "info", 2500);
+      addToast("Cuộc gọi đã kết thúc", "info", 2500);
       setIsInCall(false);
       setCallData(null);
       setIncomingCallData(null);
@@ -518,38 +538,58 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     });
 
     return () => {
+      offIncoming();
       offAccepted();
       offDeclined();
       offEndCall();
     };
   }, [
+    onIncomingCall,
     onCallAccepted,
     onCallDeclined,
     onEndCall,
     status,
-    authUser.id,
-    authUser.displayName,
-    authUser.username,
+    currentUserId,
     addToast,
     callData,
   ]);
 
   async function handleStartVideoCall() {
-    if (!selectedFriend || isStartingCall || isInCall) return;
+    const isGroupCall = chatMode === "GROUP";
+    const hasTarget = isGroupCall ? selectedGroup != null : selectedFriend != null;
+
+    if (!hasTarget || isStartingCall || isInCall) return;
 
     setIsStartingCall(true);
     try {
-      const rawRoomId = buildOneToOneCallRoomId(
-        authUser.id,
-        selectedFriend.friend_id,
+      const directFriendId = String(
+        (selectedFriend as any)?.friend_id ??
+        (selectedFriend as any)?._id ??
+        (selectedFriend as any)?.id ??
+        "",
       );
+
+      if (!isGroupCall && !directFriendId) {
+        throw new Error("Khong tim thay ID nguoi nhan de goi 1-1");
+      }
+
+      const normalizedGroupId = isGroupCall
+        ? String(selectedGroup!.groupId).replace("group_", "")
+        : "";
+
+      const rawRoomId = isGroupCall
+        ? `group_call_${normalizedGroupId}`
+        : `call_1vs1_${[currentUserId, directFriendId].sort().join("_")}`;
       const safeRoomId = sanitizeRoomId(rawRoomId);
+      const conversationId = isGroupCall
+        ? groupConversationId(selectedGroup!.groupId)
+        : dmConversationId(currentUserId, directFriendId);
 
       const response = await apiClient.get<{ appID: number; token: string }>(
         "/api/calls/token",
         {
           params: {
-            userID: String(authUser.id),
+            userID: currentUserId,
           },
         },
       );
@@ -558,21 +598,37 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         roomId: safeRoomId,
         token: String(response.data.token),
         appId: Number(response.data.appID),
-        userId: String(authUser.id),
-        userName: authUser.displayName || authUser.username,
-        conversationId: dmConversationId(authUser.id, selectedFriend.friend_id),
-        callerId: String(authUser.id),
-        callerName: authUser.displayName || authUser.username,
-        receiverId: String(selectedFriend.friend_id),
+        userId: currentUserId,
+        userName: currentUserName,
+        conversationId,
+        callerId: currentUserId,
+        callerName: currentUserName,
+        receiverId: isGroupCall
+          ? String(selectedGroup!.groupId)
+          : directFriendId,
+        isGroupCall,
       };
 
-      emitCallUser({
-        conversationId: payload.conversationId,
-        roomId: rawRoomId,
-        callerId: payload.callerId,
-        callerName: payload.callerName,
-        receiverId: payload.receiverId,
-      });
+      if (isGroupCall) {
+        const groupCallPayload = {
+          groupId: String(selectedGroup!.groupId),
+          roomId: safeRoomId,
+          callerId: currentUserId,
+          callerName: currentUserName,
+        };
+        console.debug("[ChatWindow][emit group-call-request] payload:", groupCallPayload);
+        socket?.emit("group-call-request", groupCallPayload);
+      } else {
+        const oneToOnePayload = {
+          to: String(selectedFriend!.friend_id),
+          roomId: safeRoomId,
+          callerId: currentUserId,
+          callerName: currentUserName,
+        };
+        console.debug("[ChatWindow][emit call-user] payload:", oneToOnePayload);
+        socket?.emit("call-user", oneToOnePayload);
+      }
+
       setCallData(payload);
       setIsInCall(true);
     } catch {
@@ -591,7 +647,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         "/api/calls/token",
         {
           params: {
-            userID: String(authUser.id),
+            userID: currentUserId,
           },
         },
       );
@@ -600,22 +656,22 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         roomId: sanitizeRoomId(incomingCallData.roomId),
         token: String(response.data.token),
         appId: Number(response.data.appID),
-        userId: String(authUser.id),
-        userName: authUser.displayName || authUser.username,
+        userId: currentUserId,
+        userName: currentUserName,
         conversationId: incomingCallData.conversationId,
         callerId: incomingCallData.callerId,
         callerName: incomingCallData.callerName,
-        receiverId: String(authUser.id),
+        receiverId: currentUserId,
+        isGroupCall: incomingCallData.isGroupCall,
       };
 
-      emitCallAccepted({
-        conversationId: incomingCallData.conversationId,
+      socket?.emit("call-accepted", {
+        to: incomingCallData.callerId,
         roomId: incomingCallData.roomId,
-        callerId: incomingCallData.callerId,
-        callerName: incomingCallData.callerName,
-        receiverId: incomingCallData.receiverId,
-        token: acceptedPayload.token,
-        appId: acceptedPayload.appId,
+      });
+      console.debug("[ChatWindow][emit call-accepted] payload:", {
+        to: incomingCallData.callerId,
+        roomId: incomingCallData.roomId,
       });
 
       setCallData(acceptedPayload);
@@ -633,20 +689,19 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }
 
   function handleHangUp(shouldEmitSignal = true) {
-    if (shouldEmitSignal && callData) {
-      const remoteUserId =
-        String(callData.callerId) === String(authUser.id)
-          ? String(callData.receiverId)
-          : String(callData.callerId);
+    if (shouldEmitSignal && callData && !callData.isGroupCall) {
+      const remoteUserId = String(callData.callerId) === currentUserId
+        ? String(callData.receiverId)
+        : String(callData.callerId);
 
       emitEndCall({
         conversationId: callData.conversationId,
         roomId: callData.roomId,
-        callerId: String(authUser.id),
-        callerName: authUser.displayName || authUser.username,
+        callerId: currentUserId,
+        callerName: currentUserName,
         receiverId: remoteUserId,
         to: remoteUserId,
-        from: String(authUser.id),
+        from: currentUserId,
       });
     }
 
@@ -852,7 +907,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               <GroupMessageBubble
                 key={msg.id}
                 msg={msg}
-                authUserId={authUser.id}
+                authUserId={currentUserId}
               />
             );
           }
@@ -863,7 +918,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               msg={msg}
               friendName={friendName}
               friendAvatarUrl={selectedFriend?.friend_avatar_url ?? null}
-              authUserId={authUser.id}
+              authUserId={currentUserId}
             />
           );
         })}
@@ -1014,38 +1069,19 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       {isInCall &&
         callData &&
         (() => {
-          const safeUserId = String(callData.userId || "").trim();
+          const commonProps = {
+            roomId: callData.roomId,
+            token: callData.token,
+            userId: currentUserId,
+            userName: currentUserName,
+            appId: 816047107,
+            onLeave: () => handleHangUp(),
+          };
 
-          if (!safeUserId) {
-            return (
-              <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-                <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    Dang tai thong tin nguoi dung...
-                  </h3>
-                  <p className="mt-1 text-sm text-gray-600">
-                    Chua the vao cuoc goi vi userId dang rong.
-                  </p>
-                </div>
-              </div>
-            );
-          }
-
-          return (
-            <VideoCallRoom
-              roomId={callData.roomId}
-              token={callData.token}
-              appId={callData.appId}
-              userId={safeUserId}
-              userName={callData.userName}
-              remoteUserId={
-                String(callData.callerId) === String(authUser.id)
-                  ? String(callData.receiverId)
-                  : String(callData.callerId)
-              }
-              conversationId={callData.conversationId}
-              onLeave={() => handleHangUp(false)}
-            />
+          return callData.isGroupCall ? (
+            <VideoCallGroup {...commonProps} />
+          ) : (
+            <VideoCall1vs1 {...commonProps} />
           );
         })()}
     </div>

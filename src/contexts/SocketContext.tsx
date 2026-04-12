@@ -45,6 +45,7 @@ export interface CallSignalPayload {
   from?: string;
   token?: string;
   appId?: number;
+  isGroupCall?: boolean;
 }
 
 interface SocketContextValue {
@@ -226,10 +227,18 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     if (!socket || !resolvedUserId) return;
 
     const handleIncomingCall = (payload: CallSignalPayload) => {
-      if (String(payload.callerId) === resolvedUserId) return;
-      if (String(payload.receiverId) !== resolvedUserId) return;
+      const callerId = String(payload.callerId ?? payload.from ?? "");
+      const receiverId = String(payload.receiverId ?? payload.to ?? "");
 
-      setIncomingCall(payload);
+      if (callerId === resolvedUserId) return;
+      if (receiverId && receiverId !== resolvedUserId) return;
+
+      setIncomingCall({
+        ...payload,
+        callerId,
+        receiverId: receiverId || resolvedUserId,
+        isGroupCall: false,
+      });
 
       const ringtone = ringtoneRef.current;
       if (ringtone) {
@@ -245,28 +254,75 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       stopRingtone();
     };
 
+    const handleGroupCallRequest = (data: CallSignalPayload) => {
+      console.log("[SOCKET DEBUG] Group Call Signal Received:", data);
+
+      const roomId = String(data?.roomId || "").trim();
+      if (!roomId) {
+        console.warn("[SOCKET DEBUG] Ignored group-call-request because roomId is missing");
+        return;
+      }
+
+      const callerId = String(data.callerId || "");
+      if (callerId && callerId === resolvedUserId) return;
+
+      setIncomingCall({
+        ...data,
+        roomId,
+        callerId,
+        receiverId: String(data.receiverId || resolvedUserId),
+        isGroupCall: true,
+      });
+
+      const ringtone = ringtoneRef.current;
+      if (ringtone) {
+        ringtone.loop = true;
+        ringtone.play().catch(() => {
+          // Browser may block autoplay before first user interaction.
+        });
+      }
+    };
+
+    const handleCancelGroupCall = (data: CallSignalPayload) => {
+      const incomingRoomId = String(incomingCall?.roomId || "");
+      const canceledRoomId = String(data?.roomId || "");
+
+      if (!incomingRoomId || !canceledRoomId || incomingRoomId === canceledRoomId) {
+        setIncomingCall(null);
+        stopRingtone();
+      }
+    };
+
     const handleEndCall = (payload: CallSignalPayload) => {
       if (activeCall && payload.conversationId !== activeCall.conversationId) {
         return;
       }
       setIncomingCall(null);
       setActiveCall(null);
-      stopRingtone();
+      if (!incomingCall?.isGroupCall) {
+        stopRingtone();
+      }
       addToast("Cuoc goi da ket thuc", "info", 2500);
     };
 
     socket.on("incoming-call", handleIncomingCall);
+    socket.on("call-user", handleIncomingCall);
     socket.on("call-request", handleIncomingCall);
+    socket.on("group-call-request", handleGroupCallRequest);
     socket.on("cancel-call", handleCancelCall);
+    socket.on("cancel-group-call", handleCancelGroupCall);
     socket.on("end-call", handleEndCall);
 
     return () => {
       socket.off("incoming-call", handleIncomingCall);
+      socket.off("call-user", handleIncomingCall);
       socket.off("call-request", handleIncomingCall);
+      socket.off("group-call-request", handleGroupCallRequest);
       socket.off("cancel-call", handleCancelCall);
+      socket.off("cancel-group-call", handleCancelGroupCall);
       socket.off("end-call", handleEndCall);
     };
-  }, [addToast, activeCall, resolvedUserId, stopRingtone]);
+  }, [addToast, activeCall, incomingCall?.isGroupCall, incomingCall?.roomId, resolvedUserId, stopRingtone]);
 
   // ── Emit helpers ────────────────────────────────────────────────────────────
 
@@ -468,9 +524,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
       const listener = (data: CallSignalPayload) => handler(data);
       socket.on("incoming-call", listener);
+      socket.on("call-request", listener);
+      socket.on("call-user", listener);
 
       return () => {
         socket.off("incoming-call", listener);
+        socket.off("call-request", listener);
+        socket.off("call-user", listener);
       };
     },
     []

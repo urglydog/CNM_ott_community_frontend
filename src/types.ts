@@ -108,7 +108,7 @@ export interface FriendsListResponse {
 // ── Direct Message Types ────────────────────────────────────────────────────────
 
 export interface DirectMessageItem {
-  id: number;
+  id: number | string;
   conversationId: string;
   senderId: string | number;
   contentType: string;

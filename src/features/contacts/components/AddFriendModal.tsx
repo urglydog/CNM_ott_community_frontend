@@ -1,18 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, UserRound, X } from "lucide-react";
-import { listUsers, sendFriendRequest } from "../../api/client";
-import { useAuth } from "../../contexts/AuthContext";
-import { useToast } from "../../contexts/ToastContext";
-import type { SearchUser } from "../../types";
+import { useAuth } from "../../../contexts/AuthContext";
+import { useToast } from "../../../contexts/ToastContext";
+import { useSearchUsers } from "../hooks/useContactsHooks";
+import type { SearchUser } from "../../../types";
 
 const RECENT_STORAGE_KEY = "ott_add_friend_recent";
 
 interface RecentEntry {
-  /** Dùng làm React key — ưu tiên DynamoDB string id */
   key: string;
-  /** Dùng cho API call */
   numId: number;
   display_name: string;
   phone_display: string;
@@ -27,7 +25,6 @@ function digitsOnly(s: string): string {
   return s.replace(/\D/g, "");
 }
 
-/** Hiển thị dạng (+84) 0837 930 093 */
 function formatVnPhoneDisplay(raw: string | null | undefined): string {
   if (!raw) return "";
   const d = digitsOnly(raw);
@@ -51,9 +48,8 @@ function loadRecent(): RecentEntry[] {
       localStorage.removeItem(RECENT_STORAGE_KEY);
       return [];
     }
-    // Hỗ trợ cả format cũ (id) và format mới (key / numId)
     const result = raw.slice(0, 5).map((item: unknown) => {
-      if (!item || typeof item !== 'object') return null;
+      if (!item || typeof item !== "object") return null;
       const obj = item as Record<string, unknown>;
       const rawId = obj.key ?? obj.numId ?? obj.id;
       const numId = Number(rawId);
@@ -61,13 +57,15 @@ function loadRecent(): RecentEntry[] {
       return {
         key: String(rawId),
         numId,
-        display_name: typeof obj.display_name === 'string' ? obj.display_name : '',
-        phone_display: typeof obj.phone_display === 'string' ? obj.phone_display : '',
-        avatar_url: typeof obj.avatar_url === 'string' || obj.avatar_url === null ? (obj.avatar_url as string | null) : null
+        display_name: typeof obj.display_name === "string" ? obj.display_name : "",
+        phone_display: typeof obj.phone_display === "string" ? obj.phone_display : "",
+        avatar_url:
+          typeof obj.avatar_url === "string" || obj.avatar_url === null
+            ? (obj.avatar_url as string | null)
+            : null,
       } as RecentEntry;
     }).filter(Boolean) as RecentEntry[];
 
-    // Nếu có entry bị null (corrupt), ghi lại storage sạch
     if (result.length !== raw.length) {
       saveRecent(result);
     }
@@ -80,13 +78,12 @@ function loadRecent(): RecentEntry[] {
 
 function saveRecent(entries: RecentEntry[]) {
   try {
-    // Store key + numId để reload đúng shape
     const stripped = entries.map(({ key, numId, display_name, phone_display, avatar_url }) => ({
       key,
       numId,
       display_name,
       phone_display,
-      avatar_url
+      avatar_url,
     }));
     localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(stripped));
   } catch {
@@ -101,21 +98,20 @@ function getAvatarInitial(name: string): string {
 export default function AddFriendModal({ onClose }: AddFriendModalProps) {
   const { user } = useAuth();
   const { addToast } = useToast();
+  const { users, loading } = useSearchUsers();
 
   const [phoneInput, setPhoneInput] = useState("");
-  const [allUsers, setAllUsers] = useState<SearchUser[]>([]);
-  const [loading, setLoading] = useState(true);
   const [recent, setRecent] = useState<RecentEntry[]>([]);
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
 
   const others = useMemo(
     () =>
-      allUsers.filter((u) => {
+      users.filter((u: SearchUser) => {
         const uid = u.userId ?? u.id;
         return String(uid) !== String(user?.userId ?? user?.id);
       }),
-    [allUsers, user]
+    [users, user]
   );
 
   const suggestions = useMemo(() => {
@@ -123,22 +119,9 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
     return shuffled.slice(0, 4);
   }, [others]);
 
-  const loadUsers = useCallback(async () => {
-    try {
-      setLoading(true);
-      const list = await listUsers();
-      setAllUsers(list);
-    } catch {
-      addToast("Không tải được danh sách người dùng", "error");
-    } finally {
-      setLoading(false);
-    }
-  }, [addToast]);
-
   useEffect(() => {
     setRecent(loadRecent());
-    loadUsers();
-  }, [loadUsers]);
+  }, []);
 
   const handleSearch = () => {
     const q = digitsOnly(phoneInput);
@@ -147,7 +130,7 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
       return;
     }
 
-    const found = others.find((u) => {
+    const found = others.find((u: SearchUser) => {
       const p = digitsOnly(u.phone_number || "");
       if (!p) return false;
       return p.endsWith(q) || q.endsWith(p) || p.includes(q) || q.includes(p);
@@ -171,23 +154,17 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
     }
   };
 
-  /** Prefer userId (string DynamoDB key) when available, fall back to numeric id */
-  const resolveTargetId = (rawId: unknown): number | string => {
-    if (typeof rawId === 'string' && rawId.trim() !== '') return rawId;
-    const n = Number(rawId);
-    return isNaN(n) ? '' : n;
-  };
-
   const handleSendRequest = async (rawId: unknown) => {
-    const targetId = resolveTargetId(rawId);
+    const targetId = typeof rawId === "string" && rawId.trim() !== "" ? rawId : Number(rawId);
     if (String(targetId) === String(user?.userId ?? user?.id)) {
       addToast("Không thể gửi lời mời kết bạn cho chính mình", "error");
       return;
     }
-    const idKey = typeof targetId === 'string' ? targetId : String(targetId);
+    const idKey = typeof targetId === "string" ? targetId : String(targetId);
     setSendingIds((prev) => new Set(prev).add(idKey));
     try {
-      await sendFriendRequest({ receiverId: targetId });
+      const { sendFriendRequest } = await import("../api");
+      await sendFriendRequest({ receiverId: targetId as string | number });
       setSentIds((prev) => new Set(prev).add(idKey));
       addToast("Đã gửi lời mời kết bạn", "success");
     } catch (err: unknown) {
@@ -210,7 +187,6 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
     >
       <div className="absolute inset-0 bg-black/35" onClick={onClose} aria-hidden />
       <div className="relative w-full max-w-[420px] max-h-[90vh] overflow-hidden rounded-lg bg-white shadow-xl flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
           <h2 id="add-friend-title" className="text-[17px] font-semibold text-gray-900">
             Thêm bạn
@@ -226,7 +202,6 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
         </div>
 
         <div className="overflow-y-auto flex-1 px-5 py-4">
-          {/* Số điện thoại + mã vùng */}
           <div className="flex gap-2 items-end border-b-2 border-blue-500 pb-1 mb-6">
             <div className="relative shrink-0">
               <select
@@ -248,13 +223,12 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
             />
           </div>
 
-          {/* Kết quả gần nhất */}
           <p className="text-[13px] font-semibold text-gray-800 mb-3">Kết quả gần nhất</p>
           {recent.length === 0 ? (
             <p className="text-xs text-gray-400 mb-6">Chưa có kết quả tìm kiếm gần đây</p>
           ) : (
             <ul className="space-y-3 mb-6">
-                  {recent.map((r) => {
+              {recent.map((r) => {
                 const key = r.key;
                 const busy = sendingIds.has(key);
                 const sent = sentIds.has(key);
@@ -287,7 +261,6 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
             </ul>
           )}
 
-          {/* Có thể bạn quen */}
           <div className="flex items-center gap-2 mb-3 text-gray-600">
             <UserRound className="w-4 h-4" />
             <span className="text-[13px] font-medium">Có thể bạn quen</span>
@@ -335,7 +308,6 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 bg-gray-50/80 shrink-0">
           <button
             type="button"

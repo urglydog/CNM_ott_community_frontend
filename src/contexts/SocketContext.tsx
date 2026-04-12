@@ -53,7 +53,7 @@ interface SocketContextValue {
     handler: (data: { roomId: string; userId: string | number; userName: string }) => void
   ) => () => void;
   onUserStoppedTyping: (
-    handler: (data: { roomId: string; userId: string | number }) => void
+    handler: (data: { roomId: string; userId: string | number; userName?: string }) => void
   ) => () => void;
 }
 
@@ -216,10 +216,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   );
 
   const onUserStoppedTyping = useCallback(
-    (handler: (data: { roomId: string; userId: string | number }) => void) => {
+    (handler: (data: { roomId: string; userId: string | number; userName?: string }) => void) => {
       const socket = socketRef.current;
       if (!socket) return () => {};
-      const listener = (data: { roomId: string; userId: string | number }) =>
+      const listener = (data: { roomId: string; userId: string | number; userName?: string }) =>
         handler(data);
       socket.on("user_stopped_typing", listener);
       return () => socket.off("user_stopped_typing", listener);

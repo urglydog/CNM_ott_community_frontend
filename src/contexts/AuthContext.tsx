@@ -46,6 +46,7 @@ interface AuthContextValue {
   isLoading: boolean;
   error: string | null;
   isAuthenticated: boolean;
+  isInitialized: boolean;
   login: (e: FormEvent) => Promise<void>;
   register: (e: FormEvent) => Promise<void>;
   logout: () => void;
@@ -87,6 +88,7 @@ const defaultForm = {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(defaultForm);
@@ -115,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       localStorage.removeItem(AUTH_STORAGE_KEY);
     }
+    setIsInitialized(true);
   }, []);
 
   const persistUser = useCallback((authUser: AuthUser) => {
@@ -257,6 +260,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         error,
         isAuthenticated: !!user,
+        isInitialized,
         login,
         register,
         logout,

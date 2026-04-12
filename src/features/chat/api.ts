@@ -1,6 +1,61 @@
 import apiClient from "../../lib/axios";
 import type { DirectMessageItem } from "../../types";
 
+export interface GenerateCallTokenParams {
+  callerId: string | number;
+  receiverId: string | number;
+  roomId?: string;
+  expiredInSeconds?: number;
+}
+
+interface GenerateCallTokenApiResponse {
+  appID: number;
+  token: string;
+  userID: string;
+  expiredIn: number;
+}
+
+export interface GenerateCallTokenResult {
+  appId: number;
+  token: string;
+  roomId: string;
+  userId: string;
+  expiredIn: number;
+}
+
+export function buildOneToOneCallRoomId(
+  callerId: string | number,
+  receiverId: string | number,
+): string {
+  const sorted = [String(callerId), String(receiverId)].sort();
+  return `call_dm_${sorted[0]}_${sorted[1]}`;
+}
+
+export async function generateCallToken(
+  params: GenerateCallTokenParams,
+): Promise<GenerateCallTokenResult> {
+  const response = await apiClient.get<GenerateCallTokenApiResponse>(
+    "/api/calls/token",
+    {
+      params: {
+        userID: String(params.callerId),
+        roomId: params.roomId,
+        expired_ts: params.expiredInSeconds,
+      },
+    },
+  );
+
+  const data = response.data;
+
+  return {
+    appId: Number(data.appID),
+    token: String(data.token),
+    roomId: buildOneToOneCallRoomId(params.callerId, params.receiverId),
+    userId: String(data.userID),
+    expiredIn: Number(data.expiredIn),
+  };
+}
+
 export async function getDirectMessages(
   conversationId: string,
 ): Promise<DirectMessageItem[]> {

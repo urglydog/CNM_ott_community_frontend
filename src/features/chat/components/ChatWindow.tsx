@@ -22,13 +22,41 @@ import {
   FileText,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useDirectMessage } from "../hooks/useChatHooks";
-import { useSocket } from "../../../contexts/SocketContext";
+import { dmConversationId, useDirectMessage } from "../hooks/useChatHooks";
+import { useSocket, type CallSignalPayload } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
+import { buildOneToOneCallRoomId } from "../api";
+import apiClient from "../../../lib/axios";
 import type { AuthUser } from "../../../types";
+import VideoCallRoom from "../../../components/chat/VideoCallRoom";
+import { useToast } from "../../../contexts/ToastContext";
 
 interface ChatWindowProps {
   authUser: AuthUser;
+}
+
+interface ActiveCallData {
+  roomId: string;
+  token: string;
+  appId: number;
+  userId: string;
+  userName: string;
+  conversationId: string;
+  callerId: string;
+  callerName: string;
+  receiverId: string;
+}
+
+interface IncomingCallData {
+  conversationId: string;
+  roomId: string;
+  callerId: string;
+  callerName: string;
+  receiverId: string;
+}
+
+function sanitizeRoomId(roomId: string): string {
+  return roomId.replace(/:/g, "_");
 }
 
 export default function ChatWindow({ authUser }: ChatWindowProps) {
@@ -49,8 +77,23 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     onTypingChange,
   } = useDirectMessage(friendId);
 
-  const { status } = useSocket();
+  const {
+    status,
+    emitCallUser,
+    emitCallAccepted,
+    emitCallDeclined,
+    emitEndCall,
+    onCallAccepted,
+    onCallDeclined,
+    onEndCall,
+  } = useSocket();
+  const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
+  const [isInCall, setIsInCall] = useState(false);
+  const [isStartingCall, setIsStartingCall] = useState(false);
+  const [callData, setCallData] = useState<ActiveCallData | null>(null);
+  const [incomingCallData, setIncomingCallData] =
+    useState<IncomingCallData | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -64,6 +107,183 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 128)}px`;
   }, [inputValue]);
+
+  useEffect(() => {
+    const offAccepted = onCallAccepted((payload: CallSignalPayload) => {
+      if (String(payload.callerId) !== String(authUser.id)) return;
+      if (!payload.token || !payload.appId) return;
+
+      setCallData({
+        roomId: sanitizeRoomId(payload.roomId),
+        token: payload.token,
+        appId: payload.appId,
+        userId: String(authUser.id),
+        userName: authUser.displayName || authUser.username,
+        conversationId: payload.conversationId,
+        callerId: String(payload.callerId),
+        callerName: payload.callerName,
+        receiverId: String(payload.receiverId),
+      });
+      setIsInCall(true);
+      setIsStartingCall(false);
+    });
+
+    const offDeclined = onCallDeclined((payload: CallSignalPayload) => {
+      if (String(payload.callerId) !== String(authUser.id)) return;
+      setIsInCall(false);
+      setCallData(null);
+      setIsStartingCall(false);
+    });
+
+    const offEndCall = onEndCall((payload: CallSignalPayload) => {
+      const endedCurrentCall =
+        !callData || payload.conversationId === callData.conversationId;
+
+      if (!endedCurrentCall) return;
+
+      addToast("Cuoc goi da ket thuc", "info", 2500);
+      setIsInCall(false);
+      setCallData(null);
+      setIncomingCallData(null);
+      setIsStartingCall(false);
+    });
+
+    return () => {
+      offAccepted();
+      offDeclined();
+      offEndCall();
+    };
+  }, [
+    onCallAccepted,
+    onCallDeclined,
+    onEndCall,
+    status,
+    authUser.id,
+    authUser.displayName,
+    authUser.username,
+    addToast,
+    callData,
+  ]);
+
+  async function handleStartVideoCall() {
+    if (!selectedFriend || isStartingCall || isInCall) return;
+
+    setIsStartingCall(true);
+    try {
+      const rawRoomId = buildOneToOneCallRoomId(
+        authUser.id,
+        selectedFriend.friend_id,
+      );
+      const safeRoomId = sanitizeRoomId(rawRoomId);
+
+      const response = await apiClient.get<{ appID: number; token: string }>(
+        "/api/calls/token",
+        {
+          params: {
+            userID: String(authUser.id),
+          },
+        },
+      );
+
+      const payload: ActiveCallData = {
+        roomId: safeRoomId,
+        token: String(response.data.token),
+        appId: Number(response.data.appID),
+        userId: String(authUser.id),
+        userName: authUser.displayName || authUser.username,
+        conversationId: dmConversationId(authUser.id, selectedFriend.friend_id),
+        callerId: String(authUser.id),
+        callerName: authUser.displayName || authUser.username,
+        receiverId: String(selectedFriend.friend_id),
+      };
+
+      emitCallUser({
+        conversationId: payload.conversationId,
+        roomId: rawRoomId,
+        callerId: payload.callerId,
+        callerName: payload.callerName,
+        receiverId: payload.receiverId,
+      });
+      setCallData(payload);
+      setIsInCall(true);
+    } catch {
+      setIsInCall(false);
+      setCallData(null);
+    } finally {
+      setIsStartingCall(false);
+    }
+  }
+
+  async function handleAcceptIncomingCall() {
+    if (!incomingCallData) return;
+
+    try {
+      const response = await apiClient.get<{ appID: number; token: string }>(
+        "/api/calls/token",
+        {
+          params: {
+            userID: String(authUser.id),
+          },
+        },
+      );
+
+      const acceptedPayload: ActiveCallData = {
+        roomId: sanitizeRoomId(incomingCallData.roomId),
+        token: String(response.data.token),
+        appId: Number(response.data.appID),
+        userId: String(authUser.id),
+        userName: authUser.displayName || authUser.username,
+        conversationId: incomingCallData.conversationId,
+        callerId: incomingCallData.callerId,
+        callerName: incomingCallData.callerName,
+        receiverId: String(authUser.id),
+      };
+
+      emitCallAccepted({
+        conversationId: incomingCallData.conversationId,
+        roomId: incomingCallData.roomId,
+        callerId: incomingCallData.callerId,
+        callerName: incomingCallData.callerName,
+        receiverId: incomingCallData.receiverId,
+        token: acceptedPayload.token,
+        appId: acceptedPayload.appId,
+      });
+
+      setCallData(acceptedPayload);
+      setIsInCall(true);
+      setIncomingCallData(null);
+    } catch (error) {
+      console.error("Loi khi nguoi nghe lay token:", error);
+    }
+  }
+
+  function handleDeclineIncomingCall() {
+    if (!incomingCallData) return;
+    emitCallDeclined(incomingCallData);
+    setIncomingCallData(null);
+  }
+
+  function handleHangUp(shouldEmitSignal = true) {
+    if (shouldEmitSignal && callData) {
+      const remoteUserId =
+        String(callData.callerId) === String(authUser.id)
+          ? String(callData.receiverId)
+          : String(callData.callerId);
+
+      emitEndCall({
+        conversationId: callData.conversationId,
+        roomId: callData.roomId,
+        callerId: String(authUser.id),
+        callerName: authUser.displayName || authUser.username,
+        receiverId: remoteUserId,
+        to: remoteUserId,
+        from: String(authUser.id),
+      });
+    }
+
+    setIsInCall(false);
+    setCallData(null);
+  }
 
   async function handleSend() {
     if (!inputValue.trim() || isSending) return;
@@ -108,7 +328,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   return (
     <div className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0">
-      <div className="h-[68px] bg-white border-b border-gray-200 flex items-center justify-between px-4 shrink-0">
+      <div className="h-17 bg-white border-b border-gray-200 flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold text-xl relative overflow-hidden">
             {selectedFriend.friend_avatar_url ? (
@@ -155,8 +375,14 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             type="button"
             className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
             title="Gọi video"
+            onClick={handleStartVideoCall}
+            disabled={!isConnected || isStartingCall || isInCall}
           >
-            <Video className="w-5 h-5" />
+            {isStartingCall ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Video className="w-5 h-5" />
+            )}
           </button>
           <div className="w-px h-5 bg-gray-300 mx-1" />
           <button
@@ -392,6 +618,69 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           </div>
         </div>
       </div>
+
+      {incomingCallData && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900">Cuộc gọi đến</h3>
+            <p className="mt-1 text-sm text-gray-600">{friendName || "Bạn bè"} đang gọi video cho bạn.</p>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleDeclineIncomingCall}
+                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Từ chối
+              </button>
+              <button
+                type="button"
+                onClick={handleAcceptIncomingCall}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Chấp nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isInCall &&
+        callData &&
+        (() => {
+          const safeUserId = String(callData.userId || "").trim();
+
+          if (!safeUserId) {
+            return (
+              <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Dang tai thong tin nguoi dung...
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Chua the vao cuoc goi vi userId dang rong.
+                  </p>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <VideoCallRoom
+              roomId={callData.roomId}
+              token={callData.token}
+              appId={callData.appId}
+              userId={safeUserId}
+              userName={callData.userName}
+              remoteUserId={
+                String(callData.callerId) === String(authUser.id)
+                  ? String(callData.receiverId)
+                  : String(callData.callerId)
+              }
+              conversationId={callData.conversationId}
+              onLeave={() => handleHangUp(false)}
+            />
+          );
+        })()}
     </div>
   );
 }

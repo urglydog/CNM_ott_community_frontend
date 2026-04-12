@@ -6,6 +6,7 @@ import type { FriendRequestItem } from "../../../types";
 
 interface FriendRequestsModalProps {
   onClose: () => void;
+  onPendingCountChange: (delta: number) => void;
 }
 
 function getAvatarInitial(name: string): string {
@@ -27,8 +28,8 @@ function formatTimeAgo(dateString: string): string {
   return "Vừa xong";
 }
 
-export default function FriendRequestsModal({ onClose }: FriendRequestsModalProps) {
-  const { requests, loading, error, handleAccept, handleReject } = useFriendRequests();
+export default function FriendRequestsModal({ onClose, onPendingCountChange }: FriendRequestsModalProps) {
+  const { requests, loading, error, handleAccept, handleReject } = useFriendRequests({ onPendingCountChange });
 
   return (
     <div

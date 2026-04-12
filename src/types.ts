@@ -18,8 +18,16 @@ export type MessageItem = {
   senderId: string | number;
   contentType: string;
   content: string;
+  attachments?: MessageAttachment[] | null;
+  reactions?: unknown;
   createdAt: string;
 };
+
+export interface MessageAttachment {
+  url: string;
+  type: "image" | "file" | string;
+  size?: number;
+}
 
 export type AuthUser = {
   id: string | number;
@@ -113,6 +121,8 @@ export interface DirectMessageItem {
   senderId: string | number;
   contentType: string;
   content: string;
+  attachments?: MessageAttachment[] | null;
+  reactions?: unknown;
   createdAt: string;
 }
 

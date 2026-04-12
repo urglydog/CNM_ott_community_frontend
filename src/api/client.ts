@@ -41,8 +41,7 @@ export async function authRequest(
     phone?: string;
   },
 ): Promise<AuthResponse> {
-  const endpoint =
-    mode === "login" ? "/api/auth/login" : "/api/auth/register";
+  const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
 
   const res = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
@@ -90,10 +89,7 @@ function getAuthHeaders(): Record<string, string> {
   return {};
 }
 
-function authFetch(
-  url: string,
-  options: RequestInit = {},
-): Promise<Response> {
+function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const headers = getAuthHeaders();
   return fetch(url, {
     ...options,
@@ -110,7 +106,9 @@ function authFetch(
 /**
  * Lấy danh sách lời mời kết bạn đang chờ
  */
-export async function fetchPendingFriendRequests(): Promise<FriendRequestItem[]> {
+export async function fetchPendingFriendRequests(): Promise<
+  FriendRequestItem[]
+> {
   const res = await authFetch(`${API_BASE}/api/friends/pending`);
   const data: PendingResponse = await handleJson<PendingResponse>(res);
   return Array.isArray(data.data) ? data.data : [];
@@ -129,8 +127,12 @@ export async function getFriendsList(): Promise<FriendItem[]> {
  * Lấy tin nhắn cho một cuộc trò chuyện trực tiếp (DM)
  * @param conversationId - Format: dm:{friendId}
  */
-export async function getDirectMessages(conversationId: string): Promise<DirectMessageItem[]> {
-  const res = await authFetch(`${API_BASE}/api/messages/conversations/${encodeURIComponent(conversationId)}`);
+export async function getDirectMessages(
+  conversationId: string,
+): Promise<DirectMessageItem[]> {
+  const res = await authFetch(
+    `${API_BASE}/api/messages/conversations/${encodeURIComponent(conversationId)}`,
+  );
   const data: DirectMessageItem[] = await handleJson<DirectMessageItem[]>(res);
   return Array.isArray(data) ? data : [];
 }

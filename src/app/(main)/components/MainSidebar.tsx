@@ -5,8 +5,8 @@ import { LayoutGrid, MessageCircle, Newspaper, ScrollText, Settings, Search, Use
 import { useContactsStore } from "../../../features/contacts/store/contactsStore";
 import { useChatStore } from "../../../features/chat/store/chatStore";
 import { useAuth } from "../../../contexts/AuthContext";
-import FriendNotificationIcon from "../../../features/contacts/components/FriendRequestsModal";
 import SearchUsersModal from "../../../features/contacts/components/AddFriendModal";
+import FriendRequestsModal from "../../../features/contacts/components/FriendRequestsModal";
 import type { FriendItem } from "../../../types";
 
 interface MainSidebarProps {
@@ -18,6 +18,7 @@ interface MainSidebarProps {
 
 export default function MainSidebar({ pendingFriendCount, onPendingCountChange, onOpenDmChat, onOpenProfile }: MainSidebarProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isRequestsOpen, setIsRequestsOpen] = useState(false);
   const [isFriendsListOpen, setIsFriendsListOpen] = useState(false);
   const { setSelectedFriend } = useChatStore();
 
@@ -51,10 +52,7 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
             <Search className="text-white w-6 h-6" />
           </button>
           <button
-            onClick={() => {
-              const event = new CustomEvent("openFriendRequests");
-              window.dispatchEvent(event);
-            }}
+            onClick={() => setIsRequestsOpen(true)}
             className="w-full flex justify-center py-3 hover:bg-[#1a66e3] cursor-pointer transition-colors relative"
             title="Lời mời kết bạn"
             aria-label="Lời mời kết bạn"
@@ -84,6 +82,12 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
       </div>
 
       {isSearchOpen && <SearchUsersModal onClose={() => setIsSearchOpen(false)} />}
+      {isRequestsOpen && (
+        <FriendRequestsModal
+          onClose={() => setIsRequestsOpen(false)}
+          onPendingCountChange={onPendingCountChange}
+        />
+      )}
     </>
   );
 }

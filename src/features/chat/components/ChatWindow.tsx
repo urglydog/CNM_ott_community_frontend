@@ -19,6 +19,7 @@ import {
   Gift,
   Loader2,
   WifiOff,
+  FileText,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useDirectMessage } from "../hooks/useChatHooks";
@@ -39,7 +40,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     isLoadingHistory,
     historyError,
     sendMessage,
+    sendFileMessage,
     isSending,
+    isUploadingFile,
     bottomSentinelRef,
     scrollContainerRef,
     typingUsers,
@@ -49,6 +52,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const { status } = useSocket();
   const [inputValue, setInputValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isConnected = status === "connected";
 
   const friendName = selectedFriend?.friend_display_name ?? "";
@@ -77,15 +82,25 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     }
   }
 
+  async function handlePickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || isUploadingFile) return;
+    await sendFileMessage(file);
+    e.target.value = "";
+  }
+
   if (!selectedFriend) {
     return (
       <div className="flex-1 bg-[#f3f5f6] flex flex-col items-center justify-center min-w-0 text-gray-400 px-6">
         <div className="w-16 h-16 rounded-full bg-gray-200/80 flex items-center justify-center mb-4">
           <Smile className="w-8 h-8 text-gray-500" />
         </div>
-        <p className="text-sm font-medium text-gray-600">Chọn một cuộc trò chuyện</p>
+        <p className="text-sm font-medium text-gray-600">
+          Chọn một cuộc trò chuyện
+        </p>
         <p className="text-xs text-gray-500 mt-1 text-center max-w-sm">
-          Danh sách bạn bè ở cột bên trái. Tin nhắn mới sẽ cập nhật trên danh sách khi có.
+          Danh sách bạn bè ở cột bên trái. Tin nhắn mới sẽ cập nhật trên danh
+          sách khi có.
         </p>
       </div>
     );
@@ -110,7 +125,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             )}
           </div>
           <div>
-            <h2 className="font-semibold text-gray-900 text-base leading-tight">{friendName}</h2>
+            <h2 className="font-semibold text-gray-900 text-base leading-tight">
+              {friendName}
+            </h2>
             <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
               {isConnected ? (
                 <>
@@ -171,7 +188,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         )}
 
         {historyError && !isLoadingHistory && (
-          <div className="flex items-center justify-center py-8 text-red-400 text-sm">{historyError}</div>
+          <div className="flex items-center justify-center py-8 text-red-400 text-sm">
+            {historyError}
+          </div>
         )}
 
         {!isLoadingHistory && !historyError && messages.length === 0 && (
@@ -185,10 +204,14 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         )}
 
         {messages.map((msg) => {
-          const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUser.id);
+          const isOwn =
+            msg.isOwn || Number(msg.senderId) === Number(authUser.id);
 
           return (
-            <div key={msg.id} className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
+            <div
+              key={msg.id}
+              className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}
+            >
               <div
                 className={`max-w-[70%] px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${
                   isOwn
@@ -197,11 +220,62 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                 } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""}`}
               >
                 {!isOwn && (
-                  <div className={`text-xs font-medium mb-0.5 ${isOwn ? "text-blue-200" : "text-gray-400"}`}>
+                  <div
+                    className={`text-xs font-medium mb-0.5 ${isOwn ? "text-blue-200" : "text-gray-400"}`}
+                  >
                     {friendName}
                   </div>
                 )}
-                <div className="whitespace-pre-wrap wrap-break-word">{msg.content || "[Không có nội dung]"}</div>
+                {Array.isArray(msg.attachments) &&
+                  msg.attachments.length > 0 && (
+                    <div className="mb-2 space-y-2">
+                      {msg.attachments.map((attachment, idx) => {
+                        if (attachment?.type === "image" && attachment.url) {
+                          return (
+                            <a
+                              key={`${msg.id}-attachment-${idx}`}
+                              href={attachment.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block"
+                            >
+                              <img
+                                src={attachment.url}
+                                alt={msg.content || "Ảnh đính kèm"}
+                                className="max-h-60 max-w-full rounded-lg border border-black/10 object-cover"
+                              />
+                            </a>
+                          );
+                        }
+
+                        if (attachment?.url) {
+                          return (
+                            <a
+                              key={`${msg.id}-attachment-${idx}`}
+                              href={attachment.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs border ${
+                                isOwn
+                                  ? "border-blue-200 bg-blue-400/40 text-white"
+                                  : "border-gray-200 bg-gray-50 text-gray-700"
+                              }`}
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span className="truncate max-w-44">
+                                {msg.content || "Tệp đính kèm"}
+                              </span>
+                            </a>
+                          );
+                        }
+
+                        return null;
+                      })}
+                    </div>
+                  )}
+                <div className="whitespace-pre-wrap wrap-break-word">
+                  {msg.content || "[Không có nội dung]"}
+                </div>
                 <div
                   className={`mt-1 text-[10px] flex items-center gap-1 ${
                     isOwn ? "text-blue-200 justify-end" : "text-gray-400"
@@ -211,9 +285,13 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
-                  {isOwn && msg.sendStatus === "sending" && <Loader2 className="w-3 h-3 animate-spin inline-block" />}
+                  {isOwn && msg.sendStatus === "sending" && (
+                    <Loader2 className="w-3 h-3 animate-spin inline-block" />
+                  )}
                   {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
-                  {isOwn && msg.sendStatus === "failed" && <span className="text-red-300">✗</span>}
+                  {isOwn && msg.sendStatus === "failed" && (
+                    <span className="text-red-300">✗</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -234,10 +312,40 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       )}
 
       <div className="bg-white border-t border-gray-200 flex flex-col shrink-0">
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif"
+          className="hidden"
+          onChange={handlePickFile}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx,.txt"
+          className="hidden"
+          onChange={handlePickFile}
+        />
         <div className="flex items-center gap-4 px-4 py-2.5 border-b border-gray-100">
           <Smile className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-          <Image className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-          <Paperclip className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+          <button
+            type="button"
+            onClick={() => imageInputRef.current?.click()}
+            disabled={!isConnected || isUploadingFile}
+            className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Gửi ảnh"
+          >
+            <Image className="w-5 h-5 cursor-pointer" />
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!isConnected || isUploadingFile}
+            className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Gửi tệp"
+          >
+            <Paperclip className="w-5 h-5 cursor-pointer" />
+          </button>
           <LinkIcon className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
           <MapPin className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
           <Contact className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
@@ -255,7 +363,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             onFocus={() => onTypingChange(true)}
             onBlur={() => onTypingChange(false)}
             placeholder={`Nhắn tin cho ${friendName}`}
-            disabled={!isConnected || isSending}
+            disabled={!isConnected || isSending || isUploadingFile}
             className="flex-1 resize-none h-11 max-h-32 focus:outline-none text-[15px] pt-2.5 bg-gray-50 rounded-lg px-3 border border-gray-200 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             rows={1}
           />
@@ -266,11 +374,20 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             <button
               type="button"
               onClick={handleSend}
-              disabled={!inputValue.trim() || !isConnected || isSending}
+              disabled={
+                !inputValue.trim() ||
+                !isConnected ||
+                isSending ||
+                isUploadingFile
+              }
               className="w-9 h-9 rounded-md text-blue-500 flex items-center justify-center cursor-pointer hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
               title="Gửi tin nhắn (Enter)"
             >
-              {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <ThumbsUp className="w-5 h-5" fill="currentColor" />}
+              {isSending || isUploadingFile ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <ThumbsUp className="w-5 h-5" fill="currentColor" />
+              )}
             </button>
           </div>
         </div>

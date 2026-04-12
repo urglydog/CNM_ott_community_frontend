@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSocket } from "../../../contexts/SocketContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useChatStore } from "../store/chatStore";
-import { getDirectMessages } from "../api";
+import { getDirectMessages, sendDirectFileMessage } from "../api";
 import type { DirectMessageItem } from "../../../types";
 
 export type MessageSendStatus = "sending" | "sent" | "failed" | "received";
@@ -22,7 +22,7 @@ export type DmActivityPayload = {
 
 export function dmConversationId(
   userId: string | number,
-  friendId: string | number
+  friendId: string | number,
 ): string {
   const ids = [Number(userId), Number(friendId)].sort((a, b) => a - b);
   return `dm:${ids[0]}:${ids[1]}`;
@@ -30,7 +30,7 @@ export function dmConversationId(
 
 export function friendIdFromConversationId(
   conversationId: string,
-  currentUserId?: string | number | null
+  currentUserId?: string | number | null,
 ): string | null {
   if (!conversationId || !conversationId.startsWith("dm:")) return null;
   const parts = conversationId.slice(3).split(":");
@@ -49,7 +49,9 @@ interface UseDirectMessageReturn {
   historyError: string | null;
   currentRoomId: string | null;
   sendMessage: (content: string) => Promise<void>;
+  sendFileMessage: (file: File) => Promise<void>;
   isSending: boolean;
+  isUploadingFile: boolean;
   bottomSentinelRef: React.RefObject<HTMLDivElement | null>;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   typingUsers: string[];
@@ -58,12 +60,31 @@ interface UseDirectMessageReturn {
 
 const DEBOUNCE_MS_DEFAULT = 100;
 
+function getPreviewContent(
+  message: Pick<DirectMessageItem, "contentType" | "content" | "attachments">,
+): string {
+  if (message.contentType === "image") {
+    return "[Ảnh]";
+  }
+  if (message.contentType === "file") {
+    return `[Tệp] ${message.content || "Đính kèm"}`;
+  }
+  if (Array.isArray(message.attachments) && message.attachments.length > 0) {
+    const hasImage = message.attachments.some((a) => a?.type === "image");
+    if (hasImage) {
+      return "[Ảnh]";
+    }
+    return `[Tệp] ${message.content || "Đính kèm"}`;
+  }
+  return message.content;
+}
+
 export function useDirectMessage(
   friendId: string | null,
   options: {
     scrollDebounceMs?: number;
     onDmActivity?: (payload: DmActivityPayload) => void;
-  } = {}
+  } = {},
 ): UseDirectMessageReturn {
   const { scrollDebounceMs = DEBOUNCE_MS_DEFAULT, onDmActivity } = options;
 
@@ -89,11 +110,14 @@ export function useDirectMessage(
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
 
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRoomIdRef = useRef<string | null>(null);
-  const scrollDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -125,7 +149,7 @@ export function useDirectMessage(
         setHistoryError(
           err instanceof Error
             ? err.message
-            : "Không tải được lịch sử tin nhắn"
+            : "Không tải được lịch sử tin nhắn",
         );
         setMessages([]);
       } finally {
@@ -153,10 +177,13 @@ export function useDirectMessage(
       if (newMsg.conversationId !== currentRoomId) return;
 
       // Cập nhật preview trong store
-      const friendId = friendIdFromConversationId(newMsg.conversationId, user?.id);
+      const friendId = friendIdFromConversationId(
+        newMsg.conversationId,
+        user?.id,
+      );
       if (friendId) {
         setConversationPreview(friendId, {
-          content: newMsg.content,
+          content: getPreviewContent(newMsg),
           createdAt: newMsg.createdAt,
         });
         // Tăng unread nếu không phải đang chat với người này
@@ -168,13 +195,13 @@ export function useDirectMessage(
       // Thay thế optimistic message
       setMessages((prev) => {
         const hasOptimistic = prev.some(
-          (m) => m.id !== undefined && String(m.id).startsWith("temp-")
+          (m) => m.id !== undefined && String(m.id).startsWith("temp-"),
         );
         if (hasOptimistic) {
           return prev.map((m) =>
             String(m.id).startsWith("temp-")
               ? { ...newMsg, isOwn: false, sendStatus: "received" }
-              : m
+              : m,
           );
         }
         const exists = prev.some((m) => m.id === newMsg.id);
@@ -185,7 +212,7 @@ export function useDirectMessage(
 
     const unsubTyping = onUserTyping(({ userId, userName }) => {
       setTypingUsers((prev) =>
-        prev.includes(userName) ? prev : [...prev, userName]
+        prev.includes(userName) ? prev : [...prev, userName],
       );
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
@@ -226,7 +253,7 @@ export function useDirectMessage(
         emitTypingStop(currentRoomId);
       }
     },
-    [currentRoomId, emitTypingStart, emitTypingStop]
+    [currentRoomId, emitTypingStart, emitTypingStop],
   );
 
   // Auto-scroll khi có tin nhắn mới
@@ -273,7 +300,7 @@ export function useDirectMessage(
           currentRoomId,
           content.trim(),
           "text",
-          null
+          null,
         );
 
         if (result.ok && result.message) {
@@ -284,7 +311,7 @@ export function useDirectMessage(
           const friendId = friendIdFromConversationId(finalMsg.conversationId);
           if (friendId) {
             setConversationPreview(friendId, {
-              content: finalMsg.content,
+              content: getPreviewContent(finalMsg),
               createdAt: finalMsg.createdAt,
             });
           }
@@ -299,21 +326,21 @@ export function useDirectMessage(
             prev.map((m) =>
               m.id === tempId
                 ? { ...finalMsg, isOwn: true, sendStatus: "sent" }
-                : m
-            )
+                : m,
+            ),
           );
         } else {
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === tempId ? { ...m, sendStatus: "failed" } : m
-            )
+              m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+            ),
           );
         }
       } catch {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === tempId ? { ...m, sendStatus: "failed" } : m
-          )
+            m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+          ),
         );
       } finally {
         setIsSending(false);
@@ -326,7 +353,75 @@ export function useDirectMessage(
       user?.id,
       onDmActivity,
       setConversationPreview,
-    ]
+    ],
+  );
+
+  const sendFileMessage = useCallback(
+    async (file: File) => {
+      if (!currentRoomId || !friendId || !user?.id) return;
+
+      const tempId = `temp-file-${Date.now()}`;
+      const tempUrl = URL.createObjectURL(file);
+      const attachmentType = file.type.startsWith("image/") ? "image" : "file";
+
+      const optimisticMsg: ChatMessage = {
+        id: tempId,
+        conversationId: currentRoomId,
+        senderId: user.id,
+        contentType: attachmentType,
+        content: file.name,
+        attachments: [
+          {
+            url: tempUrl,
+            type: attachmentType,
+            size: file.size,
+          },
+        ],
+        createdAt: new Date().toISOString(),
+        isOwn: true,
+        sendStatus: "sending",
+      };
+
+      setMessages((prev) => [...prev, optimisticMsg]);
+      setIsUploadingFile(true);
+
+      try {
+        const finalMsg = await sendDirectFileMessage({
+          file,
+          senderId: user.id,
+          receiverId: friendId,
+        });
+
+        const previewFriendId = friendIdFromConversationId(
+          finalMsg.conversationId,
+          user.id,
+        );
+        if (previewFriendId) {
+          setConversationPreview(previewFriendId, {
+            content: getPreviewContent(finalMsg),
+            createdAt: finalMsg.createdAt,
+          });
+        }
+
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId
+              ? { ...finalMsg, isOwn: true, sendStatus: "sent" }
+              : m,
+          ),
+        );
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+          ),
+        );
+      } finally {
+        URL.revokeObjectURL(tempUrl);
+        setIsUploadingFile(false);
+      }
+    },
+    [currentRoomId, friendId, user?.id, setConversationPreview],
   );
 
   return {
@@ -335,7 +430,9 @@ export function useDirectMessage(
     historyError,
     currentRoomId,
     sendMessage,
+    sendFileMessage,
     isSending,
+    isUploadingFile,
     bottomSentinelRef,
     scrollContainerRef,
     typingUsers,
@@ -346,7 +443,7 @@ export function useDirectMessage(
 // Hook để join tất cả phòng DM của bạn bè
 export function useJoinFriendDmRooms(
   friends: { friend_id: string }[] | null,
-  authUserId?: string | number
+  authUserId?: string | number,
 ) {
   const { emitJoinRoom, emitLeaveRoom } = useSocket();
 
@@ -354,7 +451,7 @@ export function useJoinFriendDmRooms(
     if (!friends?.length || !authUserId) return;
 
     const roomIds = friends.map((f) =>
-      dmConversationId(authUserId, f.friend_id)
+      dmConversationId(authUserId, f.friend_id),
     );
     roomIds.forEach((roomId) => emitJoinRoom(roomId));
 
@@ -367,7 +464,8 @@ export function useJoinFriendDmRooms(
 // Hook để cập nhật preview khi nhận message
 export function useMessagePreviewUpdater(currentUserId?: string | number) {
   const { socket, onReceiveMessage } = useSocket();
-  const { selectedFriend, setConversationPreview, incrementUnread } = useChatStore();
+  const { selectedFriend, setConversationPreview, incrementUnread } =
+    useChatStore();
 
   useEffect(() => {
     if (!socket) return;
@@ -390,5 +488,12 @@ export function useMessagePreviewUpdater(currentUserId?: string | number) {
     });
 
     return off;
-  }, [socket, onReceiveMessage, currentUserId, selectedFriend, setConversationPreview, incrementUnread]);
+  }, [
+    socket,
+    onReceiveMessage,
+    currentUserId,
+    selectedFriend,
+    setConversationPreview,
+    incrementUnread,
+  ]);
 }

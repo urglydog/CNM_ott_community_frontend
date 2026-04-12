@@ -7,8 +7,10 @@ import { useSocket } from "../../contexts/SocketContext";
 import { useToast } from "../../contexts/ToastContext";
 import { useChatStore } from "../../features/chat/store/chatStore";
 import { useContactsStore } from "../../features/contacts/store/contactsStore";
+import { useGroupsStore } from "../../features/groups/store/groupsStore";
 import { useJoinFriendDmRooms, friendIdFromConversationId } from "../../features/chat/hooks/useChatHooks";
 import { useFriendSocket } from "../../hooks/useFriendSocket";
+import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
 import ProfileSidebar from "../../components/profile/ProfileSidebar";
@@ -33,13 +35,18 @@ export default function MainLayout({
     setIsLoadingFriends,
     setFriendsError,
     selectedFriend,
+    selectedGroup,
     setSelectedFriend,
     setConversationPreview,
     incrementUnread,
+    incrementGroupUnread,
+    setGroupConversationPreview,
+    chatMode,
     reset: resetChatStore,
   } = useChatStore();
 
   const { pendingFriendCount, setPendingFriendCount, resetPending } = useContactsStore();
+  const { reset: resetGroupsStore } = useGroupsStore();
 
   // Load friends list
   const loadFriends = useCallback(async () => {
@@ -81,38 +88,53 @@ export default function MainLayout({
 
     const off = onReceiveMessage((msg) => {
       const cid = msg.conversationId;
-      const friendId = friendIdFromConversationId(cid, user?.id);
-      if (!friendId) return;
 
-      setConversationPreview(friendId, {
-        content: msg.content,
-        createdAt: msg.createdAt,
-      });
+      // ── Xử lý DM ──────────────────────────────────────────────
+      if (!isGroupConversation(cid)) {
+        const friendId = friendIdFromConversationId(cid, user?.id);
+        if (!friendId) return;
 
-      // Kiểm tra xem có đang chat với người này không
-      const isChattingWithSender = selectedFriend?.friend_id === friendId;
+        setConversationPreview(friendId, {
+          content: msg.content,
+          createdAt: msg.createdAt,
+        });
 
-      if (isChattingWithSender) {
-        // Đang chat với người này → không hiện notification, không tăng unread
+        // Bỏ qua nếu đang chat với người gửi
+        const isChattingWithSender = selectedFriend?.friend_id === friendId;
+        if (isChattingWithSender) return;
+
+        incrementUnread(friendId);
+        const friendItem = friends.find(f => String(f.friend_id) === String(friendId));
+        const senderName = friendItem?.friend_display_name || "Người lạ";
+        const previewContent = msg.content.length > 50
+          ? msg.content.substring(0, 50) + '...'
+          : msg.content;
+        addToast(`${senderName}: ${previewContent}`, "message");
         return;
       }
 
-      // Không đang chat với người này → tăng unread và hiện toast notification
-      incrementUnread(friendId);
-      
-      // Tìm tên friend để hiển thị trong toast
-      const friendItem = friends.find(f => String(f.friend_id) === String(friendId));
-      const senderName = friendItem?.friend_display_name || "Người lạ";
-      
-      // Hiển thị toast với nội dung tin nhắn (cắt ngắn nếu quá dài)
-      const previewContent = msg.content.length > 50 
+      // ── Xử lý nhóm ────────────────────────────────────────────
+      // Bỏ qua nếu đang xem nhóm này
+      const isViewingGroup =
+        chatMode === "GROUP" &&
+        selectedGroup &&
+        String(selectedGroup.groupId) === cid;
+      if (isViewingGroup) return;
+
+      setGroupConversationPreview(cid, {
+        content: msg.content,
+        createdAt: msg.createdAt,
+      });
+      incrementGroupUnread(cid);
+      const senderName = msg.senderDisplayName || "Ai đó";
+      const previewContent = msg.content.length > 50
         ? msg.content.substring(0, 50) + '...'
         : msg.content;
-      addToast(`${senderName}: ${previewContent}`, "message");
+      addToast(`${senderName} ở nhóm: ${previewContent}`, "message");
     });
 
     return off;
-  }, [socket, isAuthenticated, onReceiveMessage, selectedFriend, setConversationPreview, incrementUnread, addToast, friends]);
+  }, [socket, isAuthenticated, onReceiveMessage, selectedFriend, selectedGroup, setConversationPreview, incrementUnread, incrementGroupUnread, setGroupConversationPreview, addToast, friends, chatMode]);
 
   // Handle friend socket events
   useFriendSocket(
@@ -140,6 +162,7 @@ export default function MainLayout({
     setProfileOpen(false);
     resetPending();
     resetChatStore();
+    resetGroupsStore();
   };
 
   if (!isInitialized) return null;

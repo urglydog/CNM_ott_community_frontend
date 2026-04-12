@@ -7,6 +7,7 @@ import { useChatStore } from "../../../features/chat/store/chatStore";
 import { useAuth } from "../../../contexts/AuthContext";
 import SearchUsersModal from "../../../features/contacts/components/AddFriendModal";
 import FriendRequestsModal from "../../../features/contacts/components/FriendRequestsModal";
+import GroupsPanel from "../../../features/groups/components/GroupsPanel";
 import type { FriendItem } from "../../../types";
 
 interface MainSidebarProps {
@@ -20,6 +21,7 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRequestsOpen, setIsRequestsOpen] = useState(false);
   const [isFriendsListOpen, setIsFriendsListOpen] = useState(false);
+  const [isGroupsOpen, setIsGroupsOpen] = useState(false);
   const { setSelectedFriend } = useChatStore();
 
   const handleOpenChat = (friend: FriendItem) => {
@@ -64,9 +66,14 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
               </span>
             )}
           </button>
-          <div className="w-full flex justify-center py-3 hover:bg-[#1a66e3] cursor-pointer">
-            <LayoutGrid className="text-white/90 w-6 h-6" />
-          </div>
+          <button
+            onClick={() => setIsGroupsOpen(true)}
+            className="w-full flex justify-center py-3 hover:bg-[#1a66e3] cursor-pointer transition-colors"
+            title="Nhóm chat"
+            aria-label="Nhóm chat"
+          >
+            <LayoutGrid className="text-white w-6 h-6" />
+          </button>
           <div className="w-full flex justify-center py-3 hover:bg-[#1a66e3] cursor-pointer">
             <Newspaper className="text-white/90 w-6 h-6" />
           </div>
@@ -87,6 +94,17 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
           onClose={() => setIsRequestsOpen(false)}
           onPendingCountChange={onPendingCountChange}
         />
+      )}
+      {isGroupsOpen && (
+        <div className="fixed inset-0 z-30 flex" onClick={() => setIsGroupsOpen(false)}>
+          <div
+            className="h-full w-[300px] shrink-0 border-r border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GroupsPanel />
+          </div>
+          <div className="flex-1 bg-black/20" />
+        </div>
       )}
     </>
   );

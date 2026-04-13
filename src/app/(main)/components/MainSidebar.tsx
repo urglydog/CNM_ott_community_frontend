@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { LayoutGrid, MessageCircle, Newspaper, ScrollText, Settings, Search, Users } from "lucide-react";
+import { UserPlus, MessageCircle, Newspaper, ScrollText, Settings, Search, Users } from "lucide-react";
 import { useContactsStore } from "../../../features/contacts/store/contactsStore";
 import { useChatStore } from "../../../features/chat/store/chatStore";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -53,26 +53,29 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
           >
             <Search className="text-white w-6 h-6" />
           </button>
+          {/* Nút Lời mời kết bạn */}
           <button
             onClick={() => setIsRequestsOpen(true)}
             className="w-full flex justify-center py-3 hover:bg-[#1a66e3] cursor-pointer transition-colors relative"
             title="Lời mời kết bạn"
             aria-label="Lời mời kết bạn"
           >
-            <Users className="text-white w-6 h-6" />
+            <UserPlus className="text-white w-6 h-6" />
             {pendingFriendCount > 0 && (
               <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                 {pendingFriendCount > 99 ? "99+" : pendingFriendCount}
               </span>
             )}
           </button>
+
+          {/* Nút Nhóm chat */}
           <button
             onClick={() => setIsGroupsOpen(true)}
             className="w-full flex justify-center py-3 hover:bg-[#1a66e3] cursor-pointer transition-colors"
             title="Nhóm chat"
             aria-label="Nhóm chat"
           >
-            <LayoutGrid className="text-white w-6 h-6" />
+            <Users className="text-white w-6 h-6" />
           </button>
           <div className="w-full flex justify-center py-3 hover:bg-[#1a66e3] cursor-pointer">
             <Newspaper className="text-white/90 w-6 h-6" />

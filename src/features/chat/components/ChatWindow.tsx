@@ -467,6 +467,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const [callData, setCallData] = useState<ActiveCallData | null>(null);
   const [incomingCallData, setIncomingCallData] =
     useState<IncomingCallData | null>(null);
+  const ringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const delayedUnmountRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -512,16 +514,39 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
     const offAccepted = onCallAccepted((_payload: CallSignalPayload) => {
       console.debug("[ChatWindow][onCallAccepted] payload:", _payload);
+      if (ringTimerRef.current) {
+        clearTimeout(ringTimerRef.current);
+        ringTimerRef.current = null;
+      }
       setIsStartingCall(false);
     });
 
     const offDeclined = onCallDeclined((payload: CallSignalPayload) => {
-      console.debug("[ChatWindow][onCallDeclined] payload:", payload);
-      if (String(payload.callerId) !== currentUserId) return;
+      console.log("[Call] Da nhan tin hieu TU CHOI:", payload);
+      const targetId = String(payload.callerId || payload.to || "");
+      if (targetId !== currentUserId) {
+        console.log("[Call] Tin hieu tu choi cua nguoi khac, bo qua.");
+        return;
+      }
+
       addToast("Người dùng đã từ chối cuộc gọi", "info");
-      setIsInCall(false);
-      setCallData(null);
       setIsStartingCall(false);
+
+      if (ringTimerRef.current) {
+        clearTimeout(ringTimerRef.current);
+        ringTimerRef.current = null;
+      }
+
+      if (delayedUnmountRef.current) {
+        clearTimeout(delayedUnmountRef.current);
+      }
+
+      // Delay unmount to let Zego destroy internal DOM safely.
+      delayedUnmountRef.current = setTimeout(() => {
+        setIsInCall(false);
+        setCallData(null);
+        delayedUnmountRef.current = null;
+      }, 300);
     });
 
     const offEndCall = onEndCall((payload: CallSignalPayload) => {
@@ -530,11 +555,25 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
       if (!endedCurrentCall) return;
 
+      if (ringTimerRef.current) {
+        clearTimeout(ringTimerRef.current);
+        ringTimerRef.current = null;
+      }
+
       addToast("Cuộc gọi đã kết thúc", "info", 2500);
-      setIsInCall(false);
-      setCallData(null);
-      setIncomingCallData(null);
       setIsStartingCall(false);
+
+      if (delayedUnmountRef.current) {
+        clearTimeout(delayedUnmountRef.current);
+      }
+
+      // Delay unmount to avoid race between SDK cleanup and React DOM removal.
+      delayedUnmountRef.current = setTimeout(() => {
+        setIsInCall(false);
+        setCallData(null);
+        setIncomingCallData(null);
+        delayedUnmountRef.current = null;
+      }, 300);
     });
 
     return () => {
@@ -542,6 +581,14 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       offAccepted();
       offDeclined();
       offEndCall();
+      if (ringTimerRef.current) {
+        clearTimeout(ringTimerRef.current);
+        ringTimerRef.current = null;
+      }
+      if (delayedUnmountRef.current) {
+        clearTimeout(delayedUnmountRef.current);
+        delayedUnmountRef.current = null;
+      }
     };
   }, [
     onIncomingCall,
@@ -627,6 +674,18 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         };
         console.debug("[ChatWindow][emit call-user] payload:", oneToOnePayload);
         socket?.emit("call-user", oneToOnePayload);
+
+        // Tu dong huy trang thai dang goi neu khong co phan hoi trong 30s
+        if (ringTimerRef.current) {
+          clearTimeout(ringTimerRef.current);
+        }
+        ringTimerRef.current = setTimeout(() => {
+          setIsInCall(false);
+          setCallData(null);
+          setIsStartingCall(false);
+          addToast("Khong co phan hoi cuoc goi", "info", 2500);
+          ringTimerRef.current = null;
+        }, 30_000);
       }
 
       setCallData(payload);
@@ -684,7 +743,12 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   function handleDeclineIncomingCall() {
     if (!incomingCallData) return;
-    emitCallDeclined(incomingCallData);
+    emitCallDeclined({
+      ...incomingCallData,
+      to: String(incomingCallData.callerId),
+      callerId: String(incomingCallData.callerId),
+      from: currentUserId,
+    });
     setIncomingCallData(null);
   }
 

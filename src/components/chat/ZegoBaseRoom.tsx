@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useRef } from "react";
-import { ZegoUIKitPrebuilt } from "@zegocloud/zego-uikit-prebuilt";
 
 export default function ZegoBaseRoom({
   roomId,
@@ -16,13 +15,29 @@ export default function ZegoBaseRoom({
   const zpRef = useRef<any>(null);
 
   useEffect(() => {
-    // 1. Nếu không có thẻ div, không làm gì cả
-    if (!containerRef.current) return;
-
+    // 1. Cờ an toàn để kiểm tra component còn "sống" hay không
     let isMounted = true;
 
+    const cleanUpZego = () => {
+      if (zpRef.current) {
+        try {
+          zpRef.current.destroy();
+        } catch (e) {
+          console.warn("Zego destroy error:", e);
+        }
+        zpRef.current = null;
+      }
+    };
+
     const initZego = async () => {
+      if (!containerRef.current) return;
+
       try {
+        const { ZegoUIKitPrebuilt } = await import("@zegocloud/zego-uikit-prebuilt");
+
+        // 2. Sau khi import xong, phải kiểm tra lại mount state và container
+        if (!isMounted || !containerRef.current) return;
+
         const kitToken = ZegoUIKitPrebuilt.generateKitTokenForProduction(
           appId,
           token,
@@ -34,40 +49,27 @@ export default function ZegoBaseRoom({
         const zp = ZegoUIKitPrebuilt.create(kitToken);
         zpRef.current = zp;
 
-        // 2. KIỂM TRA LẠI LẦN NỮA: Trước khi joinRoom, thẻ div có còn ở đó không?
-        if (isMounted && containerRef.current) {
-          zp.joinRoom({
-            container: containerRef.current,
-            scenario: { mode: scenarioMode },
-            showPreJoinView: false,
-            onLeaveRoom: () => {
-              destroyZego();
-              onLeave();
-            },
-          });
-        }
+        // 3. Chỉ joinRoom khi chắc chắn containerRef vẫn tồn tại
+        zp.joinRoom({
+          container: containerRef.current,
+          scenario: { mode: scenarioMode },
+          showPreJoinView: false,
+          onLeaveRoom: () => {
+            cleanUpZego();
+            onLeave();
+          },
+        });
       } catch (error) {
-        console.error("Zego Init Error:", error);
-      }
-    };
-
-    const destroyZego = () => {
-      if (zpRef.current) {
-        try {
-          zpRef.current.destroy();
-        } catch (e) {
-          console.warn("Zego destroy warning:", e);
-        }
-        zpRef.current = null;
+        console.error("Zego Error:", error);
       }
     };
 
     initZego();
 
-    // 3. CLEANUP: Khi component bị unmount, phải dọn dẹp ngay lập tức
+    // 4. Cleanup function: chạy khi tắt cuộc gọi hoặc chuyển trang
     return () => {
       isMounted = false;
-      destroyZego();
+      cleanUpZego();
     };
   }, [roomId, token, userId, userName, appId, scenarioMode]);
 
@@ -75,7 +77,7 @@ export default function ZegoBaseRoom({
     <div
       ref={containerRef}
       className="fixed inset-0 z-10000 bg-black w-full h-full"
-      id="zego-container"
+      key={roomId}
     />
   );
 }

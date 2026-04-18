@@ -377,9 +377,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const emitCallDeclined = useCallback((payload: CallSignalPayload) => {
-    socketRef.current?.emit("call-declined", payload);
-    socketRef.current?.emit("call-rejected", payload);
-  }, []);
+    const normalizedPayload: CallSignalPayload = {
+      ...payload,
+      to: String(payload.to || payload.callerId || ""),
+      from: String(payload.from || resolvedUserId || ""),
+    };
+    socketRef.current?.emit("call-declined", normalizedPayload);
+  }, [resolvedUserId]);
 
   const emitEndCall = useCallback((payload: CallSignalPayload) => {
     socketRef.current?.emit("end-call", payload);
@@ -431,15 +435,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   const handleDeclineIncomingCall = useCallback(() => {
     if (!incomingCall) return;
-    socketRef.current?.emit("decline-call", {
-      to: incomingCall.callerId,
-      conversationId: incomingCall.conversationId,
-      roomId: incomingCall.roomId,
+    emitCallDeclined({
+      ...incomingCall,
+      to: String(incomingCall.callerId || ""),
+      callerId: String(incomingCall.callerId || ""),
+      from: resolvedUserId,
     });
-    socketRef.current?.emit("call-rejected", incomingCall);
     stopRingtone();
     setIncomingCall(null);
-  }, [incomingCall, stopRingtone]);
+  }, [emitCallDeclined, incomingCall, resolvedUserId, stopRingtone]);
 
   const handleLeaveGlobalCall = useCallback(() => {
     setActiveCall(null);

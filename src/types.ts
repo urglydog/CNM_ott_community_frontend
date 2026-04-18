@@ -21,6 +21,8 @@ export type MessageItem = {
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
   createdAt: string;
+  senderDisplayName?: string | null;
+  senderAvatarUrl?: string | null;
 };
 
 export interface MessageAttachment {
@@ -124,6 +126,9 @@ export interface DirectMessageItem {
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
   createdAt: string;
+  /** Display name của người gửi, do backend enrich khi trả message */
+  senderDisplayName?: string | null;
+  senderAvatarUrl?: string | null;
 }
 
 export interface DirectMessagesResponse {

@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { X, Users, Link2, Copy, Check, Shield } from "lucide-react";
 import { useToast } from "../../../contexts/ToastContext";
 import type { Group, InviteInfo } from "../types";
-import type { InviteInfo as ApiInviteInfo } from "../api";
 
 interface GroupDetailModalProps {
   group: Group;
@@ -24,7 +23,7 @@ export default function GroupDetailModal({
   onGetInvite,
 }: GroupDetailModalProps) {
   const { addToast } = useToast();
-  const [inviteInfo, setInviteInfo] = useState<ApiInviteInfo | null>(null);
+  const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
   const [isLoadingInvite, setIsLoadingInvite] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);

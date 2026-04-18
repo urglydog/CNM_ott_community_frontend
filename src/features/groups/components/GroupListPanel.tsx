@@ -1,7 +1,7 @@
 "use client";
 
 import { Users, Plus } from "lucide-react";
-import type { Group } from "../../../types";
+import type { Group } from "../types";
 
 interface GroupListPanelProps {
   groups: Group[];

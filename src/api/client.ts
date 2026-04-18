@@ -20,6 +20,8 @@ export type AuthMode = "login" | "register";
 export interface AuthResponse {
   user: any;
   token: string;
+  accessToken?: string;
+  refreshToken?: string;
 }
 
 async function handleJson<T>(res: Response): Promise<T> {
@@ -43,10 +45,19 @@ export async function authRequest(
 ): Promise<AuthResponse> {
   const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
 
+  const payload = {
+    ...body,
+    // Ho tro ca 2 naming style giua cac backend clone
+    displayName: body.fullName,
+    fullName: body.fullName,
+    phone: body.phone,
+    phoneNumber: body.phone,
+  };
+
   const res = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
 
   return handleJson<AuthResponse>(res);
@@ -89,13 +100,99 @@ function getAuthHeaders(): Record<string, string> {
   return {};
 }
 
-function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+function getStoredUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem("ott_auth_user");
+    if (!raw) return null;
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+function persistStoredUser(user: AuthUser) {
+  localStorage.setItem("ott_auth_user", JSON.stringify(user));
+}
+
+let refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    const currentUser = getStoredUser();
+    if (!currentUser?.refreshToken) return null;
+
+    const response = await fetch(`${API_BASE}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: currentUser.refreshToken }),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = (await response.json()) as {
+      token?: string;
+      accessToken?: string;
+      refreshToken?: string;
+    };
+
+    const nextToken = data.token || data.accessToken;
+    if (!nextToken) return null;
+
+    const updatedUser: AuthUser = {
+      ...currentUser,
+      token: nextToken,
+      refreshToken: data.refreshToken || currentUser.refreshToken,
+    };
+    persistStoredUser(updatedUser);
+    return nextToken;
+  })()
+    .catch(() => null)
+    .finally(() => {
+      refreshPromise = null;
+    });
+
+  return refreshPromise;
+}
+
+async function authFetch(
+  url: string,
+  options: RequestInit = {},
+): Promise<Response> {
+  const isFormDataBody = options.body instanceof FormData;
   const headers = getAuthHeaders();
+  const mergedHeaders: Record<string, string> = {
+    ...headers,
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  if (!isFormDataBody) {
+    mergedHeaders["Content-Type"] =
+      mergedHeaders["Content-Type"] || "application/json";
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers: mergedHeaders,
+  });
+
+  if (response.status !== 401) {
+    return response;
+  }
+
+  const newToken = await refreshAccessToken();
+  if (!newToken) {
+    localStorage.removeItem("ott_auth_user");
+    return response;
+  }
+
   return fetch(url, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
-      ...headers,
+      ...(isFormDataBody ? {} : { "Content-Type": "application/json" }),
+      Authorization: `Bearer ${newToken}`,
       ...options.headers,
     },
   });
@@ -191,6 +288,7 @@ export interface UpdateProfilePayload {
   displayName?: string;
   email?: string;
   phone?: string;
+  avatarUrl?: string;
 }
 
 export interface ChangePasswordPayload {
@@ -211,6 +309,25 @@ export interface VerifyPhonePayload {
 export interface SendOTPResponse {
   message: string;
   expiresIn: number;
+  debugOtp?: string;
+}
+
+export interface PresignedUploadResponse {
+  uploadUrl: string;
+  key: string;
+  bucket: string;
+}
+
+export interface DirectUploadResponse {
+  key: string;
+  bucket: string;
+  url: string;
+}
+
+export interface PresignedViewResponse {
+  key: string;
+  bucket: string;
+  viewUrl: string;
 }
 
 /**
@@ -293,4 +410,64 @@ export async function changePassword(
 export async function getCurrentProfile(): Promise<any> {
   const res = await authFetch(`${API_BASE}/api/users/me`);
   return handleJson<any>(res);
+}
+
+export async function getPresignedUploadUrl(payload: {
+  keyPrefix?: string;
+  contentType: string;
+}): Promise<PresignedUploadResponse> {
+  const res = await authFetch(`${API_BASE}/api/uploads/presigned-url`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return handleJson<PresignedUploadResponse>(res);
+}
+
+export async function uploadFileToPresignedUrl(
+  uploadUrl: string,
+  file: File,
+): Promise<void> {
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Tải ảnh lên S3 thất bại (${res.status})`);
+  }
+}
+
+export async function uploadFileDirect(
+  file: File,
+  keyPrefix?: string,
+): Promise<DirectUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (keyPrefix) {
+    formData.append("keyPrefix", keyPrefix);
+  }
+
+  const res = await authFetch(`${API_BASE}/api/uploads/direct`, {
+    method: "POST",
+    body: formData,
+  });
+
+  return handleJson<DirectUploadResponse>(res);
+}
+
+export async function getPresignedViewUrl(params: {
+  key?: string;
+  url?: string;
+}): Promise<PresignedViewResponse> {
+  const query = new URLSearchParams();
+  if (params.key) query.set("key", params.key);
+  if (params.url) query.set("url", params.url);
+
+  const res = await authFetch(
+    `${API_BASE}/api/uploads/view-url?${query.toString()}`,
+  );
+  return handleJson<PresignedViewResponse>(res);
 }

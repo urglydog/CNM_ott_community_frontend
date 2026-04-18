@@ -13,7 +13,6 @@ import { useFriendSocket } from "../../hooks/useFriendSocket";
 import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
-import ProfileSidebar from "../../components/profile/ProfileSidebar";
 import ToastContainer from "../../components/common/ToastContainer";
 import AuthScreen from "../../components/auth/AuthScreen";
 
@@ -27,7 +26,7 @@ export default function MainLayout({
   const { user, isAuthenticated, isInitialized, logout, updateUser } = useAuth();
   const { socket, onReceiveMessage } = useSocket();
   const { addToast } = useToast();
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [pendingFriendCount, setPendingFriendCount] = useState(0);
 
   const {
     friends,
@@ -45,7 +44,7 @@ export default function MainLayout({
     reset: resetChatStore,
   } = useChatStore();
 
-  const { pendingFriendCount, setPendingFriendCount, resetPending } = useContactsStore();
+  const { resetPending: resetContactsStore } = useContactsStore();
   const { reset: resetGroupsStore } = useGroupsStore();
 
   // Load friends list
@@ -157,12 +156,25 @@ export default function MainLayout({
     }
   }, [isInitialized, isAuthenticated, pathname, router]);
 
+  useEffect(() => {
+    const handleAuthLogout = () => {
+      logout();
+      resetContactsStore();
+      resetChatStore();
+      resetGroupsStore();
+      router.replace("/login");
+    };
+
+    window.addEventListener("auth:logout", handleAuthLogout);
+    return () => window.removeEventListener("auth:logout", handleAuthLogout);
+  }, [logout, resetContactsStore, resetChatStore, resetGroupsStore, router]);
+
   const handleLogout = () => {
     logout();
-    setProfileOpen(false);
-    resetPending();
+    resetContactsStore();
     resetChatStore();
     resetGroupsStore();
+    router.push("/login");
   };
 
   if (!isInitialized) return null;
@@ -177,16 +189,8 @@ export default function MainLayout({
         pendingFriendCount={pendingFriendCount}
         onPendingCountChange={(delta) => setPendingFriendCount(Math.max(0, pendingFriendCount + delta))}
         onOpenDmChat={(friend) => setSelectedFriend(friend)}
-        onOpenProfile={() => setProfileOpen(true)}
       />
       {children}
-      <ProfileSidebar
-        isOpen={profileOpen}
-        authUser={user!}
-        onClose={() => setProfileOpen(false)}
-        onLogout={handleLogout}
-        onUpdateUser={updateUser}
-      />
       <ToastContainer />
     </div>
   );

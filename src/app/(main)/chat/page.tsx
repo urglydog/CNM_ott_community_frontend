@@ -16,7 +16,6 @@ export default function ChatPage() {
   return (
     <div className="flex h-screen w-full bg-gray-100 overflow-hidden font-sans text-sm relative">
       <ChatListPanel
-        authUser={user}
         onActiveViewChange={() => {}}
       />
       <ChatWindow authUser={user} />

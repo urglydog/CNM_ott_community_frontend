@@ -26,6 +26,7 @@ import { useDirectMessage } from "../hooks/useChatHooks";
 import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
 import type { AuthUser } from "../../../types";
+import { askBot } from "../api";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -51,6 +52,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   const { status } = useSocket();
   const [inputValue, setInputValue] = useState("");
+  const [aiQuestion, setAiQuestion] = useState("");
+  const [aiAnswer, setAiAnswer] = useState("");
+  const [isAskingAI, setIsAskingAI] = useState(false);
+  const [aiError, setAiError] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -87,6 +92,25 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     if (!file || isUploadingFile) return;
     await sendFileMessage(file);
     e.target.value = "";
+  }
+
+  async function handleAskAI() {
+    const trimmed = aiQuestion.trim();
+    if (!trimmed || isAskingAI) return;
+
+    try {
+      setIsAskingAI(true);
+      setAiError("");
+      const response = await askBot(trimmed);
+      setAiAnswer(response.content || "AI chưa có phản hồi.");
+    } catch (error: any) {
+      const errorMessage =
+        error?.response?.data?.message || "Không thể kết nối AI Bot.";
+      setAiError(errorMessage);
+      setAiAnswer("");
+    } finally {
+      setIsAskingAI(false);
+    }
   }
 
   if (!selectedFriend) {
@@ -390,6 +414,41 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               )}
             </button>
           </div>
+        </div>
+
+        <div className="border-t border-gray-100 px-4 py-3 bg-gray-50">
+          <p className="text-xs font-semibold text-gray-700 mb-2">Trợ lý AI</p>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={aiQuestion}
+              onChange={(e) => setAiQuestion(e.target.value)}
+              placeholder="Nhập câu hỏi cho AI..."
+              disabled={isAskingAI}
+              className="flex-1 h-10 rounded-md border border-gray-300 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-60"
+            />
+
+            <button
+              type="button"
+              onClick={handleAskAI}
+              disabled={!aiQuestion.trim() || isAskingAI}
+              className="h-10 px-4 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isAskingAI ? "Đang hỏi..." : "Hỏi AI"}
+            </button>
+          </div>
+
+          {aiError && <p className="mt-2 text-xs text-red-500">{aiError}</p>}
+
+          {aiAnswer && (
+            <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 p-3">
+              <p className="text-xs font-medium text-blue-700">AI Bot:</p>
+              <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">
+                {aiAnswer}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

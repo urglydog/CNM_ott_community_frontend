@@ -62,3 +62,16 @@ export async function sendDirectFileMessage(
 
   return response.data?.data;
 }
+
+export interface BotChatResponse {
+  sender: string;
+  content: string;
+}
+
+export async function askBot(message: string): Promise<BotChatResponse> {
+  const response = await apiClient.post<BotChatResponse>("/api/v1/bot/chat", {
+    message,
+  });
+
+  return response.data;
+}

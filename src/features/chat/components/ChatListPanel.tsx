@@ -5,13 +5,12 @@ import { Loader2, MessageCircle, Search, UserPlus, Users } from "lucide-react";
 import { useChatStore } from "../store/chatStore";
 import { useGroupsStore } from "../../groups/store/groupsStore";
 import { fetchMyGroups } from "../../groups/api";
-import { useAuth } from "../../../contexts/AuthContext";
+import { getPresignedViewUrl } from "../../../api/client";
 import AddFriendModal from "../../contacts/components/AddFriendModal";
-import type { AuthUser, FriendItem } from "../../../types";
+import type { FriendItem } from "../../../types";
 import type { Group } from "../../groups/types";
 
 interface ChatListPanelProps {
-  authUser: AuthUser;
   onActiveViewChange: (open: boolean) => void;
 }
 
@@ -55,7 +54,6 @@ type ChatItem = PrivateChatItem | GroupChatItem;
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ChatListPanel({
-  authUser,
   onActiveViewChange,
 }: ChatListPanelProps) {
   const {
@@ -76,10 +74,12 @@ export default function ChatListPanel({
 
   const { myGroups, setMyGroups, isLoadingGroups, setIsLoadingGroups } =
     useGroupsStore();
-  const { user } = useAuth();
 
   const [addFriendOpen, setAddFriendOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [resolvedFriendAvatars, setResolvedFriendAvatars] = useState<
+    Record<string, string>
+  >({});
 
   // ── Load nhóm khi mount ─────────────────────────────────────────────────
   useEffect(() => {
@@ -96,6 +96,55 @@ export default function ChatListPanel({
     }
     loadGroups();
   }, [setMyGroups, setIsLoadingGroups]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveFriendAvatars() {
+      const targets = friends.filter((f) => Boolean(f.friend_avatar_url));
+      if (targets.length === 0) return;
+
+      const entries = await Promise.all(
+        targets.map(async (friend) => {
+          const rawUrl = String(friend.friend_avatar_url || "").trim();
+          const friendId = String(friend.friend_id);
+
+          if (!rawUrl) return [friendId, ""] as const;
+          if (!/\.amazonaws\.com/i.test(rawUrl)) return [friendId, rawUrl] as const;
+          if (/X-Amz-Algorithm=/i.test(rawUrl)) return [friendId, rawUrl] as const;
+
+          try {
+            const signed = await getPresignedViewUrl({ url: rawUrl });
+            return [friendId, signed.viewUrl || rawUrl] as const;
+          } catch {
+            return [friendId, rawUrl] as const;
+          }
+        }),
+      );
+
+      if (cancelled) return;
+
+      setResolvedFriendAvatars((prev) => {
+        const next = { ...prev };
+        let changed = false;
+
+        for (const [friendId, url] of entries) {
+          if (url && next[friendId] !== url) {
+            next[friendId] = url;
+            changed = true;
+          }
+        }
+
+        return changed ? next : prev;
+      });
+    }
+
+    resolveFriendAvatars();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [friends]);
 
   // ── sortedChatItems: gộp friends + groups, tìm kiếm, sắp xếp ──────────────
 
@@ -171,29 +220,7 @@ export default function ChatListPanel({
       {/* ── Header: avatar + search ─────────────────────────────────── */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between gap-2 mb-4">
-          <button
-            type="button"
-            onClick={() => onActiveViewChange(true)}
-            className="flex items-center gap-2 group"
-          >
-            <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-xs">
-              {(authUser.displayName || authUser.username)
-                .trim()
-                .charAt(0)
-                .toUpperCase()}
-            </div>
-            <div className="flex flex-col max-w-[160px] text-left">
-              <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wide group-hover:text-gray-700">
-                Hồ sơ của tôi
-              </span>
-              <span className="font-semibold text-gray-800 text-sm truncate">
-                {authUser.displayName}
-              </span>
-              <span className="text-[11px] text-gray-500 truncate">
-                @{authUser.username}
-              </span>
-            </div>
-          </button>
+          <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Tin nhắn gần đây</div>
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -262,6 +289,7 @@ export default function ChatListPanel({
                 <PrivateChatRow
                   key={item.friendshipId}
                   item={item}
+                  avatarUrl={resolvedFriendAvatars[String(item.friend_id)] || item.friend_avatar_url}
                   isSelected={
                     selectedFriend?.friend_id === item.friend_id &&
                     chatMode === "PRIVATE"
@@ -308,6 +336,7 @@ export default function ChatListPanel({
 
 interface PrivateChatRowProps {
   item: PrivateChatItem;
+  avatarUrl?: string | null;
   isSelected: boolean;
   preview: { content: string; createdAt: string } | undefined;
   unread: number;
@@ -316,6 +345,7 @@ interface PrivateChatRowProps {
 
 function PrivateChatRow({
   item,
+  avatarUrl,
   isSelected,
   preview,
   unread,
@@ -332,9 +362,9 @@ function PrivateChatRow({
       {/* Avatar */}
       <div className="relative mr-3 shrink-0">
         <div className="w-11 h-11 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 font-semibold text-sm overflow-hidden">
-          {item.friend_avatar_url ? (
+          {avatarUrl ? (
             <img
-              src={item.friend_avatar_url}
+              src={avatarUrl}
               alt=""
               className="w-full h-full object-cover"
             />

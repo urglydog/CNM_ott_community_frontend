@@ -22,7 +22,7 @@ import {
   FileText,
   Users,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dmConversationId, useDirectMessage } from "../hooks/useChatHooks";
 import {
   groupConversationId,
@@ -31,6 +31,7 @@ import {
   type GroupChatMessage,
 } from "../hooks/useGroupChat";
 import { getGroupMembers } from "../api";
+import { getPresignedViewUrl } from "../../../api/client";
 import { useSocket, type CallSignalPayload } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
 import apiClient from "../../../lib/axios";
@@ -195,9 +196,11 @@ function SystemMessageBubble({ content }: { content: string }) {
 function GroupMessageBubble({
   msg,
   authUserId,
+  senderAvatarUrl,
 }: {
   msg: GroupChatMessage;
   authUserId: string | number;
+  senderAvatarUrl?: string | null;
 }) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
 
@@ -210,7 +213,7 @@ function GroupMessageBubble({
       {/* Avatar người gửi — chỉ hiện nếu không phải mình */}
       {!isOwn && (
         <SenderAvatar
-          avatarUrl={msg.senderAvatarUrl}
+          avatarUrl={senderAvatarUrl ?? msg.senderAvatarUrl}
           name={senderName}
         />
       )}
@@ -415,6 +418,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   // ── Group mode ────────────────────────────────────────────────────────
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
+  const [resolvedAvatarUrls, setResolvedAvatarUrls] = useState<Record<string, string>>({});
 
   const {
     messages: groupMessages,
@@ -483,6 +487,89 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const friendName = selectedFriend?.friend_display_name ?? "";
   const groupName = selectedGroup?.name ?? "";
   const memberCount = groupMembers.length || selectedGroup?.memberCount || 0;
+
+  const resolveDisplayAvatar = useCallback(
+    (rawUrl: string | null | undefined) => {
+      const input = String(rawUrl || "").trim();
+      if (!input) return null;
+      if (!/\.amazonaws\.com/i.test(input)) return input;
+      return resolvedAvatarUrls[input] || input;
+    },
+    [resolvedAvatarUrls],
+  );
+
+  const resolvedGroupMembers = useMemo(
+    () =>
+      groupMembers.map((m) => ({
+        ...m,
+        avatarUrl: resolveDisplayAvatar(m.avatarUrl),
+      })),
+    [groupMembers, resolveDisplayAvatar],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const rawUrls = new Set<string>();
+
+    for (const member of groupMembers) {
+      const raw = String(member.avatarUrl || "").trim();
+      if (raw) rawUrls.add(raw);
+    }
+
+    for (const msg of groupMessages) {
+      const raw = String(msg.senderAvatarUrl || "").trim();
+      if (raw) rawUrls.add(raw);
+    }
+
+    for (const msg of dmMessages) {
+      const raw = String(msg.senderAvatarUrl || "").trim();
+      if (raw) rawUrls.add(raw);
+    }
+
+    const selectedFriendAvatar = String(selectedFriend?.friend_avatar_url || "").trim();
+    if (selectedFriendAvatar) {
+      rawUrls.add(selectedFriendAvatar);
+    }
+
+    const candidates = Array.from(rawUrls).filter((raw) => {
+      if (!/\.amazonaws\.com/i.test(raw)) return false;
+      if (/X-Amz-Algorithm=/i.test(raw)) return false;
+      return !resolvedAvatarUrls[raw];
+    });
+
+    if (candidates.length === 0) return;
+
+    Promise.all(
+      candidates.map(async (raw) => {
+        try {
+          const signed = await getPresignedViewUrl({ url: raw });
+          return [raw, signed.viewUrl || raw] as const;
+        } catch {
+          return [raw, raw] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setResolvedAvatarUrls((prev) => {
+        const next = { ...prev };
+        let changed = false;
+
+        for (const [raw, resolved] of entries) {
+          if (resolved && next[raw] !== resolved) {
+            next[raw] = resolved;
+            changed = true;
+          }
+        }
+
+        return changed ? next : prev;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [groupMembers, groupMessages, dmMessages, selectedFriend?.friend_avatar_url, resolvedAvatarUrls]);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -830,12 +917,12 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         <div className="flex items-center gap-3">
           {/* Avatar */}
           {isGroup ? (
-            <GroupAvatar members={groupMembers} size={48} />
+            <GroupAvatar members={resolvedGroupMembers} size={48} />
           ) : (
             <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold text-xl relative overflow-hidden shrink-0">
               {selectedFriend?.friend_avatar_url ? (
                 <img
-                  src={selectedFriend.friend_avatar_url}
+                  src={resolveDisplayAvatar(selectedFriend.friend_avatar_url) || selectedFriend.friend_avatar_url}
                   alt={friendName}
                   className="w-full h-full object-cover"
                 />
@@ -972,6 +1059,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                 key={msg.id}
                 msg={msg}
                 authUserId={currentUserId}
+                senderAvatarUrl={resolveDisplayAvatar(msg.senderAvatarUrl)}
               />
             );
           }

@@ -7,6 +7,7 @@ export type Group = {
   ownerId?: string;
   memberCount?: number;
   createdAt?: string;
+  avatarUrl?: string | null;
 };
 
 export interface GroupMember {

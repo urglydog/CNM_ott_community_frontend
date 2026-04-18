@@ -38,7 +38,11 @@ export type AuthUser = {
   displayName: string;
   email?: string;
   phone?: string;
+  avatarUrl?: string | null;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
   token: string;
+  refreshToken?: string;
 };
 
 // ── Friend System Types ─────────────────────────────────────────────────────────

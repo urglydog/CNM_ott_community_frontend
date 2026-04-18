@@ -35,10 +35,7 @@ import { useSocket, type CallSignalPayload } from "../../../contexts/SocketConte
 import { useChatStore } from "../store/chatStore";
 import apiClient from "../../../lib/axios";
 import type { AuthUser } from "../../../types";
-import VideoCallGroup from "../../../components/chat/VideoCallGroup";
-import VideoCall1vs1 from "../../../components/chat/VideoCall1vs1";
-import { useToast } from "../../../contexts/ToastContext";
-import type { GroupMember } from "../../groups/types";
+import { askBot } from "../api";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -462,11 +459,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   } = useSocket();
   const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
-  const [isInCall, setIsInCall] = useState(false);
-  const [isStartingCall, setIsStartingCall] = useState(false);
-  const [callData, setCallData] = useState<ActiveCallData | null>(null);
-  const [incomingCallData, setIncomingCallData] =
-    useState<IncomingCallData | null>(null);
+  const [aiQuestion, setAiQuestion] = useState("");
+  const [aiAnswer, setAiAnswer] = useState("");
+  const [isAskingAI, setIsAskingAI] = useState(false);
+  const [aiError, setAiError] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -745,12 +741,41 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     e.target.value = "";
   }
 
-  // ── Lấy danh sách tin nhắn & trạng thái đúng mode ───────────────────
-  const activeMessages: GroupChatMessage[] =
-    chatMode === "GROUP" ? groupMessages : dmMessages;
-  const activeLoading = chatMode === "GROUP" ? groupLoading : dmLoading;
-  const activeError = chatMode === "GROUP" ? groupError : dmError;
-  const activeSending = chatMode === "GROUP" ? groupSending : dmSending;
+  async function handleAskAI() {
+    const trimmed = aiQuestion.trim();
+    if (!trimmed || isAskingAI) return;
+
+    try {
+      setIsAskingAI(true);
+      setAiError("");
+      const response = await askBot(trimmed);
+      setAiAnswer(response.content || "AI chưa có phản hồi.");
+    } catch (error: any) {
+      const errorMessage =
+        error?.response?.data?.message || "Không thể kết nối AI Bot.";
+      setAiError(errorMessage);
+      setAiAnswer("");
+    } finally {
+      setIsAskingAI(false);
+    }
+  }
+
+  if (!selectedFriend) {
+    return (
+      <div className="flex-1 bg-[#f3f5f6] flex flex-col items-center justify-center min-w-0 text-gray-400 px-6">
+        <div className="w-16 h-16 rounded-full bg-gray-200/80 flex items-center justify-center mb-4">
+          <Smile className="w-8 h-8 text-gray-500" />
+        </div>
+        <p className="text-sm font-medium text-gray-600">
+          Chọn một cuộc trò chuyện
+        </p>
+        <p className="text-xs text-gray-500 mt-1 text-center max-w-sm">
+          Danh sách bạn bè ở cột bên trái. Tin nhắn mới sẽ cập nhật trên danh
+          sách khi có.
+        </p>
+      </div>
+    );
+  }
 
   const placeHolder =
     chatMode === "GROUP"
@@ -1038,6 +1063,41 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               )}
             </button>
           </div>
+        </div>
+
+        <div className="border-t border-gray-100 px-4 py-3 bg-gray-50">
+          <p className="text-xs font-semibold text-gray-700 mb-2">Trợ lý AI</p>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={aiQuestion}
+              onChange={(e) => setAiQuestion(e.target.value)}
+              placeholder="Nhập câu hỏi cho AI..."
+              disabled={isAskingAI}
+              className="flex-1 h-10 rounded-md border border-gray-300 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-60"
+            />
+
+            <button
+              type="button"
+              onClick={handleAskAI}
+              disabled={!aiQuestion.trim() || isAskingAI}
+              className="h-10 px-4 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isAskingAI ? "Đang hỏi..." : "Hỏi AI"}
+            </button>
+          </div>
+
+          {aiError && <p className="mt-2 text-xs text-red-500">{aiError}</p>}
+
+          {aiAnswer && (
+            <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 p-3">
+              <p className="text-xs font-medium text-blue-700">AI Bot:</p>
+              <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">
+                {aiAnswer}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

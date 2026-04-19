@@ -36,18 +36,13 @@ import {
 } from "../hooks/useGroupChat";
 import { getGroupMembers } from "../api";
 import { getPresignedViewUrl } from "../../../api/client";
-import {
-  useSocket,
-  type CallSignalPayload,
-} from "../../../contexts/SocketContext";
+import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
-import apiClient from "../../../lib/axios";
 import type { AuthUser } from "../../../types";
 import { askBot } from "../api";
 import ForwardMessageModal from "./ForwardMessageModal";
 import EmojiStickerPicker from "./EmojiStickerPicker";
-import VideoCallGroup from "../../../components/chat/VideoCallGroup";
-import VideoCall1vs1 from "../../../components/chat/VideoCall1vs1";
+import CallOverlay from "@/features/chat/components/CallOverlay";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
 import type { StickerData } from "../../../types";
@@ -56,27 +51,6 @@ interface ChatWindowProps {
   authUser: AuthUser;
 }
 
-interface ActiveCallData {
-  roomId: string;
-  token: string;
-  appId: number;
-  userId: string;
-  userName: string;
-  conversationId: string;
-  callerId: string;
-  callerName: string;
-  receiverId: string;
-  isGroupCall: boolean;
-}
-
-interface IncomingCallData {
-  conversationId: string;
-  roomId: string;
-  callerId: string;
-  callerName: string;
-  receiverId: string;
-  isGroupCall: boolean;
-}
 
 interface AiConversationTurn {
   id: string;
@@ -85,10 +59,6 @@ interface AiConversationTurn {
 }
 
 const AI_HISTORY_STORAGE_PREFIX = "ott_ai_history_v1";
-
-function sanitizeRoomId(roomId: string): string {
-  return roomId.replace(/:/g, "_");
-}
 
 function getAvatarInitial(name: string): string {
   return name?.charAt(0)?.toUpperCase() ?? "?";
@@ -689,7 +659,7 @@ function MessageContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 bg-white rounded-xl shadow-xl border border-gray-200 py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
+      className="fixed z-50 bg-white rounded-xl shadow-xl border border-gray-200 py-1 min-w-40 animate-in fade-in zoom-in-95 duration-100"
       style={{ top: adjustedY, left: adjustedX }}
     >
       {/* Nút Xóa với tôi — hiện cho MỌI tin nhắn (kể cả của mình) */}
@@ -781,6 +751,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     isAiChatOpen,
     pendingAiPrompt,
     clearPendingAiPrompt,
+    setOutgoingCall,
   } = useChatStore();
 
   const currentUserId = String((authUser as any)._id || authUser.id || "");
@@ -860,14 +831,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }, [selectedGroup]);
 
   const {
-    socket,
     status,
-    onIncomingCall,
-    emitCallDeclined,
-    emitEndCall,
-    onCallAccepted,
-    onCallDeclined,
-    onEndCall,
+    emitCallUser,
   } = useSocket();
   const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
@@ -877,13 +842,6 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   );
   const [isAskingAI, setIsAskingAI] = useState(false);
   const [aiError, setAiError] = useState("");
-  const [isInCall, setIsInCall] = useState(false);
-  const [isStartingCall, setIsStartingCall] = useState(false);
-  const [callData, setCallData] = useState<ActiveCallData | null>(null);
-  const [incomingCallData, setIncomingCallData] =
-    useState<IncomingCallData | null>(null);
-  const ringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const delayedUnmountRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1192,125 +1150,13 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     }
   }, [aiConversation, currentUserId, aiHistoryStorageKey]);
 
-  useEffect(() => {
-    const offIncoming = onIncomingCall((payload: CallSignalPayload) => {
-      console.debug("[ChatWindow][onIncomingCall] payload:", payload);
-      if (String(payload.callerId) === currentUserId) return;
-
-      const isGroupCall = Boolean(payload.isGroupCall);
-
-      if (!isGroupCall && String(payload.receiverId ?? "") !== currentUserId) {
-        return;
-      }
-
-      setIncomingCallData({
-        conversationId: String(payload.conversationId || payload.roomId),
-        roomId: String(payload.roomId),
-        callerId: String(payload.callerId),
-        callerName: payload.callerName,
-        receiverId: String(payload.receiverId ?? currentUserId),
-        isGroupCall,
-      });
-    });
-
-    const offAccepted = onCallAccepted((_payload: CallSignalPayload) => {
-      console.debug("[ChatWindow][onCallAccepted] payload:", _payload);
-      if (ringTimerRef.current) {
-        clearTimeout(ringTimerRef.current);
-        ringTimerRef.current = null;
-      }
-      setIsStartingCall(false);
-    });
-
-    const offDeclined = onCallDeclined((payload: CallSignalPayload) => {
-      console.log("[Call] Da nhan tin hieu TU CHOI:", payload);
-      const targetId = String(payload.callerId || payload.to || "");
-      if (targetId !== currentUserId) {
-        console.log("[Call] Tin hieu tu choi cua nguoi khac, bo qua.");
-        return;
-      }
-
-      addToast("Người dùng đã từ chối cuộc gọi", "info");
-      setIsStartingCall(false);
-
-      if (ringTimerRef.current) {
-        clearTimeout(ringTimerRef.current);
-        ringTimerRef.current = null;
-      }
-
-      if (delayedUnmountRef.current) {
-        clearTimeout(delayedUnmountRef.current);
-      }
-
-      // Delay unmount to let Zego destroy internal DOM safely.
-      delayedUnmountRef.current = setTimeout(() => {
-        setIsInCall(false);
-        setCallData(null);
-        delayedUnmountRef.current = null;
-      }, 300);
-    });
-
-    const offEndCall = onEndCall((payload: CallSignalPayload) => {
-      console.debug("[ChatWindow][onEndCall] payload:", payload);
-      const endedCurrentCall = !callData || payload.roomId === callData.roomId;
-
-      if (!endedCurrentCall) return;
-
-      if (ringTimerRef.current) {
-        clearTimeout(ringTimerRef.current);
-        ringTimerRef.current = null;
-      }
-
-      addToast("Cuộc gọi đã kết thúc", "info", 2500);
-      setIsStartingCall(false);
-
-      if (delayedUnmountRef.current) {
-        clearTimeout(delayedUnmountRef.current);
-      }
-
-      // Delay unmount to avoid race between SDK cleanup and React DOM removal.
-      delayedUnmountRef.current = setTimeout(() => {
-        setIsInCall(false);
-        setCallData(null);
-        setIncomingCallData(null);
-        delayedUnmountRef.current = null;
-      }, 300);
-    });
-
-    return () => {
-      offIncoming();
-      offAccepted();
-      offDeclined();
-      offEndCall();
-      if (ringTimerRef.current) {
-        clearTimeout(ringTimerRef.current);
-        ringTimerRef.current = null;
-      }
-      if (delayedUnmountRef.current) {
-        clearTimeout(delayedUnmountRef.current);
-        delayedUnmountRef.current = null;
-      }
-    };
-  }, [
-    onIncomingCall,
-    onCallAccepted,
-    onCallDeclined,
-    onEndCall,
-    status,
-    currentUserId,
-    addToast,
-    callData,
-  ]);
-
   async function handleStartVideoCall() {
     const isGroupCall = chatMode === "GROUP";
     const hasTarget = isGroupCall
       ? selectedGroup != null
       : selectedFriend != null;
 
-    if (!hasTarget || isStartingCall || isInCall) return;
-
-    setIsStartingCall(true);
+    if (!hasTarget) return;
     try {
       const directFriendId = String(
         (selectedFriend as any)?.friend_id ??
@@ -1330,34 +1176,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       const rawRoomId = isGroupCall
         ? `group_call_${normalizedGroupId}`
         : `call_1vs1_${[currentUserId, directFriendId].sort().join("_")}`;
-      const safeRoomId = sanitizeRoomId(rawRoomId);
+      const safeRoomId = rawRoomId.replace(/:/g, "_");
       const conversationId = isGroupCall
         ? groupConversationId(selectedGroup!.groupId)
         : dmConversationId(currentUserId, directFriendId);
-
-      const response = await apiClient.get<{ appID: number; token: string }>(
-        "/api/calls/token",
-        {
-          params: {
-            userID: currentUserId,
-          },
-        },
-      );
-
-      const payload: ActiveCallData = {
-        roomId: safeRoomId,
-        token: String(response.data.token),
-        appId: Number(response.data.appID),
-        userId: currentUserId,
-        userName: currentUserName,
-        conversationId,
-        callerId: currentUserId,
-        callerName: currentUserName,
-        receiverId: isGroupCall
-          ? String(selectedGroup!.groupId)
-          : directFriendId,
-        isGroupCall,
-      };
 
       if (isGroupCall) {
         const groupCallPayload = {
@@ -1370,114 +1192,42 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           "[ChatWindow][emit group-call-request] payload:",
           groupCallPayload,
         );
-        socket?.emit("group-call-request", groupCallPayload);
+        emitCallUser({
+          ...groupCallPayload,
+          receiverId: String(selectedGroup!.groupId),
+          conversationId,
+          isGroupCall: true,
+        });
+        setOutgoingCall({
+          roomId: safeRoomId,
+          conversationId,
+          receiverId: String(selectedGroup!.groupId),
+          receiverName: groupName || "Nhom",
+          isGroupCall: true,
+        });
       } else {
         const oneToOnePayload = {
-          to: String(selectedFriend!.friend_id),
           roomId: safeRoomId,
           callerId: currentUserId,
           callerName: currentUserName,
+          receiverId: directFriendId,
+          to: directFriendId,
+          conversationId,
+          isGroupCall: false,
         };
         console.debug("[ChatWindow][emit call-user] payload:", oneToOnePayload);
-        socket?.emit("call-user", oneToOnePayload);
-
-        // Tu dong huy trang thai dang goi neu khong co phan hoi trong 30s
-        if (ringTimerRef.current) {
-          clearTimeout(ringTimerRef.current);
-        }
-        ringTimerRef.current = setTimeout(() => {
-          setIsInCall(false);
-          setCallData(null);
-          setIsStartingCall(false);
-          addToast("Khong co phan hoi cuoc goi", "info", 2500);
-          ringTimerRef.current = null;
-        }, 30_000);
+        emitCallUser(oneToOnePayload);
+        setOutgoingCall({
+          roomId: safeRoomId,
+          conversationId,
+          receiverId: directFriendId,
+          receiverName: friendName || "Ban be",
+          isGroupCall: false,
+        });
       }
-
-      setCallData(payload);
-      setIsInCall(true);
     } catch {
-      setIsInCall(false);
-      setCallData(null);
-    } finally {
-      setIsStartingCall(false);
+      addToast("Khong the bat dau cuoc goi", "error", 2500);
     }
-  }
-
-  async function handleAcceptIncomingCall() {
-    if (!incomingCallData) return;
-
-    try {
-      const response = await apiClient.get<{ appID: number; token: string }>(
-        "/api/calls/token",
-        {
-          params: {
-            userID: currentUserId,
-          },
-        },
-      );
-
-      const acceptedPayload: ActiveCallData = {
-        roomId: sanitizeRoomId(incomingCallData.roomId),
-        token: String(response.data.token),
-        appId: Number(response.data.appID),
-        userId: currentUserId,
-        userName: currentUserName,
-        conversationId: incomingCallData.conversationId,
-        callerId: incomingCallData.callerId,
-        callerName: incomingCallData.callerName,
-        receiverId: currentUserId,
-        isGroupCall: incomingCallData.isGroupCall,
-      };
-
-      socket?.emit("call-accepted", {
-        to: incomingCallData.callerId,
-        roomId: incomingCallData.roomId,
-      });
-      console.debug("[ChatWindow][emit call-accepted] payload:", {
-        to: incomingCallData.callerId,
-        roomId: incomingCallData.roomId,
-      });
-
-      setCallData(acceptedPayload);
-      setIsInCall(true);
-      setIncomingCallData(null);
-    } catch (error) {
-      console.error("Loi khi nguoi nghe lay token:", error);
-    }
-  }
-
-  function handleDeclineIncomingCall() {
-    if (!incomingCallData) return;
-    emitCallDeclined({
-      ...incomingCallData,
-      to: String(incomingCallData.callerId),
-      callerId: String(incomingCallData.callerId),
-      from: currentUserId,
-    });
-    setIncomingCallData(null);
-  }
-
-  function handleHangUp(shouldEmitSignal = true) {
-    if (shouldEmitSignal && callData && !callData.isGroupCall) {
-      const remoteUserId =
-        String(callData.callerId) === currentUserId
-          ? String(callData.receiverId)
-          : String(callData.callerId);
-
-      emitEndCall({
-        conversationId: callData.conversationId,
-        roomId: callData.roomId,
-        callerId: currentUserId,
-        callerName: currentUserName,
-        receiverId: remoteUserId,
-        to: remoteUserId,
-        from: currentUserId,
-      });
-    }
-
-    setIsInCall(false);
-    setCallData(null);
   }
 
   // Khi chuyển đổi giữa nhóm và DM, clear input
@@ -1687,13 +1437,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
             title="Gọi video"
             onClick={handleStartVideoCall}
-            disabled={!isConnected || isStartingCall || isInCall}
+            disabled={!isConnected}
           >
-            {isStartingCall ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Video className="w-5 h-5" />
-            )}
+            <Video className="w-5 h-5" />
           </button>
           <div className="w-px h-5 bg-gray-300 mx-1" />
           <button
@@ -2036,53 +1782,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         )}
       </div>
 
-      {incomingCallData && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Cuộc gọi đến
-            </h3>
-            <p className="mt-1 text-sm text-gray-600">
-              {friendName || "Bạn bè"} đang gọi video cho bạn.
-            </p>
-            <div className="mt-5 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={handleDeclineIncomingCall}
-                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Từ chối
-              </button>
-              <button
-                type="button"
-                onClick={handleAcceptIncomingCall}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              >
-                Chấp nhận
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isInCall &&
-        callData &&
-        (() => {
-          const commonProps = {
-            roomId: callData.roomId,
-            token: callData.token,
-            userId: currentUserId,
-            userName: currentUserName,
-            appId: 816047107,
-            onLeave: () => handleHangUp(),
-          };
-
-          return callData.isGroupCall ? (
-            <VideoCallGroup {...commonProps} />
-          ) : (
-            <VideoCall1vs1 {...commonProps} />
-          );
-        })()}
+      <CallOverlay />
     </div>
   );
 }

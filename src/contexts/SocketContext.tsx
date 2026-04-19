@@ -48,6 +48,13 @@ export interface CallSignalPayload {
   isGroupCall?: boolean;
 }
 
+export interface MessageRevokedPayload {
+  conversationId: string;
+  messageId: string;
+  revokedAt?: string;
+  revokedBy?: string;
+}
+
 interface SocketContextValue {
   socket: Socket | null;
   status: SocketStatus;
@@ -88,6 +95,8 @@ interface SocketContextValue {
   onCallAccepted: (handler: (data: CallSignalPayload) => void) => () => void;
   onCallDeclined: (handler: (data: CallSignalPayload) => void) => () => void;
   onEndCall: (handler: (data: CallSignalPayload) => void) => () => void;
+  onEndCall: (handler: (data: CallSignalPayload) => void) => () => void;
+  onMessageRevoked: (handler: (data: MessageRevokedPayload) => void) => () => void;
 }
 
 interface GlobalCallState {
@@ -305,6 +314,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       addToast("Cuoc goi da ket thuc", "info", 2500);
     };
 
+    const handleMessageRevoked = (_payload: MessageRevokedPayload) => {
+      // The actual UI update is handled by the chat hooks that listen via onMessageRevoked.
+      // Here we just ensure the socket is subscribed. No global action needed.
+    };
+
     socket.on("incoming-call", handleIncomingCall);
     socket.on("call-user", handleIncomingCall);
     socket.on("call-request", handleIncomingCall);
@@ -312,6 +326,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socket.on("cancel-call", handleCancelCall);
     socket.on("cancel-group-call", handleCancelGroupCall);
     socket.on("end-call", handleEndCall);
+    socket.on("message:revoked", handleMessageRevoked);
 
     return () => {
       socket.off("incoming-call", handleIncomingCall);
@@ -321,6 +336,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off("cancel-call", handleCancelCall);
       socket.off("cancel-group-call", handleCancelGroupCall);
       socket.off("end-call", handleEndCall);
+      socket.off("message:revoked", handleMessageRevoked);
     };
   }, [addToast, activeCall, incomingCall?.isGroupCall, incomingCall?.roomId, resolvedUserId, stopRingtone]);
 
@@ -589,6 +605,21 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const onMessageRevoked = useCallback(
+    (handler: (data: MessageRevokedPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+
+      const listener = (data: MessageRevokedPayload) => handler(data);
+      socket.on("message:revoked", listener);
+
+      return () => {
+        socket.off("message:revoked", listener);
+      };
+    },
+    []
+  );
+
   return (
     <SocketContext.Provider
       value={{
@@ -614,6 +645,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         onCallAccepted,
         onCallDeclined,
         onEndCall,
+        onMessageRevoked,
+
       }}
     >
       {children}

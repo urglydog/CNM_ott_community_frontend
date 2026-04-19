@@ -97,6 +97,7 @@ export function useGroupChat(
     onReceiveMessage,
     onUserTyping,
     onUserStoppedTyping,
+    onMessageRevoked,
   } = useSocket();
 
   const { setGroupConversationPreview } = useChatStore();
@@ -215,6 +216,17 @@ export function useGroupChat(
       });
     });
 
+    const unsubRevoked = onMessageRevoked(({ conversationId, messageId }) => {
+      if (conversationId !== currentRoomId) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id) === String(messageId)
+            ? ({ ...m, contentType: "revoked" as const, content: null, attachments: null } as unknown as GroupChatMessage)
+            : m,
+        ),
+      );
+    });
+
     const unsubTyping = onUserTyping(({ roomId, userName }) => {
       if (roomId !== currentRoomId) return;
       setTypingUsers((prev) =>
@@ -234,6 +246,7 @@ export function useGroupChat(
 
     return () => {
       unsubReceive();
+      unsubRevoked();
       unsubTyping();
       unsubStopTyping();
       emitLeaveRoom(currentRoomId);
@@ -243,6 +256,7 @@ export function useGroupChat(
     emitJoinRoom,
     emitLeaveRoom,
     onReceiveMessage,
+    onMessageRevoked,
     onUserTyping,
     onUserStoppedTyping,
     user?.id,

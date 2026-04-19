@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { LayoutGrid, MessageCircle, Newspaper, ScrollText, Settings, Search, Users } from "lucide-react";
+import { MessageCircle, Newspaper, ScrollText, Settings, Search, Users } from "lucide-react";
 import FriendNotificationIcon from "../friends/FriendNotificationIcon";
 import SearchUsersModal from "../friends/SearchUsersModal";
 import FriendsListModal from "../friends/FriendsListModal";
@@ -52,7 +52,7 @@ export default function Sidebar({ pendingFriendCount, onPendingCountChange, onOp
             <Users className="text-white w-6 h-6" />
           </button>
           <div className="w-full flex justify-center py-3 hover:bg-[#1a66e3] cursor-pointer">
-            <LayoutGrid className="text-white/90 w-6 h-6" />
+            <Users className="text-white/90 w-6 h-6" />
           </div>
           <div className="w-full flex justify-center py-3 hover:bg-[#1a66e3] cursor-pointer">
             <Newspaper className="text-white/90 w-6 h-6" />

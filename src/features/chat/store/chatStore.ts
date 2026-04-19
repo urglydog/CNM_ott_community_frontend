@@ -49,6 +49,12 @@ interface ChatState {
   incrementGroupUnread: (groupId: string) => void;
   clearGroupUnread: (groupId: string) => void;
 
+  // ── Revoked messages tracking ───────────────────────────────────────────
+  /** Set of messageId strings that have been revoked (used for optimistic UI) */
+  revokedMessageIds: Set<string>;
+  markMessageRevoked: (messageId: string) => void;
+  clearRevokedMessageId: (messageId: string) => void;
+
   // ── Reset khi logout ───────────────────────────────────────────────────
   reset: () => void;
 }
@@ -131,6 +137,21 @@ export const useChatStore = create<ChatState>((set) => ({
       },
     })),
 
+  // ── Revoked messages tracking ─────────────────────────────────────────
+  revokedMessageIds: new Set<string>(),
+  markMessageRevoked: (messageId) =>
+    set((state) => {
+      const next = new Set(state.revokedMessageIds);
+      next.add(String(messageId));
+      return { revokedMessageIds: next };
+    }),
+  clearRevokedMessageId: (messageId) =>
+    set((state) => {
+      const next = new Set(state.revokedMessageIds);
+      next.delete(String(messageId));
+      return { revokedMessageIds: next };
+    }),
+
   // ── Reset ──────────────────────────────────────────────────────────────
   reset: () =>
     set({
@@ -144,5 +165,6 @@ export const useChatStore = create<ChatState>((set) => ({
       groupConversationPreview: {},
       unreadCounts: {},
       groupUnreadCounts: {},
+      revokedMessageIds: new Set<string>(),
     }),
 }));

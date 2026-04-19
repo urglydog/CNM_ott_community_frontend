@@ -158,3 +158,31 @@ export async function getGroupMembers(
   );
   return response.data || [];
 }
+
+// ── Message Revoke ──────────────────────────────────────────────────────────────
+
+export interface RevokeMessagePayload {
+  conversationId: string;
+  messageId: string;
+}
+
+export interface RevokeMessageResponse {
+  success: boolean;
+  message: string;
+  data: {
+    conversationId: string;
+    messageId: string;
+    revokedAt: string;
+    revokedBy: string;
+  };
+}
+
+export async function revokeMessage(
+  payload: RevokeMessagePayload,
+): Promise<RevokeMessageResponse> {
+  const response = await apiClient.put<RevokeMessageResponse>(
+    "/api/messages-extension/revoke",
+    payload,
+  );
+  return response.data;
+}

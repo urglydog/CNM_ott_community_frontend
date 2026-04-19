@@ -67,6 +67,7 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
           >
             <Search className="text-white w-6 h-6" />
           </button>
+          {/* Nút Lời mời kết bạn */}
           <button
             onClick={() => setIsRequestsOpen(true)}
             className={`${navButtonClass(false)} relative`}
@@ -82,6 +83,7 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
           </button>
 
           {/* Nhóm chat */}
+
           <button
             onClick={() => setIsGroupsOpen(true)}
             className={navButtonClass(false)}

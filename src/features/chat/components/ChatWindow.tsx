@@ -21,6 +21,7 @@ import {
   WifiOff,
   FileText,
   Users,
+  RotateCcw,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dmConversationId, useDirectMessage } from "../hooks/useChatHooks";
@@ -197,10 +198,12 @@ function GroupMessageBubble({
   msg,
   authUserId,
   senderAvatarUrl,
+  onContextMenu,
 }: {
   msg: GroupChatMessage;
   authUserId: string | number;
   senderAvatarUrl?: string | null;
+  onContextMenu?: (e: React.MouseEvent, msg: GroupChatMessage, conversationId: string, canRevoke: boolean) => void;
 }) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
 
@@ -209,7 +212,10 @@ function GroupMessageBubble({
     (isOwn ? "Bạn" : "Người dùng");
 
   return (
-    <div className={`flex items-start gap-2 mb-3 ${isOwn ? "flex-row-reverse" : "flex-row"}`}>
+    <div
+      className={`flex items-start gap-2 mb-3 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
+      data-message-id={String(msg.id)}
+    >
       {/* Avatar người gửi — chỉ hiện nếu không phải mình */}
       {!isOwn && (
         <SenderAvatar
@@ -229,7 +235,11 @@ function GroupMessageBubble({
             isOwn
               ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
               : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""}`}
+          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""}`}
+          onContextMenu={(e) => {
+            if (msg.contentType === "revoked") return;
+            onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
+          }}
         >
           {/* File/Image attachments */}
           {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
@@ -275,10 +285,16 @@ function GroupMessageBubble({
             </div>
           )}
 
-          {/* Nội dung tin nhắn */}
-          <div className="whitespace-pre-wrap wrap-break-word">
-            {msg.content || "[Không có nội dung]"}
-          </div>
+          {/* Nội dung tin nhắn — hiển thị placeholder nếu đã thu hồi */}
+          {msg.contentType === "revoked" ? (
+            <div className="italic text-gray-400 text-xs flex items-center gap-1">
+              <span>Tin nhắn đã được thu hồi</span>
+            </div>
+          ) : (
+            <div className="whitespace-pre-wrap wrap-break-word">
+              {msg.content || "[Không có nội dung]"}
+            </div>
+          )}
 
           {/* Thời gian + trạng thái gửi */}
           <div
@@ -307,22 +323,31 @@ function PrivateMessageBubble({
   friendName,
   friendAvatarUrl,
   authUserId,
+  onContextMenu,
 }: {
   msg: GroupChatMessage;
   friendName: string;
   friendAvatarUrl: string | null;
   authUserId: string | number;
+  onContextMenu?: (e: React.MouseEvent, msg: GroupChatMessage, conversationId: string, canRevoke: boolean) => void;
 }) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
 
   return (
-    <div className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-3`}>
+    <div
+      className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-3`}
+      data-message-id={String(msg.id)}
+    >
       <div
         className={`max-w-[70%] px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${
           isOwn
             ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
             : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""}`}
+        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""}`}
+        onContextMenu={(e) => {
+          if (msg.contentType === "revoked") return;
+          onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
+        }}
       >
         {!isOwn && (
           <div className={`text-xs font-medium mb-0.5 ${isOwn ? "text-blue-200" : "text-gray-400"}`}>
@@ -373,9 +398,16 @@ function PrivateMessageBubble({
           </div>
         )}
 
-        <div className="whitespace-pre-wrap wrap-break-word">
-          {msg.content || "[Không có nội dung]"}
-        </div>
+        {/* Nội dung tin nhắn — hiển thị placeholder nếu đã thu hồi */}
+        {msg.contentType === "revoked" ? (
+          <div className="italic text-gray-400 text-xs flex items-center gap-1">
+            <span>Tin nhắn đã được thu hồi</span>
+          </div>
+        ) : (
+          <div className="whitespace-pre-wrap wrap-break-word">
+            {msg.content || "[Không có nội dung]"}
+          </div>
+        )}
 
         <div
           className={`mt-1 text-[10px] flex items-center gap-1 ${
@@ -392,6 +424,97 @@ function PrivateMessageBubble({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Context menu hiện ra khi right-click vào tin nhắn — Zalo style */
+interface MessageContextMenuProps {
+  x: number;
+  y: number;
+  canRevoke: boolean;
+  isOwn: boolean;
+  onRevoke: () => void;
+  onClose: () => void;
+}
+
+function MessageContextMenu({ x, y, canRevoke, isOwn, onRevoke, onClose }: MessageContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Đóng khi click ra ngoài hoặc scroll
+  useEffect(() => {
+    function handleOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    }
+    function handleScroll() { onClose(); }
+    document.addEventListener("mousedown", handleOutside);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [onClose]);
+
+  // Đảm bảo menu không bị tràn ngoài viewport
+  const [adjustedX, setAdjustedX] = useState(x);
+  const [adjustedY, setAdjustedY] = useState(y);
+
+  useEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const rect = menu.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    setAdjustedX(Math.min(x, vw - rect.width - 8));
+    setAdjustedY(Math.min(y, vh - rect.height - 8));
+  }, [x, y]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="fixed z-50 bg-white rounded-xl shadow-xl border border-gray-200 py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
+      style={{ top: adjustedY, left: adjustedX }}
+    >
+      {/* Nút Thu hồi — chỉ hiện nếu là tin nhắn của chính mình */}
+      {canRevoke && (
+        <button
+          type="button"
+          onClick={() => { onRevoke(); onClose(); }}
+          className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left hover:bg-red-50 transition-colors text-red-600 group"
+        >
+          <span className="w-6 h-6 rounded-full bg-red-50 group-hover:bg-red-100 flex items-center justify-center transition-colors">
+            <RotateCcw className="w-3.5 h-3.5 text-red-500" />
+          </span>
+          <span className="text-sm font-medium text-red-600">Thu hồi</span>
+        </button>
+      )}
+
+      {/* Nếu không phải tin nhắn của mình, hiện tùy chọn khác */}
+      {!canRevoke && isOwn === false && (
+        <>
+          <button
+            type="button"
+            className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left hover:bg-gray-50 transition-colors text-gray-700"
+          >
+            <span className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center">
+              <Smile className="w-3.5 h-3.5 text-gray-500" />
+            </span>
+            <span className="text-sm">Thả cảm xúc</span>
+          </button>
+          <button
+            type="button"
+            className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left hover:bg-gray-50 transition-colors text-gray-700"
+          >
+            <span className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center">
+              <MoreHorizontal className="w-3.5 h-3.5 text-gray-500" />
+            </span>
+            <span className="text-sm">Xem thêm</span>
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -477,6 +600,49 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isConnected = status === "connected";
+
+  // ── Context menu state ──────────────────────────────────────────────────
+  const [ctxMenu, setCtxMenu] = useState<{
+    x: number;
+    y: number;
+    msg: GroupChatMessage;
+    conversationId: string;
+    canRevoke: boolean;
+  } | null>(null);
+
+  function handleMessageContextMenu(
+    e: React.MouseEvent,
+    msg: GroupChatMessage,
+    conversationId: string,
+    isOwn: boolean,
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, msg, conversationId, canRevoke: isOwn });
+  }
+
+  function closeCtxMenu() { setCtxMenu(null); }
+
+  // ── Revoke handler ──────────────────────────────────────────────────────
+  const [revokingMessageId, setRevokingMessageId] = useState<string | null>(null);
+
+  async function handleRevokeMessage() {
+    if (!ctxMenu) return;
+    const { msg, conversationId } = ctxMenu;
+    setRevokingMessageId(String(msg.id));
+
+    try {
+      const { revokeMessage: revokeApi } = await import("../api");
+      await revokeApi({ conversationId, messageId: String(msg.id) });
+      addToast("Tin nhắn đã được thu hồi", "success");
+      closeCtxMenu();
+    } catch (err: unknown) {
+      const msg2 = err instanceof Error ? err.message : "Không thể thu hồi tin nhắn";
+      addToast(msg2, "error");
+    } finally {
+      setRevokingMessageId(null);
+    }
+  }
 
   // Lấy ref đúng dựa trên mode
   const activeSentinelRef = chatMode === "GROUP" ? groupSentinelRef : dmSentinelRef;
@@ -1060,6 +1226,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                 msg={msg}
                 authUserId={currentUserId}
                 senderAvatarUrl={resolveDisplayAvatar(msg.senderAvatarUrl)}
+                onContextMenu={handleMessageContextMenu}
               />
             );
           }
@@ -1071,6 +1238,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               friendName={friendName}
               friendAvatarUrl={selectedFriend?.friend_avatar_url ?? null}
               authUserId={currentUserId}
+              onContextMenu={handleMessageContextMenu}
             />
           );
         })}
@@ -1110,6 +1278,18 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               : `${activeTypingUsers.slice(0, -1).join(", ")} và ${activeTypingUsers[activeTypingUsers.length - 1]} đang soạn tin...`}
           </p>
         </div>
+      )}
+
+      {/* Context menu – right-click thu hồi tin nhắn */}
+      {ctxMenu && (
+        <MessageContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          canRevoke={ctxMenu.canRevoke}
+          isOwn={ctxMenu.canRevoke}
+          onRevoke={handleRevokeMessage}
+          onClose={closeCtxMenu}
+        />
       )}
 
       {/* Input area */}

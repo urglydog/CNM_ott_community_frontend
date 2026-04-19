@@ -59,6 +59,7 @@ interface UseGroupChatReturn {
   isSending: boolean;
   isUploadingFile: boolean;
   setMessages: React.Dispatch<React.SetStateAction<GroupChatMessage[]>>;
+  deleteMessage: (messageId: string) => void;
   bottomSentinelRef: React.RefObject<HTMLDivElement | null>;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   typingUsers: string[];
@@ -491,6 +492,9 @@ export function useGroupChat(
     isSending,
     isUploadingFile,
     setMessages,
+    deleteMessage: (messageId: string) => {
+      setMessages((prev) => prev.filter((m) => String(m.id) !== String(messageId)));
+    },
     bottomSentinelRef,
     scrollContainerRef,
     typingUsers,

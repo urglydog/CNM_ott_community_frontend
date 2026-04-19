@@ -225,3 +225,30 @@ export async function revokeMessage(
   );
   return response.data;
 }
+
+// ── Message Delete For Me ───────────────────────────────────────────────────────
+
+export interface DeleteForMePayload {
+  conversationId: string;
+  messageId: string;
+}
+
+export interface DeleteForMeResponse {
+  success: boolean;
+  message: string;
+  data: {
+    conversationId: string;
+    messageId: string;
+    deletedFor: string[];
+    deletedForMeAt: string;
+  };
+}
+
+export async function deleteMessageForMe(
+  payload: DeleteForMePayload,
+): Promise<DeleteForMeResponse> {
+  const response = await apiClient.delete<DeleteForMeResponse>(
+    `/api/messages-extension/delete-for-me/${encodeURIComponent(payload.conversationId)}/${encodeURIComponent(payload.messageId)}`,
+  );
+  return response.data;
+}

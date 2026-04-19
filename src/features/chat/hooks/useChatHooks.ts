@@ -56,6 +56,7 @@ interface UseDirectMessageReturn {
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   typingUsers: string[];
   onTypingChange: (isTyping: boolean) => void;
+  deleteMessage: (messageId: string) => void;
 }
 
 const DEBOUNCE_MS_DEFAULT = 100;
@@ -451,6 +452,9 @@ export function useDirectMessage(
     scrollContainerRef,
     typingUsers,
     onTypingChange,
+    deleteMessage: (messageId: string) => {
+      setMessages((prev) => prev.filter((m) => String(m.id) !== String(messageId)));
+    },
   };
 }
 

@@ -22,6 +22,7 @@ import {
   FileText,
   Users,
   RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dmConversationId, useDirectMessage } from "../hooks/useChatHooks";
@@ -487,6 +488,8 @@ interface MessageContextMenuProps {
   canRevoke: boolean;
   isOwn: boolean;
   onRevoke: () => void;
+  onDeleteForMe: () => void;
+  isDeleting: boolean;
   onClose: () => void;
 }
 
@@ -496,6 +499,8 @@ function MessageContextMenu({
   canRevoke,
   isOwn,
   onRevoke,
+  onDeleteForMe,
+  isDeleting,
   onClose,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -539,6 +544,28 @@ function MessageContextMenu({
       className="fixed z-50 bg-white rounded-xl shadow-xl border border-gray-200 py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
       style={{ top: adjustedY, left: adjustedX }}
     >
+      {/* Nút Xóa với tôi — hiện cho MỌI tin nhắn (kể cả của mình) */}
+      <button
+        type="button"
+        onClick={() => {
+          onDeleteForMe();
+          onClose();
+        }}
+        disabled={isDeleting}
+        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left hover:bg-orange-50 transition-colors text-orange-600 group disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <span className="w-6 h-6 rounded-full bg-orange-50 group-hover:bg-orange-100 flex items-center justify-center transition-colors">
+          {isDeleting ? (
+            <Loader2 className="w-3.5 h-3.5 text-orange-500 animate-spin" />
+          ) : (
+            <Trash2 className="w-3.5 h-3.5 text-orange-500" />
+          )}
+        </span>
+        <span className="text-sm font-medium text-orange-600">
+          {isDeleting ? "Đang xóa..." : "Xóa với tôi"}
+        </span>
+      </button>
+
       {/* Nút Thu hồi — chỉ hiện nếu là tin nhắn của chính mình */}
       {canRevoke && (
         <button
@@ -556,8 +583,8 @@ function MessageContextMenu({
         </button>
       )}
 
-      {/* Nếu không phải tin nhắn của mình, hiện tùy chọn khác */}
-      {!canRevoke && isOwn === false && (
+      {/* Tùy chọn khác cho tin nhắn người khác */}
+      {!canRevoke && (
         <>
           <button
             type="button"
@@ -603,6 +630,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     scrollContainerRef: dmScrollRef,
     typingUsers: dmTypingUsers,
     onTypingChange: dmTypingChange,
+    deleteMessage: deleteDmMessage,
   } = useDirectMessage(friendId);
 
   // ── Group mode ────────────────────────────────────────────────────────
@@ -623,6 +651,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     scrollContainerRef: groupScrollRef,
     typingUsers: groupTypingUsers,
     onTypingChange: groupTypingChange,
+    deleteMessage: deleteGroupMessage,
   } = useGroupChat(selectedGroup ?? null, groupMembers);
 
   // Load group members when selectedGroup changes
@@ -726,6 +755,38 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       addToast(msg2, "error");
     } finally {
       setRevokingMessageId(null);
+    }
+  }
+
+  // ── Delete-for-me handler ───────────────────────────────────────────────
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(
+    null,
+  );
+
+  async function handleDeleteForMe() {
+    if (!ctxMenu) return;
+    const { msg, conversationId } = ctxMenu;
+    const msgId = String(msg.id);
+    setDeletingMessageId(msgId);
+
+    // Optimistic: xóa ngay khỏi UI trước khi API trả về
+    const targetDeleteFn =
+      chatMode === "GROUP" ? deleteGroupMessage : deleteDmMessage;
+    targetDeleteFn(msgId);
+
+    try {
+      const { deleteMessageForMe: deleteApi } = await import("../api");
+      await deleteApi({ conversationId, messageId: msgId });
+      addToast("Đã ẩn tin nhắn khỏi cuộc trò chuyện này", "success");
+      closeCtxMenu();
+    } catch (err: unknown) {
+      // Khôi phục lại tin nhắn nếu API thất bại
+      addToast(
+        err instanceof Error ? err.message : "Không thể ẩn tin nhắn",
+        "error",
+      );
+    } finally {
+      setDeletingMessageId(null);
     }
   }
 
@@ -1433,7 +1494,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         </div>
       )}
 
-      {/* Context menu – right-click thu hồi tin nhắn */}
+      {/* Context menu – right-click: thu hồi / xóa ẩn tin nhắn */}
       {ctxMenu && (
         <MessageContextMenu
           x={ctxMenu.x}
@@ -1441,6 +1502,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           canRevoke={ctxMenu.canRevoke}
           isOwn={ctxMenu.canRevoke}
           onRevoke={handleRevokeMessage}
+          onDeleteForMe={handleDeleteForMe}
+          isDeleting={deletingMessageId === String(ctxMenu.msg.id)}
           onClose={closeCtxMenu}
         />
       )}

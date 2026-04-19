@@ -77,6 +77,7 @@ export default function ProfilePage() {
     loading: false,
     step: "idle" as "idle" | "otp",
     error: "",
+    debugOtp: "",
   });
 
   const passwordStrength = useMemo(() => {
@@ -84,9 +85,25 @@ export default function ProfilePage() {
     return [v.length >= 8, /[A-Z]/.test(v), /[a-z]/.test(v), /\d/.test(v)].filter(Boolean).length;
   }, [passwordForm.newPassword]);
 
+  const formatPhoneForDisplay = (phone: string) => {
+    const value = String(phone || '').trim();
+    if (!value) return '';
+    if (value.startsWith('+')) return value.replace(/\s+/g, '');
+
+    const digits = value.replace(/\D/g, '');
+    if (/^0[3-9][0-9]{8}$/.test(digits)) {
+      return `+84${digits.slice(1)}`;
+    }
+    if (/^84[3-9][0-9]{8}$/.test(digits)) {
+      return `+${digits}`;
+    }
+    return value;
+  };
+
   if (!user) return null;
 
   const profileAvatarUrl = resolvedAvatarUrl || profileForm.avatarUrl || user.avatarUrl || null;
+  const phoneDisplayValue = formatPhoneForDisplay(profileForm.phone);
 
   const mapProfileToUser = (raw: any) => ({
     displayName: raw.display_name || raw.displayName || raw.fullName || user?.displayName || "",
@@ -272,6 +289,10 @@ export default function ProfilePage() {
   };
 
   const startVerify = async (type: VerifyType) => {
+    if (verification.loading) {
+      return;
+    }
+
     const target = type === "email" ? profileForm.email.trim() : profileForm.phone.trim();
     if (!target) {
       addToast(type === "email" ? "Vui lòng nhập email trước" : "Vui lòng nhập số điện thoại trước", "error");
@@ -288,17 +309,19 @@ export default function ProfilePage() {
       return;
     }
 
-    setVerification({ type, target, otp: "", loading: true, step: "idle", error: "" });
+    setVerification({ type, target, otp: "", loading: true, step: "idle", error: "", debugOtp: "" });
     try {
       if (type === "email") {
-        await sendEmailOTP(target);
+        const result = await sendEmailOTP(target);
+        setVerification((prev) => ({ ...prev, debugOtp: result.debugOtp || "" }));
       } else {
-        await sendPhoneOTP(target);
+        const result = await sendPhoneOTP(target);
+        setVerification((prev) => ({ ...prev, debugOtp: result.debugOtp || "" }));
       }
-      setVerification({ type, target, otp: "", loading: false, step: "otp", error: "" });
+      setVerification((prev) => ({ ...prev, type, target, otp: "", loading: false, step: "otp", error: "" }));
       addToast("Đã gửi mã xác thực", "success");
     } catch (err: unknown) {
-      setVerification({ type: null, target: "", otp: "", loading: false, step: "idle", error: "" });
+      setVerification({ type: null, target: "", otp: "", loading: false, step: "idle", error: "", debugOtp: "" });
       addToast(err instanceof Error ? err.message : "Không gửi được mã xác thực", "error");
     }
   };
@@ -495,7 +518,8 @@ export default function ProfilePage() {
                     </div>
                     <button
                       onClick={() => startVerify("email")}
-                      className="rounded-xl border border-blue-200 px-3 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+                      disabled={verification.loading}
+                      className="rounded-xl border border-blue-200 px-3 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <span className="inline-flex items-center gap-1"><Send className="h-4 w-4" /> Xác thực</span>
                     </button>
@@ -521,11 +545,17 @@ export default function ProfilePage() {
                     </div>
                     <button
                       onClick={() => startVerify("phone")}
-                      className="rounded-xl border border-blue-200 px-3 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+                      disabled={verification.loading}
+                      className="rounded-xl border border-blue-200 px-3 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <span className="inline-flex items-center gap-1"><Send className="h-4 w-4" /> Xác thực</span>
                     </button>
                   </div>
+                  {phoneDisplayValue && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Sẽ hiển thị và gửi SMS theo chuẩn quốc tế: <span className="font-medium text-slate-700">{phoneDisplayValue}</span>
+                    </p>
+                  )}
                   {user.phoneVerified && <p className="mt-1 text-xs text-green-600">Số điện thoại đã được xác thực</p>}
                   {profileErrors.phone && <p className="mt-1 text-xs text-red-500">{profileErrors.phone}</p>}
                 </div>
@@ -533,8 +563,13 @@ export default function ProfilePage() {
                 {verification.step === "otp" && (
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <p className="mb-2 text-sm text-slate-700">
-                      Nhập OTP đã gửi đến {verification.type === "email" ? verification.target : `***${verification.target.slice(-3)}`}
+                      Nhập OTP đã gửi đến {verification.type === "email" ? verification.target : formatPhoneForDisplay(verification.target)}
                     </p>
+                    {verification.type === "phone" && verification.debugOtp && (
+                      <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+                        OTP test: {verification.debugOtp}
+                      </p>
+                    )}
                     <div className="flex gap-2">
                       <input
                         value={verification.otp}

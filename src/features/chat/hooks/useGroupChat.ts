@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSocket } from "../../../contexts/SocketContext";
 import { useAuth } from "../../../contexts/AuthContext";
-import { getGroupMessages } from "../api";
+import { getGroupMessages, sendGroupFileMessage } from "../api";
 import { useChatStore } from "../store/chatStore";
 import type { Group, GroupMember } from "../../groups/types";
 import type { DirectMessageItem } from "../../../types";
@@ -55,7 +55,9 @@ interface UseGroupChatReturn {
   historyError: string | null;
   currentRoomId: string | null;
   sendMessage: (content: string) => Promise<void>;
+  sendFileMessage: (file: File) => Promise<void>;
   isSending: boolean;
+  isUploadingFile: boolean;
   setMessages: React.Dispatch<React.SetStateAction<GroupChatMessage[]>>;
   bottomSentinelRef: React.RefObject<HTMLDivElement | null>;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -106,11 +108,14 @@ export function useGroupChat(
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
 
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRoomIdRef = useRef<string | null>(null);
-  const scrollDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -120,9 +125,7 @@ export function useGroupChat(
   // ── Helper: Lấy thông tin sender từ danh sách members ───────────────────
   const getSenderInfo = useCallback(
     (senderId: string | number) => {
-      const member = members.find(
-        (m) => String(m.userId) === String(senderId),
-      );
+      const member = members.find((m) => String(m.userId) === String(senderId));
       return member ?? null;
     },
     [members],
@@ -138,22 +141,39 @@ export function useGroupChat(
     }
 
     const roomId = groupConversationId(group.groupId);
+    const channelRoomId = `channel:${roomId}`;
 
     async function loadHistory() {
       setIsLoadingHistory(true);
       setHistoryError(null);
       try {
-        const list = await getGroupMessages(roomId);
-        const enriched: GroupChatMessage[] = list.map((msg) => ({
-          ...msg,
-          isOwn: Number(msg.senderId) === Number(user?.id),
-          senderDisplayName:
-            msg.senderDisplayName ||
-            (Number(msg.senderId) === Number(user?.id)
-              ? user?.displayName
-              : null),
-          senderAvatarUrl: msg.senderAvatarUrl ?? null,
-        }));
+        const [primaryList, channelList] = await Promise.all([
+          getGroupMessages(roomId),
+          getGroupMessages(channelRoomId),
+        ]);
+        const list = [...primaryList, ...channelList].sort((a, b) =>
+          String(a.createdAt || "").localeCompare(String(b.createdAt || "")),
+        );
+
+        const seen = new Set<string>();
+        const enriched: GroupChatMessage[] = list
+          .filter((msg) => {
+            const key = String(msg.id);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .map((msg) => ({
+            ...msg,
+            conversationId: roomId,
+            isOwn: Number(msg.senderId) === Number(user?.id),
+            senderDisplayName:
+              msg.senderDisplayName ||
+              (Number(msg.senderId) === Number(user?.id)
+                ? user?.displayName
+                : null),
+            senderAvatarUrl: msg.senderAvatarUrl ?? null,
+          }));
         setMessages(enriched);
       } catch (err: unknown) {
         setHistoryError(
@@ -179,12 +199,19 @@ export function useGroupChat(
   // ── Join phòng nhóm + lắng nghe tin nhắn realtime ──────────────────────
   useEffect(() => {
     if (!currentRoomId) return;
+    const channelRoomId = `channel:${currentRoomId}`;
 
     emitJoinRoom(currentRoomId);
+    emitJoinRoom(channelRoomId);
 
     const unsubReceive = onReceiveMessage((newMsg) => {
       // Bỏ qua tin nhắn không thuộc phòng hiện tại
-      if (newMsg.conversationId !== currentRoomId) return;
+      if (
+        newMsg.conversationId !== currentRoomId &&
+        newMsg.conversationId !== channelRoomId
+      ) {
+        return;
+      }
       // Bỏ qua tin nhắn của chính mình (đã có optimistic xử lý)
       if (Number(newMsg.senderId) === Number(user?.id)) return;
 
@@ -197,16 +224,12 @@ export function useGroupChat(
       const member = getSenderInfo(newMsg.senderId);
       const enrichedMsg: GroupChatMessage = {
         ...newMsg,
+        conversationId: currentRoomId,
         isOwn: false,
         sendStatus: "received",
         senderDisplayName:
-          newMsg.senderDisplayName ||
-          member?.displayName ||
-          null,
-        senderAvatarUrl:
-          newMsg.senderAvatarUrl ??
-          member?.avatarUrl ??
-          null,
+          newMsg.senderDisplayName || member?.displayName || null,
+        senderAvatarUrl: newMsg.senderAvatarUrl ?? member?.avatarUrl ?? null,
       };
 
       setMessages((prev) => {
@@ -221,7 +244,12 @@ export function useGroupChat(
       setMessages((prev) =>
         prev.map((m) =>
           String(m.id) === String(messageId)
-            ? ({ ...m, contentType: "revoked" as const, content: null, attachments: null } as unknown as GroupChatMessage)
+            ? ({
+                ...m,
+                contentType: "revoked" as const,
+                content: null,
+                attachments: null,
+              } as unknown as GroupChatMessage)
             : m,
         ),
       );
@@ -250,6 +278,7 @@ export function useGroupChat(
       unsubTyping();
       unsubStopTyping();
       emitLeaveRoom(currentRoomId);
+      emitLeaveRoom(channelRoomId);
     };
   }, [
     currentRoomId,
@@ -334,7 +363,8 @@ export function useGroupChat(
             ...finalMsg,
             isOwn: true,
             sendStatus: "sent",
-            senderDisplayName: finalMsg.senderDisplayName ?? user?.displayName ?? null,
+            senderDisplayName:
+              finalMsg.senderDisplayName ?? user?.displayName ?? null,
             senderAvatarUrl: finalMsg.senderAvatarUrl ?? null,
           };
 
@@ -351,9 +381,7 @@ export function useGroupChat(
           });
 
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId ? enrichedMsg : m,
-            ),
+            prev.map((m) => (m.id === tempId ? enrichedMsg : m)),
           );
         } else {
           setMessages((prev) =>
@@ -383,13 +411,85 @@ export function useGroupChat(
     ],
   );
 
+  const sendFileMessage = useCallback(
+    async (file: File) => {
+      if (!currentRoomId || !user?.id) return;
+
+      const tempId = `temp-file-${Date.now()}`;
+      const tempUrl = URL.createObjectURL(file);
+      const attachmentType = file.type.startsWith("image/") ? "image" : "file";
+
+      const optimisticMsg: GroupChatMessage = {
+        id: tempId,
+        conversationId: currentRoomId,
+        senderId: user.id,
+        contentType: attachmentType,
+        content: file.name,
+        attachments: [
+          {
+            url: tempUrl,
+            type: attachmentType,
+            size: file.size,
+          },
+        ],
+        createdAt: new Date().toISOString(),
+        isOwn: true,
+        sendStatus: "sending",
+        senderDisplayName: user.displayName ?? null,
+        senderAvatarUrl: null,
+      };
+
+      setMessages((prev) => [...prev, optimisticMsg]);
+      setIsUploadingFile(true);
+
+      try {
+        const finalMsg = await sendGroupFileMessage({
+          file,
+          senderId: user.id,
+          groupId: currentRoomId,
+        });
+
+        const normalizedFinalMsg: GroupChatMessage = {
+          ...finalMsg,
+          conversationId: currentRoomId,
+          isOwn: true,
+          sendStatus: "sent",
+          senderDisplayName:
+            finalMsg.senderDisplayName ?? user.displayName ?? null,
+          senderAvatarUrl: finalMsg.senderAvatarUrl ?? null,
+        };
+
+        setGroupConversationPreview(currentRoomId, {
+          content: getPreviewContent(normalizedFinalMsg),
+          createdAt: normalizedFinalMsg.createdAt,
+        });
+
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? normalizedFinalMsg : m)),
+        );
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+          ),
+        );
+      } finally {
+        URL.revokeObjectURL(tempUrl);
+        setIsUploadingFile(false);
+      }
+    },
+    [currentRoomId, user?.id, user?.displayName, setGroupConversationPreview],
+  );
+
   return {
     messages,
     isLoadingHistory,
     historyError,
     currentRoomId,
     sendMessage,
+    sendFileMessage,
     isSending,
+    isUploadingFile,
     setMessages,
     bottomSentinelRef,
     scrollContainerRef,

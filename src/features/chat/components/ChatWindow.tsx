@@ -33,10 +33,14 @@ import {
 } from "../hooks/useGroupChat";
 import { getGroupMembers } from "../api";
 import { getPresignedViewUrl } from "../../../api/client";
-import { useSocket, type CallSignalPayload } from "../../../contexts/SocketContext";
+import {
+  useSocket,
+  type CallSignalPayload,
+} from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
 import apiClient from "../../../lib/axios";
 import type { AuthUser } from "../../../types";
+import { askBot } from "../api";
 import VideoCallGroup from "../../../components/chat/VideoCallGroup";
 import VideoCall1vs1 from "../../../components/chat/VideoCall1vs1";
 import { useToast } from "../../../contexts/ToastContext";
@@ -88,15 +92,31 @@ function formatTime(isoString: string) {
 }
 
 /** Tạo avatar ghép (Zalo style) từ danh sách avatar thành viên */
-function buildGroupAvatarUrls(members: GroupMember[], maxCount = 4): (string | null)[] {
+function buildGroupAvatarUrls(
+  members: GroupMember[],
+  maxCount = 4,
+): (string | null)[] {
   return members.slice(0, maxCount).map((m) => m.avatarUrl);
 }
 
 /** Avatar group: hiển thị lưới 2x2 avatar thành viên hoặc icon mặc định */
-function GroupAvatar({ members, size = 48 }: { members: GroupMember[]; size?: number }) {
+function GroupAvatar({
+  members,
+  size = 48,
+}: {
+  members: GroupMember[];
+  size?: number;
+}) {
   const urls = buildGroupAvatarUrls(members, 4);
-  const initials = urls.map((_, i) => members[i]?.displayName?.charAt(0)?.toUpperCase() ?? "?");
-  const colors = ["bg-blue-500", "bg-green-500", "bg-purple-500", "bg-orange-500"];
+  const initials = urls.map(
+    (_, i) => members[i]?.displayName?.charAt(0)?.toUpperCase() ?? "?",
+  );
+  const colors = [
+    "bg-blue-500",
+    "bg-green-500",
+    "bg-purple-500",
+    "bg-orange-500",
+  ];
   const half = size / 2;
 
   if (urls.length === 0) {
@@ -119,7 +139,9 @@ function GroupAvatar({ members, size = 48 }: { members: GroupMember[]; size?: nu
         {urls[0] ? (
           <img src={urls[0]} alt="" className="w-full h-full object-cover" />
         ) : (
-          <div className={`${colors[0]} w-full h-full flex items-center justify-center`}>
+          <div
+            className={`${colors[0]} w-full h-full flex items-center justify-center`}
+          >
             {initials[0]}
           </div>
         )}
@@ -137,18 +159,26 @@ function GroupAvatar({ members, size = 48 }: { members: GroupMember[]; size?: nu
           {url ? (
             <img src={url} alt="" className="w-full h-full object-cover" />
           ) : (
-            <div className={`w-full h-full flex items-center justify-center text-white text-[10px] font-semibold ${colors[i]}`}>
+            <div
+              className={`w-full h-full flex items-center justify-center text-white text-[10px] font-semibold ${colors[i]}`}
+            >
               {initials[i]}
             </div>
           )}
         </div>
       ))}
       {urls.slice(2, 4).map((url, i) => (
-        <div key={i + 2} className="relative" style={{ width: half, height: half }}>
+        <div
+          key={i + 2}
+          className="relative"
+          style={{ width: half, height: half }}
+        >
           {url ? (
             <img src={url} alt="" className="w-full h-full object-cover" />
           ) : (
-            <div className={`w-full h-full flex items-center justify-center text-white text-[10px] font-semibold ${colors[i + 2]}`}>
+            <div
+              className={`w-full h-full flex items-center justify-center text-white text-[10px] font-semibold ${colors[i + 2]}`}
+            >
               {initials[i + 2]}
             </div>
           )}
@@ -174,7 +204,11 @@ function SenderAvatar({
       style={{ width: size, height: size, minWidth: size }}
     >
       {avatarUrl ? (
-        <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
+        <img
+          src={avatarUrl}
+          alt={name}
+          className="w-full h-full object-cover"
+        />
       ) : (
         getAvatarInitial(name)
       )}
@@ -203,13 +237,16 @@ function GroupMessageBubble({
   msg: GroupChatMessage;
   authUserId: string | number;
   senderAvatarUrl?: string | null;
-  onContextMenu?: (e: React.MouseEvent, msg: GroupChatMessage, conversationId: string, canRevoke: boolean) => void;
+  onContextMenu?: (
+    e: React.MouseEvent,
+    msg: GroupChatMessage,
+    conversationId: string,
+    canRevoke: boolean,
+  ) => void;
 }) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
 
-  const senderName =
-    msg.senderDisplayName ||
-    (isOwn ? "Bạn" : "Người dùng");
+  const senderName = msg.senderDisplayName || (isOwn ? "Bạn" : "Người dùng");
 
   return (
     <div
@@ -224,10 +261,14 @@ function GroupMessageBubble({
         />
       )}
 
-      <div className={`flex flex-col ${isOwn ? "items-end" : "items-start"} max-w-[68%]`}>
+      <div
+        className={`flex flex-col ${isOwn ? "items-end" : "items-start"} max-w-[68%]`}
+      >
         {/* Tên người gửi — chỉ hiện nếu không phải mình */}
         {!isOwn && (
-          <span className="text-xs text-gray-500 mb-0.5 ml-1">{senderName}</span>
+          <span className="text-xs text-gray-500 mb-0.5 ml-1">
+            {senderName}
+          </span>
         )}
 
         <div
@@ -276,7 +317,9 @@ function GroupMessageBubble({
                       }`}
                     >
                       <FileText className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate max-w-36">{msg.content || "Tệp"}</span>
+                      <span className="truncate max-w-36">
+                        {msg.content || "Tệp"}
+                      </span>
                     </a>
                   );
                 }
@@ -329,7 +372,12 @@ function PrivateMessageBubble({
   friendName: string;
   friendAvatarUrl: string | null;
   authUserId: string | number;
-  onContextMenu?: (e: React.MouseEvent, msg: GroupChatMessage, conversationId: string, canRevoke: boolean) => void;
+  onContextMenu?: (
+    e: React.MouseEvent,
+    msg: GroupChatMessage,
+    conversationId: string,
+    canRevoke: boolean,
+  ) => void;
 }) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
 
@@ -350,7 +398,9 @@ function PrivateMessageBubble({
         }}
       >
         {!isOwn && (
-          <div className={`text-xs font-medium mb-0.5 ${isOwn ? "text-blue-200" : "text-gray-400"}`}>
+          <div
+            className={`text-xs font-medium mb-0.5 ${isOwn ? "text-blue-200" : "text-gray-400"}`}
+          >
             {friendName}
           </div>
         )}
@@ -389,7 +439,9 @@ function PrivateMessageBubble({
                     }`}
                   >
                     <FileText className="w-3.5 h-3.5" />
-                    <span className="truncate max-w-44">{msg.content || "Tệp"}</span>
+                    <span className="truncate max-w-44">
+                      {msg.content || "Tệp"}
+                    </span>
                   </a>
                 );
               }
@@ -438,7 +490,14 @@ interface MessageContextMenuProps {
   onClose: () => void;
 }
 
-function MessageContextMenu({ x, y, canRevoke, isOwn, onRevoke, onClose }: MessageContextMenuProps) {
+function MessageContextMenu({
+  x,
+  y,
+  canRevoke,
+  isOwn,
+  onRevoke,
+  onClose,
+}: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Đóng khi click ra ngoài hoặc scroll
@@ -448,7 +507,9 @@ function MessageContextMenu({ x, y, canRevoke, isOwn, onRevoke, onClose }: Messa
         onClose();
       }
     }
-    function handleScroll() { onClose(); }
+    function handleScroll() {
+      onClose();
+    }
     document.addEventListener("mousedown", handleOutside);
     window.addEventListener("scroll", handleScroll, true);
     return () => {
@@ -482,7 +543,10 @@ function MessageContextMenu({ x, y, canRevoke, isOwn, onRevoke, onClose }: Messa
       {canRevoke && (
         <button
           type="button"
-          onClick={() => { onRevoke(); onClose(); }}
+          onClick={() => {
+            onRevoke();
+            onClose();
+          }}
           className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left hover:bg-red-50 transition-colors text-red-600 group"
         >
           <span className="w-6 h-6 rounded-full bg-red-50 group-hover:bg-red-100 flex items-center justify-center transition-colors">
@@ -532,7 +596,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     isLoadingHistory: dmLoading,
     historyError: dmError,
     sendMessage: sendDmMessage,
+    sendFileMessage: sendDmFileMessage,
     isSending: dmSending,
+    isUploadingFile: dmUploadingFile,
     bottomSentinelRef: dmSentinelRef,
     scrollContainerRef: dmScrollRef,
     typingUsers: dmTypingUsers,
@@ -541,14 +607,18 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   // ── Group mode ────────────────────────────────────────────────────────
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
-  const [resolvedAvatarUrls, setResolvedAvatarUrls] = useState<Record<string, string>>({});
+  const [resolvedAvatarUrls, setResolvedAvatarUrls] = useState<
+    Record<string, string>
+  >({});
 
   const {
     messages: groupMessages,
     isLoadingHistory: groupLoading,
     historyError: groupError,
     sendMessage: sendGroupMessage,
+    sendFileMessage: sendGroupFileMessage,
     isSending: groupSending,
+    isUploadingFile: groupUploadingFile,
     bottomSentinelRef: groupSentinelRef,
     scrollContainerRef: groupScrollRef,
     typingUsers: groupTypingUsers,
@@ -589,6 +659,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   } = useSocket();
   const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
+  const [aiQuestion, setAiQuestion] = useState("");
+  const [aiAnswer, setAiAnswer] = useState("");
+  const [isAskingAI, setIsAskingAI] = useState(false);
+  const [aiError, setAiError] = useState("");
   const [isInCall, setIsInCall] = useState(false);
   const [isStartingCall, setIsStartingCall] = useState(false);
   const [callData, setCallData] = useState<ActiveCallData | null>(null);
@@ -618,13 +692,23 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   ) {
     e.preventDefault();
     e.stopPropagation();
-    setCtxMenu({ x: e.clientX, y: e.clientY, msg, conversationId, canRevoke: isOwn });
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      msg,
+      conversationId,
+      canRevoke: isOwn,
+    });
   }
 
-  function closeCtxMenu() { setCtxMenu(null); }
+  function closeCtxMenu() {
+    setCtxMenu(null);
+  }
 
   // ── Revoke handler ──────────────────────────────────────────────────────
-  const [revokingMessageId, setRevokingMessageId] = useState<string | null>(null);
+  const [revokingMessageId, setRevokingMessageId] = useState<string | null>(
+    null,
+  );
 
   async function handleRevokeMessage() {
     if (!ctxMenu) return;
@@ -637,7 +721,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       addToast("Tin nhắn đã được thu hồi", "success");
       closeCtxMenu();
     } catch (err: unknown) {
-      const msg2 = err instanceof Error ? err.message : "Không thể thu hồi tin nhắn";
+      const msg2 =
+        err instanceof Error ? err.message : "Không thể thu hồi tin nhắn";
       addToast(msg2, "error");
     } finally {
       setRevokingMessageId(null);
@@ -645,10 +730,13 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }
 
   // Lấy ref đúng dựa trên mode
-  const activeSentinelRef = chatMode === "GROUP" ? groupSentinelRef : dmSentinelRef;
+  const activeSentinelRef =
+    chatMode === "GROUP" ? groupSentinelRef : dmSentinelRef;
   const activeScrollRef = chatMode === "GROUP" ? groupScrollRef : dmScrollRef;
-  const activeTypingUsers = chatMode === "GROUP" ? groupTypingUsers : dmTypingUsers;
-  const activeTypingChange = chatMode === "GROUP" ? groupTypingChange : dmTypingChange;
+  const activeTypingUsers =
+    chatMode === "GROUP" ? groupTypingUsers : dmTypingUsers;
+  const activeTypingChange =
+    chatMode === "GROUP" ? groupTypingChange : dmTypingChange;
 
   const friendName = selectedFriend?.friend_display_name ?? "";
   const groupName = selectedGroup?.name ?? "";
@@ -693,7 +781,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       if (raw) rawUrls.add(raw);
     }
 
-    const selectedFriendAvatar = String(selectedFriend?.friend_avatar_url || "").trim();
+    const selectedFriendAvatar = String(
+      selectedFriend?.friend_avatar_url || "",
+    ).trim();
     if (selectedFriendAvatar) {
       rawUrls.add(selectedFriendAvatar);
     }
@@ -735,7 +825,13 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     return () => {
       cancelled = true;
     };
-  }, [groupMembers, groupMessages, dmMessages, selectedFriend?.friend_avatar_url, resolvedAvatarUrls]);
+  }, [
+    groupMembers,
+    groupMessages,
+    dmMessages,
+    selectedFriend?.friend_avatar_url,
+    resolvedAvatarUrls,
+  ]);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -856,7 +952,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   async function handleStartVideoCall() {
     const isGroupCall = chatMode === "GROUP";
-    const hasTarget = isGroupCall ? selectedGroup != null : selectedFriend != null;
+    const hasTarget = isGroupCall
+      ? selectedGroup != null
+      : selectedFriend != null;
 
     if (!hasTarget || isStartingCall || isInCall) return;
 
@@ -864,9 +962,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     try {
       const directFriendId = String(
         (selectedFriend as any)?.friend_id ??
-        (selectedFriend as any)?._id ??
-        (selectedFriend as any)?.id ??
-        "",
+          (selectedFriend as any)?._id ??
+          (selectedFriend as any)?.id ??
+          "",
       );
 
       if (!isGroupCall && !directFriendId) {
@@ -916,7 +1014,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           callerId: currentUserId,
           callerName: currentUserName,
         };
-        console.debug("[ChatWindow][emit group-call-request] payload:", groupCallPayload);
+        console.debug(
+          "[ChatWindow][emit group-call-request] payload:",
+          groupCallPayload,
+        );
         socket?.emit("group-call-request", groupCallPayload);
       } else {
         const oneToOnePayload = {
@@ -1007,9 +1108,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   function handleHangUp(shouldEmitSignal = true) {
     if (shouldEmitSignal && callData && !callData.isGroupCall) {
-      const remoteUserId = String(callData.callerId) === currentUserId
-        ? String(callData.receiverId)
-        : String(callData.callerId);
+      const remoteUserId =
+        String(callData.callerId) === currentUserId
+          ? String(callData.receiverId)
+          : String(callData.callerId);
 
       emitEndCall({
         conversationId: callData.conversationId,
@@ -1046,7 +1148,14 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       textareaRef.current.style.height = "auto";
     }
     textareaRef.current?.focus();
-  }, [inputValue, chatMode, groupSending, dmSending, sendGroupMessage, sendDmMessage]);
+  }, [
+    inputValue,
+    chatMode,
+    groupSending,
+    dmSending,
+    sendGroupMessage,
+    sendDmMessage,
+  ]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1057,9 +1166,51 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   async function handlePickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
-    // TODO: hỗ trợ gửi file trong nhóm khi cần
     e.target.value = "";
+    if (!file) return;
+
+    if (!isConnected) {
+      addToast("Mất kết nối, chưa thể gửi tệp", "error");
+      return;
+    }
+
+    if (chatMode === "GROUP") {
+      if (groupUploadingFile) return;
+      await sendGroupFileMessage(file);
+      return;
+    }
+
+    if (!selectedFriend?.friend_id) {
+      addToast("Vui lòng chọn một cuộc trò chuyện cá nhân", "error");
+      return;
+    }
+
+    try {
+      await sendDmFileMessage(file);
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message || "Không thể gửi tệp, vui lòng thử lại";
+      addToast(message, "error");
+    }
+  }
+
+  async function handleAskAI() {
+    const trimmed = aiQuestion.trim();
+    if (!trimmed || isAskingAI) return;
+
+    try {
+      setIsAskingAI(true);
+      setAiError("");
+      const response = await askBot(trimmed);
+      setAiAnswer(response.content || "AI chưa có phản hồi.");
+    } catch (error: any) {
+      const errorMessage =
+        error?.response?.data?.message || "Không thể kết nối AI Bot.";
+      setAiError(errorMessage);
+      setAiAnswer("");
+    } finally {
+      setIsAskingAI(false);
+    }
   }
 
   // ── Lấy danh sách tin nhắn & trạng thái đúng mode ───────────────────
@@ -1068,6 +1219,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const activeLoading = chatMode === "GROUP" ? groupLoading : dmLoading;
   const activeError = chatMode === "GROUP" ? groupError : dmError;
   const activeSending = chatMode === "GROUP" ? groupSending : dmSending;
+  const activeUploading =
+    chatMode === "GROUP" ? groupUploadingFile : dmUploadingFile;
 
   const placeHolder =
     chatMode === "GROUP"
@@ -1088,7 +1241,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold text-xl relative overflow-hidden shrink-0">
               {selectedFriend?.friend_avatar_url ? (
                 <img
-                  src={resolveDisplayAvatar(selectedFriend.friend_avatar_url) || selectedFriend.friend_avatar_url}
+                  src={
+                    resolveDisplayAvatar(selectedFriend.friend_avatar_url) ||
+                    selectedFriend.friend_avatar_url
+                  }
                   alt={friendName}
                   className="w-full h-full object-cover"
                 />
@@ -1113,9 +1269,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                   {memberCount > 0
                     ? `${memberCount} thành viên`
                     : isConnected
-                    ? "Đang hoạt động"
-                    : "Kết nối..."
-                  }
+                      ? "Đang hoạt động"
+                      : "Kết nối..."}
                 </>
               ) : isConnected ? (
                 <>
@@ -1211,12 +1366,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         {activeMessages.map((msg) => {
           // System message
           if (isSystemMessage(msg)) {
-            return (
-              <SystemMessageBubble
-                key={msg.id}
-                content={msg.content}
-              />
-            );
+            return <SystemMessageBubble key={msg.id} content={msg.content} />;
           }
 
           if (chatMode === "GROUP") {
@@ -1255,9 +1405,12 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         <div className="w-16 h-16 rounded-full bg-gray-200/80 flex items-center justify-center mb-4">
           <Smile className="w-8 h-8 text-gray-500" />
         </div>
-        <p className="text-sm font-medium text-gray-600">Chọn một cuộc trò chuyện</p>
+        <p className="text-sm font-medium text-gray-600">
+          Chọn một cuộc trò chuyện
+        </p>
         <p className="text-xs text-gray-500 mt-1 text-center max-w-sm">
-          Danh sách bạn bè hoặc nhóm ở cột bên trái. Tin nhắn mới sẽ cập nhật realtime.
+          Danh sách bạn bè hoặc nhóm ở cột bên trái. Tin nhắn mới sẽ cập nhật
+          realtime.
         </p>
       </div>
     );
@@ -1315,7 +1468,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           <button
             type="button"
             onClick={() => imageInputRef.current?.click()}
-            disabled={!isConnected || activeSending}
+            disabled={!isConnected || activeSending || activeUploading}
             className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
             title="Gửi ảnh"
           >
@@ -1324,7 +1477,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={!isConnected || activeSending}
+            disabled={!isConnected || activeSending || activeUploading}
             className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
             title="Gửi tệp"
           >
@@ -1371,13 +1524,52 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             </button>
           </div>
         </div>
+
+        <div className="border-t border-gray-100 px-4 py-3 bg-gray-50">
+          <p className="text-xs font-semibold text-gray-700 mb-2">Trợ lý AI</p>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={aiQuestion}
+              onChange={(e) => setAiQuestion(e.target.value)}
+              placeholder="Nhập câu hỏi cho AI..."
+              disabled={isAskingAI}
+              className="flex-1 h-10 rounded-md border border-gray-300 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-60"
+            />
+
+            <button
+              type="button"
+              onClick={handleAskAI}
+              disabled={!aiQuestion.trim() || isAskingAI}
+              className="h-10 px-4 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isAskingAI ? "Đang hỏi..." : "Hỏi AI"}
+            </button>
+          </div>
+
+          {aiError && <p className="mt-2 text-xs text-red-500">{aiError}</p>}
+
+          {aiAnswer && (
+            <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 p-3">
+              <p className="text-xs font-medium text-blue-700">AI Bot:</p>
+              <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">
+                {aiAnswer}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       {incomingCallData && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-900">Cuộc gọi đến</h3>
-            <p className="mt-1 text-sm text-gray-600">{friendName || "Bạn bè"} đang gọi video cho bạn.</p>
+            <h3 className="text-lg font-semibold text-gray-900">
+              Cuộc gọi đến
+            </h3>
+            <p className="mt-1 text-sm text-gray-600">
+              {friendName || "Bạn bè"} đang gọi video cho bạn.
+            </p>
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
                 type="button"

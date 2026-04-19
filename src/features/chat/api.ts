@@ -92,6 +92,12 @@ interface SendDirectFilePayload {
   receiverId: string | number;
 }
 
+interface SendGroupFilePayload {
+  file: File;
+  senderId: string | number;
+  groupId: string | number;
+}
+
 interface SendDirectFileResponse {
   message: string;
   data: DirectMessageItem;
@@ -118,6 +124,39 @@ export async function sendDirectFileMessage(
   return response.data?.data;
 }
 
+export async function sendGroupFileMessage(
+  payload: SendGroupFilePayload,
+): Promise<DirectMessageItem> {
+  const formData = new FormData();
+  formData.append("file", payload.file);
+  formData.append("sender_id", String(payload.senderId));
+  formData.append("channel_id", String(payload.groupId));
+
+  const response = await apiClient.post<SendDirectFileResponse>(
+    "/api/messages/file",
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    },
+  );
+
+  return response.data?.data;
+}
+
+export interface BotChatResponse {
+  sender: string;
+  content: string;
+}
+
+export async function askBot(message: string): Promise<BotChatResponse> {
+  const response = await apiClient.post<BotChatResponse>("/api/v1/bot/chat", {
+    message,
+  });
+  return response.data;
+}
+
 /**
  * Lấy lịch sử tin nhắn nhóm.
  * Backend sử dụng conversationId = groupId nên dùng chung endpoint với DM.
@@ -135,15 +174,15 @@ export async function getGroupMessages(
 /**
  * Lấy danh sách thành viên nhóm để hiển thị avatar/tên người gửi trong chat nhóm.
  */
-export async function getGroupMembers(
-  groupId: string | number,
-): Promise<Array<{
-  userId: string;
-  displayName: string;
-  username: string;
-  avatarUrl: string | null;
-  role: string;
-}>> {
+export async function getGroupMembers(groupId: string | number): Promise<
+  Array<{
+    userId: string;
+    displayName: string;
+    username: string;
+    avatarUrl: string | null;
+    role: string;
+  }>
+> {
   // Defensive normalization: prevent passing call-room ids like "group_call_xxx" to the members API.
   const normalizedGroupId = String(groupId)
     .replace(/^group_call_/, "")

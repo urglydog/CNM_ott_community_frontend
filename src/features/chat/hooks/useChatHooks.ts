@@ -5,7 +5,7 @@ import { useSocket } from "../../../contexts/SocketContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useChatStore } from "../store/chatStore";
 import { getDirectMessages, sendDirectFileMessage } from "../api";
-import type { DirectMessageItem } from "../../../types";
+import type { DirectMessageItem, StickerData } from "../../../types";
 
 export type MessageSendStatus = "sending" | "sent" | "failed" | "received";
 
@@ -50,6 +50,8 @@ interface UseDirectMessageReturn {
   currentRoomId: string | null;
   sendMessage: (content: string) => Promise<void>;
   sendFileMessage: (file: File) => Promise<void>;
+  sendStickerMessage: (stickerData: StickerData) => Promise<void>;
+  sendEmojiMessage: (emoji: string) => Promise<void>;
   isSending: boolean;
   isUploadingFile: boolean;
   bottomSentinelRef: React.RefObject<HTMLDivElement | null>;
@@ -69,6 +71,12 @@ function getPreviewContent(
   }
   if (message.contentType === "file") {
     return `[Tệp] ${message.content || "Đính kèm"}`;
+  }
+  if (message.contentType === "sticker") {
+    return "[Sticker]";
+  }
+  if (message.contentType === "emoji") {
+    return message.content || "[Biểu tượng cảm xúc]";
   }
   if (Array.isArray(message.attachments) && message.attachments.length > 0) {
     const hasImage = message.attachments.some((a) => a?.type === "image");
@@ -439,6 +447,136 @@ export function useDirectMessage(
     [currentRoomId, friendId, user?.id, setConversationPreview],
   );
 
+  const sendStickerMessage = useCallback(
+    async (stickerData: StickerData) => {
+      if (!currentRoomId || !user?.id) return;
+
+      const tempId = `temp-sticker-${Date.now()}`;
+      const optimisticMsg: ChatMessage = {
+        id: tempId,
+        conversationId: currentRoomId,
+        senderId: user.id,
+        contentType: "sticker",
+        content: stickerData.stickerName || stickerData.stickerId || "[Sticker]",
+        stickerData,
+        createdAt: new Date().toISOString(),
+        isOwn: true,
+        sendStatus: "sending",
+      };
+
+      setMessages((prev) => [...prev, optimisticMsg]);
+      setIsSending(true);
+
+      try {
+        const result = await emitSendMessage(
+          currentRoomId,
+          stickerData.stickerName || stickerData.stickerId || "[Sticker]",
+          "sticker",
+          null,
+          stickerData,
+        );
+
+        if (result.ok && result.message) {
+          const finalMsg = result.message;
+          const previewFriendId = friendIdFromConversationId(finalMsg.conversationId, user.id);
+          if (previewFriendId) {
+            setConversationPreview(previewFriendId, {
+              content: "[Sticker]",
+              createdAt: finalMsg.createdAt,
+            });
+          }
+
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? { ...finalMsg, isOwn: true, sendStatus: "sent" }
+                : m,
+            ),
+          );
+        } else {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+            ),
+          );
+        }
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+          ),
+        );
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [currentRoomId, user?.id, emitSendMessage, setConversationPreview],
+  );
+
+  const sendEmojiMessage = useCallback(
+    async (emoji: string) => {
+      if (!currentRoomId || !user?.id || !emoji.trim()) return;
+
+      const tempId = `temp-emoji-${Date.now()}`;
+      const optimisticMsg: ChatMessage = {
+        id: tempId,
+        conversationId: currentRoomId,
+        senderId: user.id,
+        contentType: "emoji",
+        content: emoji.trim(),
+        createdAt: new Date().toISOString(),
+        isOwn: true,
+        sendStatus: "sending",
+      };
+
+      setMessages((prev) => [...prev, optimisticMsg]);
+      setIsSending(true);
+
+      try {
+        const result = await emitSendMessage(
+          currentRoomId,
+          emoji.trim(),
+          "emoji",
+          null,
+        );
+
+        if (result.ok && result.message) {
+          const finalMsg = result.message;
+          const previewFriendId = friendIdFromConversationId(finalMsg.conversationId, user.id);
+          if (previewFriendId) {
+            setConversationPreview(previewFriendId, {
+              content: emoji.trim(),
+              createdAt: finalMsg.createdAt,
+            });
+          }
+
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? { ...finalMsg, isOwn: true, sendStatus: "sent" }
+                : m,
+            ),
+          );
+        } else {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+            ),
+          );
+        }
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+          ),
+        );
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [currentRoomId, user?.id, emitSendMessage, setConversationPreview],
+  );
+
   return {
     messages,
     isLoadingHistory,
@@ -446,6 +584,8 @@ export function useDirectMessage(
     currentRoomId,
     sendMessage,
     sendFileMessage,
+    sendStickerMessage,
+    sendEmojiMessage,
     isSending,
     isUploadingFile,
     bottomSentinelRef,

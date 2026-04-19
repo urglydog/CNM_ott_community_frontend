@@ -6,7 +6,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { getGroupMessages, sendGroupFileMessage } from "../api";
 import { useChatStore } from "../store/chatStore";
 import type { Group, GroupMember } from "../../groups/types";
-import type { DirectMessageItem } from "../../../types";
+import type { DirectMessageItem, StickerData } from "../../../types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -16,6 +16,8 @@ function getPreviewContent(
   if (message.contentType === "image") return "[Ảnh]";
   if (message.contentType === "file")
     return `[Tệp] ${message.content || "Đính kèm"}`;
+  if (message.contentType === "sticker") return "[Sticker]";
+  if (message.contentType === "emoji") return message.content || "[Biểu tượng cảm xúc]";
   if (Array.isArray(message.attachments) && message.attachments.length > 0) {
     const hasImage = message.attachments.some((a) => a?.type === "image");
     if (hasImage) return "[Ảnh]";
@@ -56,6 +58,8 @@ interface UseGroupChatReturn {
   currentRoomId: string | null;
   sendMessage: (content: string) => Promise<void>;
   sendFileMessage: (file: File) => Promise<void>;
+  sendStickerMessage: (stickerData: StickerData) => Promise<void>;
+  sendEmojiMessage: (emoji: string) => Promise<void>;
   isSending: boolean;
   isUploadingFile: boolean;
   setMessages: React.Dispatch<React.SetStateAction<GroupChatMessage[]>>;
@@ -482,6 +486,142 @@ export function useGroupChat(
     [currentRoomId, user?.id, user?.displayName, setGroupConversationPreview],
   );
 
+  const sendStickerMessage = useCallback(
+    async (stickerData: StickerData) => {
+      if (!currentRoomId || !user?.id) return;
+
+      const tempId = `temp-sticker-${Date.now()}`;
+      const optimisticMsg: GroupChatMessage = {
+        id: tempId,
+        conversationId: currentRoomId,
+        senderId: user.id,
+        contentType: "sticker",
+        content: stickerData.stickerName || stickerData.stickerId || "[Sticker]",
+        stickerData,
+        createdAt: new Date().toISOString(),
+        isOwn: true,
+        sendStatus: "sending",
+        senderDisplayName: user.displayName ?? null,
+        senderAvatarUrl: null,
+      };
+
+      setMessages((prev) => [...prev, optimisticMsg]);
+      setIsSending(true);
+
+      try {
+        const result = await emitSendMessage(
+          currentRoomId,
+          stickerData.stickerName || stickerData.stickerId || "[Sticker]",
+          "sticker",
+          null,
+          stickerData,
+        );
+
+        if (result.ok && result.message) {
+          const finalMsg = result.message;
+          const enrichedMsg: GroupChatMessage = {
+            ...finalMsg,
+            isOwn: true,
+            sendStatus: "sent",
+            senderDisplayName: user.displayName ?? null,
+            senderAvatarUrl: null,
+          };
+
+          setGroupConversationPreview(currentRoomId, {
+            content: "[Sticker]",
+            createdAt: finalMsg.createdAt,
+          });
+
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? enrichedMsg : m)),
+          );
+        } else {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+            ),
+          );
+        }
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+          ),
+        );
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [currentRoomId, user?.id, user?.displayName, emitSendMessage, setGroupConversationPreview],
+  );
+
+  const sendEmojiMessage = useCallback(
+    async (emoji: string) => {
+      if (!currentRoomId || !user?.id || !emoji.trim()) return;
+
+      const tempId = `temp-emoji-${Date.now()}`;
+      const optimisticMsg: GroupChatMessage = {
+        id: tempId,
+        conversationId: currentRoomId,
+        senderId: user.id,
+        contentType: "emoji",
+        content: emoji.trim(),
+        createdAt: new Date().toISOString(),
+        isOwn: true,
+        sendStatus: "sending",
+        senderDisplayName: user.displayName ?? null,
+        senderAvatarUrl: null,
+      };
+
+      setMessages((prev) => [...prev, optimisticMsg]);
+      setIsSending(true);
+
+      try {
+        const result = await emitSendMessage(
+          currentRoomId,
+          emoji.trim(),
+          "emoji",
+          null,
+        );
+
+        if (result.ok && result.message) {
+          const finalMsg = result.message;
+          const enrichedMsg: GroupChatMessage = {
+            ...finalMsg,
+            isOwn: true,
+            sendStatus: "sent",
+            senderDisplayName: user.displayName ?? null,
+            senderAvatarUrl: null,
+          };
+
+          setGroupConversationPreview(currentRoomId, {
+            content: emoji.trim(),
+            createdAt: finalMsg.createdAt,
+          });
+
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? enrichedMsg : m)),
+          );
+        } else {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+            ),
+          );
+        }
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId ? { ...m, sendStatus: "failed" } : m,
+          ),
+        );
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [currentRoomId, user?.id, user?.displayName, emitSendMessage, setGroupConversationPreview],
+  );
+
   return {
     messages,
     isLoadingHistory,
@@ -489,6 +629,8 @@ export function useGroupChat(
     currentRoomId,
     sendMessage,
     sendFileMessage,
+    sendStickerMessage,
+    sendEmojiMessage,
     isSending,
     isUploadingFile,
     setMessages,

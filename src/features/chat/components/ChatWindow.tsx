@@ -44,10 +44,12 @@ import apiClient from "../../../lib/axios";
 import type { AuthUser } from "../../../types";
 import { askBot } from "../api";
 import ForwardMessageModal from "./ForwardMessageModal";
+import EmojiStickerPicker from "./EmojiStickerPicker";
 import VideoCallGroup from "../../../components/chat/VideoCallGroup";
 import VideoCall1vs1 from "../../../components/chat/VideoCall1vs1";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
+import type { StickerData } from "../../../types";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -251,6 +253,64 @@ function GroupMessageBubble({
 
   const senderName = msg.senderDisplayName || (isOwn ? "Bạn" : "Người dùng");
 
+  // ── Sticker: hiển thị hình ảnh lớn không có bubble ────────────────────
+  if (msg.contentType === "sticker" && msg.stickerData?.stickerUrl) {
+    return (
+      <div
+        className={`flex items-start gap-2 mb-3 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
+        data-message-id={String(msg.id)}
+      >
+        {!isOwn && (
+          <SenderAvatar
+            avatarUrl={senderAvatarUrl ?? msg.senderAvatarUrl}
+            name={senderName}
+          />
+        )}
+        <div className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
+          {!isOwn && (
+            <span className="text-xs text-gray-500 mb-0.5 ml-1">
+              {senderName}
+            </span>
+          )}
+          <div
+            className="relative group"
+            onContextMenu={(e) => {
+              onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
+            }}
+          >
+            <img
+              src={msg.stickerData.stickerUrl}
+              alt={msg.stickerData.stickerName || msg.content || "sticker"}
+              className="w-28 h-28 object-contain rounded-xl"
+            />
+            <div
+              className={`mt-0.5 text-[10px] flex items-center gap-1 ${
+                isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+              }`}
+            >
+              {formatTime(msg.createdAt)}
+              {isOwn && msg.sendStatus === "sending" && (
+                <Loader2 className="w-3 h-3 animate-spin inline-block" />
+              )}
+              {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+              {isOwn && msg.sendStatus === "failed" && (
+                <span className="text-red-300">✗</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Emoji: hiển thị lớn trong bubble ─────────────────────────────────
+  const isPureEmoji =
+    msg.contentType === "emoji" &&
+    msg.content &&
+    /^(\p{Emoji_Presentation}|\p{Extended_Pictographic})+$/u.test(
+      msg.content.trim(),
+    );
+
   return (
     <div
       className={`flex items-start gap-2 mb-3 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
@@ -265,7 +325,7 @@ function GroupMessageBubble({
       )}
 
       <div
-        className={`flex flex-col ${isOwn ? "items-end" : "items-start"} max-w-[68%]`}
+        className={`flex flex-col ${isOwn ? "items-end" : "items-start"} max-w-[68%] ${isPureEmoji ? "max-w-max" : ""}`}
       >
         {/* Tên người gửi — chỉ hiện nếu không phải mình */}
         {!isOwn && (
@@ -279,7 +339,7 @@ function GroupMessageBubble({
             isOwn
               ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
               : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""}`}
+          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
           onContextMenu={(e) => {
             if (msg.contentType === "revoked") return;
             onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
@@ -337,7 +397,9 @@ function GroupMessageBubble({
               <span>Tin nhắn đã được thu hồi</span>
             </div>
           ) : (
-            <div className="whitespace-pre-wrap wrap-break-word">
+            <div
+              className={`whitespace-pre-wrap wrap-break-word ${isPureEmoji ? "text-3xl leading-none" : ""}`}
+            >
               {msg.content || "[Không có nội dung]"}
             </div>
           )}
@@ -384,6 +446,53 @@ function PrivateMessageBubble({
 }) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
 
+  // ── Sticker: hiển thị hình ảnh lớn không có bubble ────────────────────
+  if (msg.contentType === "sticker" && msg.stickerData?.stickerUrl) {
+    return (
+      <div
+        className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-3`}
+        data-message-id={String(msg.id)}
+      >
+        <div
+          className="relative group"
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
+          }}
+        >
+          <img
+            src={msg.stickerData.stickerUrl}
+            alt={msg.stickerData.stickerName || msg.content || "sticker"}
+            className="w-28 h-28 object-contain rounded-xl"
+          />
+          <div
+            className={`mt-0.5 text-[10px] flex items-center gap-1 ${
+              isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+            }`}
+          >
+            {formatTime(msg.createdAt)}
+            {isOwn && msg.sendStatus === "sending" && (
+              <Loader2 className="w-3 h-3 animate-spin inline-block" />
+            )}
+            {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+            {isOwn && msg.sendStatus === "failed" && (
+              <span className="text-red-300">✗</span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Emoji: hiển thị lớn trong bubble ─────────────────────────────────
+  const isPureEmoji =
+    msg.contentType === "emoji" &&
+    msg.content &&
+    /^(\p{Emoji_Presentation}|\p{Extended_Pictographic})+$/u.test(
+      msg.content.trim(),
+    );
+
   return (
     <div
       className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-3`}
@@ -394,7 +503,7 @@ function PrivateMessageBubble({
           isOwn
             ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
             : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""}`}
+        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
         onContextMenu={(e) => {
           if (msg.contentType === "revoked") return;
           onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
@@ -459,7 +568,9 @@ function PrivateMessageBubble({
             <span>Tin nhắn đã được thu hồi</span>
           </div>
         ) : (
-          <div className="whitespace-pre-wrap wrap-break-word">
+          <div
+            className={`whitespace-pre-wrap wrap-break-word ${isPureEmoji ? "text-3xl leading-none" : ""}`}
+          >
             {msg.content || "[Không có nội dung]"}
           </div>
         )}
@@ -643,6 +754,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     historyError: dmError,
     sendMessage: sendDmMessage,
     sendFileMessage: sendDmFileMessage,
+    sendStickerMessage: sendDmStickerMessage,
+    sendEmojiMessage: sendDmEmojiMessage,
     isSending: dmSending,
     isUploadingFile: dmUploadingFile,
     bottomSentinelRef: dmSentinelRef,
@@ -664,6 +777,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     historyError: groupError,
     sendMessage: sendGroupMessage,
     sendFileMessage: sendGroupFileMessage,
+    sendStickerMessage: sendGroupStickerMessage,
+    sendEmojiMessage: sendGroupEmojiMessage,
     isSending: groupSending,
     isUploadingFile: groupUploadingFile,
     bottomSentinelRef: groupSentinelRef,
@@ -722,6 +837,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isConnected = status === "connected";
+
+  // ── Emoji / Sticker Picker state ─────────────────────────────────────────
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // ── Context menu state ──────────────────────────────────────────────────
   const [ctxMenu, setCtxMenu] = useState<{
@@ -1304,6 +1422,27 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     }
   }
 
+  // ── Emoji / Sticker picker handlers ────────────────────────────────────
+  async function handleEmojiSelect(emoji: string) {
+    setPickerOpen(false);
+    if (!emoji.trim()) return;
+
+    if (chatMode === "GROUP") {
+      await sendGroupEmojiMessage(emoji);
+    } else {
+      await sendDmEmojiMessage(emoji);
+    }
+  }
+
+  async function handleStickerSelect(stickerData: StickerData) {
+    setPickerOpen(false);
+    if (chatMode === "GROUP") {
+      await sendGroupStickerMessage(stickerData);
+    } else {
+      await sendDmStickerMessage(stickerData);
+    }
+  }
+
   // ── Lấy danh sách tin nhắn & trạng thái đúng mode ───────────────────
   const activeMessages: GroupChatMessage[] =
     chatMode === "GROUP" ? groupMessages : dmMessages;
@@ -1566,9 +1705,17 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           onChange={handlePickFile}
         />
 
-        {/* Toolbar */}
-        <div className="flex items-center gap-4 px-4 py-2.5 border-b border-gray-100">
-          <Smile className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+        {/* Toolbar + Emoji/Sticker picker */}
+        <div className="relative border-b border-gray-100">
+          <div className="flex items-center gap-4 px-4 py-2.5">
+            <button
+              type="button"
+              onClick={() => setPickerOpen((prev) => !prev)}
+              className={`text-gray-500 hover:text-gray-700 ${pickerOpen ? "text-blue-500" : ""}`}
+              title="Biểu tượng cảm xúc & Sticker"
+            >
+              <Smile className="w-5 h-5" />
+            </button>
           <button
             type="button"
             onClick={() => imageInputRef.current?.click()}
@@ -1593,9 +1740,14 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           <CheckSquare className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
           <Type className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
           <MoreHorizontal className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+          <EmojiStickerPicker
+            isOpen={pickerOpen}
+            onClose={() => setPickerOpen(false)}
+            onEmojiSelect={handleEmojiSelect}
+            onStickerSelect={handleStickerSelect}
+          />
         </div>
-
-        {/* Text input + send */}
+      </div>
         <div className="flex items-end px-4 py-3 gap-2">
           <textarea
             ref={textareaRef}
@@ -1610,7 +1762,6 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             rows={1}
           />
           <div className="flex items-center gap-3 pb-1">
-            <SmilePlus className="w-6 h-6 text-gray-400 cursor-pointer hover:text-gray-600" />
             <AtSign className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
             <Gift className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
             <button

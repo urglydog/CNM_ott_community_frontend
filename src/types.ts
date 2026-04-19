@@ -18,6 +18,7 @@ export type MessageItem = {
   senderId: string | number;
   contentType: string;
   content: string;
+  stickerData?: StickerData;
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
   createdAt: string;
@@ -29,6 +30,13 @@ export interface MessageAttachment {
   url: string;
   type: "image" | "file" | string;
   size?: number;
+}
+
+export interface StickerData {
+  stickerId?: string;
+  stickerUrl?: string;
+  stickerPack?: string;
+  stickerName?: string;
 }
 
 export type AuthUser = {
@@ -127,6 +135,7 @@ export interface DirectMessageItem {
   senderId: string | number;
   contentType: string;
   content: string;
+  stickerData?: StickerData;
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
   createdAt: string;

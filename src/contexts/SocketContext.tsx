@@ -11,7 +11,7 @@ import React, {
 import dynamic from "next/dynamic";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "./AuthContext";
-import type { MessageItem } from "../types";
+import type { MessageItem, StickerData } from "../types";
 import apiClient from "../lib/axios";
 import { useToast } from "./ToastContext";
 
@@ -76,7 +76,8 @@ interface SocketContextValue {
     roomId: string,
     content: string,
     contentType?: string,
-    attachments?: object | null
+    attachments?: object | null,
+    stickerData?: StickerData
   ) => Promise<{ ok: boolean; message?: MessageItem; error?: string }>;
   emitTypingStart: (roomId: string) => void;
   emitTypingStop: (roomId: string) => void;
@@ -365,7 +366,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       roomId: string,
       content: string,
       contentType = "text",
-      attachments: object | null = null
+      attachments: object | null = null,
+      stickerData?: StickerData
     ): Promise<{ ok: boolean; message?: MessageItem; error?: string }> => {
       return new Promise((resolve) => {
         if (!socketRef.current) {
@@ -374,7 +376,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         }
         socketRef.current.emit(
           "send_message",
-          { roomId, content, contentType, attachments },
+          { roomId, content, contentType, attachments, stickerData },
           (response: { ok: boolean; message?: MessageItem; error?: string }) => {
             resolve(response);
           }

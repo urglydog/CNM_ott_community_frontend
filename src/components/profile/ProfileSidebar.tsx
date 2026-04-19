@@ -18,7 +18,6 @@ import {
   EyeOff,
   Send,
   Lock,
-  Bell,
   KeyRound,
 } from "lucide-react";
 import { AuthUser } from "../../types";
@@ -32,6 +31,7 @@ import {
   verifyPhoneOTP,
 } from "../../api/client";
 import { VALIDATION_PATTERNS, VALIDATION_MESSAGES } from "../../contexts/AuthContext";
+import ForgotPasswordModal from "../auth/ForgotPasswordModal";
 
 interface ProfileSidebarProps {
   isOpen: boolean;
@@ -43,7 +43,7 @@ interface ProfileSidebarProps {
 
 type VerificationStep = "idle" | "sending" | "verifying" | "success";
 type VerificationType = "email" | "phone" | null;
-type Tab = "info" | "password" | "forgot";
+type Tab = "info" | "password";
 
 export default function ProfileSidebar({
   isOpen,
@@ -96,15 +96,8 @@ export default function ProfileSidebar({
     error: null,
   });
 
-  // ── Forgot password state ────────────────────────────────────────────────────
-  const [forgotStep, setForgotStep] = useState<"choose" | "sending" | "verifying" | "reset" | "done">("choose");
-  const [forgotType, setForgotType] = useState<VerificationType>(null);
-  const [forgotIdentifier, setForgotIdentifier] = useState("");
-  const [forgotOTP, setForgotOTP] = useState("");
-  const [forgotNewPassword, setForgotNewPassword] = useState("");
-  const [forgotConfirm, setForgotConfirm] = useState("");
-  const [forgotError, setForgotError] = useState<string | null>(null);
-  const [forgotLoading, setForgotLoading] = useState(false);
+  // ── Forgot Password Modal ────────────────────────────────────────────────────
+  const [showForgotModal, setShowForgotModal] = useState(false);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const validateNewPassword = (pw: string): string | null => {
@@ -215,7 +208,12 @@ export default function ProfileSidebar({
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
       setPasswordSuccess(true);
       setTimeout(() => setPasswordSuccess(false), 3000);
-      addToast("Đổi mật khẩu thành công!", "success");
+      addToast("Đổi mật khẩu thành công! Đang đăng xuất...", "success");
+
+      // Auto logout after 2 seconds to require re-login with new password
+      setTimeout(() => {
+        onLogout();
+      }, 2000);
     } catch (err: any) {
       setPasswordError(err.message || "Đổi mật khẩu thất bại");
     } finally {
@@ -223,87 +221,8 @@ export default function ProfileSidebar({
     }
   };
 
-  // ── Forgot password ────────────────────────────────────────────────────────
-  const handleForgotSend = async () => {
-    setForgotError(null);
-    if (!forgotIdentifier.trim()) {
-      setForgotError("Vui lòng nhập email hoặc số điện thoại");
-      return;
-    }
-    const isEmail = VALIDATION_PATTERNS.email.test(forgotIdentifier.trim());
-    const isPhone = VALIDATION_PATTERNS.phone.test(forgotIdentifier.trim());
-    if (!isEmail && !isPhone) {
-      setForgotError("Định dạng email hoặc số điện thoại không hợp lệ");
-      return;
-    }
-    setForgotLoading(true);
-    try {
-      if (isEmail) {
-        setForgotType("email");
-        await sendEmailOTP(forgotIdentifier.trim());
-      } else {
-        setForgotType("phone");
-        await sendPhoneOTP(forgotIdentifier.trim());
-      }
-      setForgotStep("verifying");
-    } catch (err: any) {
-      setForgotError(err.message || "Gửi mã xác thực thất bại");
-    } finally {
-      setForgotLoading(false);
-    }
-  };
-
-  const handleForgotVerify = async () => {
-    setForgotError(null);
-    if (!forgotOTP || forgotOTP.length < 6) {
-      setForgotError("Vui lòng nhập đầy đủ mã 6 số");
-      return;
-    }
-    setForgotLoading(true);
-    try {
-      if (forgotType === "email") await verifyEmailOTP({ email: forgotIdentifier.trim(), otp: forgotOTP });
-      else if (forgotType === "phone") await verifyPhoneOTP({ phone: forgotIdentifier.trim(), otp: forgotOTP });
-      setForgotStep("reset");
-    } catch (err: any) {
-      setForgotError(err.message || "Mã xác thực không đúng");
-    } finally {
-      setForgotLoading(false);
-    }
-  };
-
-  const handleForgotReset = async () => {
-    setForgotError(null);
-    const pwErr = validateNewPassword(forgotNewPassword);
-    if (pwErr) { setForgotError(pwErr); return; }
-    if (forgotNewPassword !== forgotConfirm) { setForgotError("Mật khẩu xác nhận không khớp"); return; }
-    setForgotLoading(true);
-    try {
-      // Gọi API reset password — gửi cùng identifier + new password + OTP
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000"}/api/users/reset-password`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            identifier: forgotIdentifier.trim(),
-            newPassword: forgotNewPassword,
-            otp: forgotOTP,
-            type: forgotType,
-          }),
-        }
-      );
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.message || "Đặt lại mật khẩu thất bại");
-      }
-      setForgotStep("done");
-      addToast("Đặt lại mật khẩu thành công! Vui lòng đăng nhập lại.", "success");
-    } catch (err: any) {
-      setForgotError(err.message || "Đặt lại mật khẩu thất bại");
-    } finally {
-      setForgotLoading(false);
-    }
-  };
+  // ── Forgot Password Modal ────────────────────────────────────────────────────
+  const handleOpenForgotModal = () => setShowForgotModal(true);
 
   if (!isOpen) return null;
 
@@ -332,17 +251,17 @@ export default function ProfileSidebar({
 
         {/* Tabs */}
         <div className="flex border-b border-slate-100 bg-slate-50 px-3 pt-3 gap-1">
-          {(["info", "password", "forgot"] as Tab[]).map((t) => (
+          {(["info", "password"] as Tab[]).map((t) => (
             <button
               key={t}
-              onClick={() => { setTab(t); setPasswordError(null); setPasswordSuccess(false); setForgotError(null); setForgotStep("choose"); }}
+              onClick={() => { setTab(t); setPasswordError(null); setPasswordSuccess(false); }}
               className={`flex-1 py-2.5 rounded-t-lg text-xs font-semibold transition-all ${
                 tab === t
                   ? "bg-white text-blue-600 shadow-sm border border-slate-200 border-b-white"
                   : "text-slate-500 hover:text-slate-700"
               }`}
             >
-              {t === "info" ? "Thông tin" : t === "password" ? "Đổi mk" : "Quên mk"}
+              {t === "info" ? "Thông tin" : "Đổi mk"}
             </button>
           ))}
         </div>
@@ -560,137 +479,23 @@ export default function ProfileSidebar({
                 {passwordLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Đang xử lý...</> : <><CheckCircle className="w-4 h-4" /> Xác nhận đổi mật khẩu</>}
               </button>
 
-              <button onClick={() => { setTab("forgot"); setForgotStep("choose"); setForgotError(null); }}
+              <button onClick={handleOpenForgotModal}
                 className="w-full py-2 text-sm text-blue-600 hover:text-blue-700 font-medium text-center">
-                Quên mật khẩu hiện tại?
+                Quên mật khẩu? Nhấn vào đây để đặt lại
               </button>
             </div>
           )}
 
-          {/* ── Forgot tab ────────────────────────────────────────────────── */}
-          {tab === "forgot" && (
-            <div className="p-5 space-y-4">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-9 h-9 bg-amber-100 rounded-lg flex items-center justify-center">
-                  <KeyRound className="w-5 h-5 text-amber-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-800 text-base">Quên mật khẩu</h3>
-                  <p className="text-xs text-slate-500">Đặt lại qua SMS hoặc Email</p>
-                </div>
-              </div>
-
-              {forgotStep === "choose" && (
-                <div className="space-y-3">
-                  <p className="text-sm text-slate-600">Nhập email hoặc số điện thoại đã đăng ký để nhận mã xác thực:</p>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input type="text" value={forgotIdentifier}
-                      onChange={(e) => { setForgotIdentifier(e.target.value); setForgotError(null); }}
-                      className="w-full border-2 border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                      placeholder="email@example.com hoặc 0912345678" />
-                  </div>
-                  {forgotError && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
-                      <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                      <p className="text-sm text-red-600">{forgotError}</p>
-                    </div>
-                  )}
-                  <button onClick={handleForgotSend} disabled={forgotLoading}
-                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-2">
-                    {forgotLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Đang gửi...</> : <><Send className="w-4 h-4" /> Gửi mã xác thực</>}
-                  </button>
-                </div>
-              )}
-
-              {forgotStep === "verifying" && (
-                <div className="space-y-3">
-                  <p className="text-sm text-slate-600">
-                    Nhập mã 6 số đã gửi đến <span className="font-semibold">{forgotIdentifier}</span>
-                  </p>
-                  <div className="relative">
-                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input type="text" value={forgotOTP} maxLength={6}
-                      onChange={(e) => { setForgotOTP(e.target.value.replace(/\D/g, "")); setForgotError(null); }}
-                      className="w-full border-2 border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-center text-lg tracking-widest focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                      placeholder="_ _ _ _ _ _" />
-                  </div>
-                  {forgotError && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
-                      <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                      <p className="text-sm text-red-600">{forgotError}</p>
-                    </div>
-                  )}
-                  <button onClick={handleForgotVerify} disabled={forgotLoading}
-                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-2">
-                    {forgotLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Đang xác thực...</> : <><CheckCircle className="w-4 h-4" /> Xác thực</>}
-                  </button>
-                  <button onClick={() => setForgotStep("choose")}
-                    className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium text-center">
-                    ← Thử lại
-                  </button>
-                </div>
-              )}
-
-              {forgotStep === "reset" && (
-                <div className="space-y-3">
-                  <p className="text-sm text-slate-600">Mã xác thực đúng. Nhập mật khẩu mới:</p>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Mật khẩu mới</label>
-                    <div className="relative">
-                      <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input type="password" value={forgotNewPassword}
-                        onChange={(e) => setForgotNewPassword(e.target.value)}
-                        className="w-full border-2 border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                        placeholder="8 ký tự, hoa, thường, số" />
-                    </div>
-                    {forgotNewPassword && (
-                      <div className="mt-1.5 flex gap-0.5">
-                        <div className={`h-1 flex-1 rounded-full ${forgotNewPassword.length >= 8 ? "bg-green-400" : "bg-slate-200"}`} />
-                        <div className={`h-1 flex-1 rounded-full ${/[A-Z]/.test(forgotNewPassword) ? "bg-green-400" : "bg-slate-200"}`} />
-                        <div className={`h-1 flex-1 rounded-full ${/[a-z]/.test(forgotNewPassword) ? "bg-green-400" : "bg-slate-200"}`} />
-                        <div className={`h-1 flex-1 rounded-full ${/\d/.test(forgotNewPassword) ? "bg-green-400" : "bg-slate-200"}`} />
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Xác nhận mật khẩu mới</label>
-                    <div className="relative">
-                      <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input type="password" value={forgotConfirm}
-                        onChange={(e) => setForgotConfirm(e.target.value)}
-                        className="w-full border-2 border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                        placeholder="Nhập lại mật khẩu mới" />
-                    </div>
-                  </div>
-                  {forgotError && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
-                      <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                      <p className="text-sm text-red-600">{forgotError}</p>
-                    </div>
-                  )}
-                  <button onClick={handleForgotReset} disabled={forgotLoading}
-                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-2">
-                    {forgotLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Đang xử lý...</> : <><CheckCircle className="w-4 h-4" /> Đặt lại mật khẩu</>}
-                  </button>
-                </div>
-              )}
-
-              {forgotStep === "done" && (
-                <div className="text-center py-8 space-y-3">
-                  <div className="w-16 h-16 mx-auto bg-green-100 rounded-full flex items-center justify-center">
-                    <CheckCircle className="w-10 h-10 text-green-500" />
-                  </div>
-                  <h4 className="text-lg font-bold text-slate-800">Đặt lại thành công!</h4>
-                  <p className="text-sm text-slate-500">Bạn có thể đăng nhập bằng mật khẩu mới.</p>
-                  <button onClick={onLogout}
-                    className="mt-2 w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">
-                    Đăng nhập lại
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          {/* ── Forgot Password Modal ─────────────────────────────────────────────── */}
+          <ForgotPasswordModal
+            isOpen={showForgotModal}
+            onClose={() => setShowForgotModal(false)}
+            onSuccess={() => {
+              setShowForgotModal(false);
+              addToast("Vui lòng đăng nhập lại với mật khẩu mới", "info");
+              onLogout();
+            }}
+          />
         </div>
       </div>
 

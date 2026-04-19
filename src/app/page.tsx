@@ -6,19 +6,18 @@ import { useRouter } from "next/navigation";
 
 export default function HomePage() {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isInitialized } = useAuth();
 
   useEffect(() => {
-    if (isAuthenticated) {
-      router.push("/chat");
-    } else {
-      router.push("/login");
+    if (!isInitialized) {
+      return;
     }
-  }, [isAuthenticated, router]);
+    if (isAuthenticated) {
+      router.replace("/chat");
+    } else {
+      router.replace("/login");
+    }
+  }, [isAuthenticated, isInitialized, router]);
 
-  return (
-    <div className="flex h-screen w-full items-center justify-center bg-gray-100">
-      <div className="text-gray-500">Đang chuyển hướng...</div>
-    </div>
-  );
+  return null;
 }

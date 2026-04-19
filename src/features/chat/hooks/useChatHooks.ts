@@ -98,6 +98,7 @@ export function useDirectMessage(
     onReceiveMessage,
     onUserTyping,
     onUserStoppedTyping,
+    onMessageRevoked,
   } = useSocket();
   const {
     setConversationPreview,
@@ -210,6 +211,17 @@ export function useDirectMessage(
       });
     });
 
+    const unsubRevoked = onMessageRevoked(({ conversationId, messageId }) => {
+      if (conversationId !== currentRoomId) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id) === String(messageId)
+            ? ({ ...m, contentType: "revoked" as const, content: null, attachments: null } as unknown as ChatMessage)
+            : m,
+        ),
+      );
+    });
+
     const unsubTyping = onUserTyping(({ userId, userName }) => {
       setTypingUsers((prev) =>
         prev.includes(userName) ? prev : [...prev, userName],
@@ -227,6 +239,7 @@ export function useDirectMessage(
 
     return () => {
       unsubReceive();
+      unsubRevoked();
       unsubTyping();
       unsubStopTyping();
       emitLeaveRoom(currentRoomId);
@@ -236,6 +249,7 @@ export function useDirectMessage(
     emitJoinRoom,
     emitLeaveRoom,
     onReceiveMessage,
+    onMessageRevoked,
     onUserTyping,
     onUserStoppedTyping,
     user?.id,

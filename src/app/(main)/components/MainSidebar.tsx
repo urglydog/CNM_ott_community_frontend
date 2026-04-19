@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { User, MessageCircle, Search, Users, LayoutGrid, Settings } from "lucide-react";
+import { UserPlus, MessageCircle, Newspaper, ScrollText, Settings, Search, Users } from "lucide-react";
 import { useChatStore } from "../../../features/chat/store/chatStore";
 import SearchUsersModal from "../../../features/contacts/components/AddFriendModal";
 import FriendRequestsModal from "../../../features/contacts/components/FriendRequestsModal";
@@ -67,25 +67,14 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
           >
             <Search className="text-white w-6 h-6" />
           </button>
-
-          {/* Profile icon */}
-          <button
-            onClick={handleOpenProfile}
-            className={navButtonClass(isProfileActive)}
-            title="Hồ sơ cá nhân"
-            aria-label="Hồ sơ cá nhân"
-          >
-            <User className="text-white w-6 h-6" />
-          </button>
-
-          {/* Friend requests */}
+          {/* Nút Lời mời kết bạn */}
           <button
             onClick={() => setIsRequestsOpen(true)}
             className={`${navButtonClass(false)} relative`}
             title="Lời mời kết bạn"
             aria-label="Lời mời kết bạn"
           >
-            <Users className="text-white w-6 h-6" />
+            <UserPlus className="text-white w-6 h-6" />
             {pendingFriendCount > 0 && (
               <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                 {pendingFriendCount > 99 ? "99+" : pendingFriendCount}
@@ -93,14 +82,15 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
             )}
           </button>
 
-          {/* Groups */}
+          {/* Nhóm chat */}
+
           <button
             onClick={() => setIsGroupsOpen(true)}
             className={navButtonClass(false)}
             title="Nhóm chat"
             aria-label="Nhóm chat"
           >
-            <LayoutGrid className="text-white w-6 h-6" />
+            <Users className="text-white w-6 h-6" />
           </button>
         </div>
         <div className="flex flex-col items-center gap-4 w-full">

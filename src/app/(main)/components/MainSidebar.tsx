@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { UserPlus, MessageCircle, Newspaper, ScrollText, Settings, Search, Users } from "lucide-react";
+import { UserPlus, MessageCircle, Search, Users, CircleUserRound } from "lucide-react";
 import { useChatStore } from "../../../features/chat/store/chatStore";
 import SearchUsersModal from "../../../features/contacts/components/AddFriendModal";
 import FriendRequestsModal from "../../../features/contacts/components/FriendRequestsModal";
@@ -94,9 +94,14 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
           </button>
         </div>
         <div className="flex flex-col items-center gap-4 w-full">
-          <div className={navButtonClass(false)}>
-            <Settings className="text-white/90 w-6 h-6" />
-          </div>
+          <button
+            onClick={handleOpenProfile}
+            className={navButtonClass(isProfileActive)}
+            title="Trang cá nhân"
+            aria-label="Trang cá nhân"
+          >
+            <CircleUserRound className="text-white w-6 h-6" />
+          </button>
         </div>
       </div>
 

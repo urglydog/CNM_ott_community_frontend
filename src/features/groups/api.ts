@@ -150,3 +150,74 @@ export async function addMemberToGroup(
   );
   return response.data;
 }
+
+export async function addMembersToGroup(
+  groupId: string | number,
+  userIds: (string | number)[]
+): Promise<any> {
+  const response = await apiClient.post(`/api/groups/${groupId}/members`, { userIds });
+  return response.data;
+}
+
+export async function removeMemberFromGroup(
+  groupId: string | number,
+  targetUserId: string | number
+): Promise<any> {
+  const response = await apiClient.delete(`/api/groups/${groupId}/members/${targetUserId}`);
+  return response.data;
+}
+
+export async function updateMemberRole(
+  groupId: string | number,
+  targetUserId: string | number,
+  newRole: string
+): Promise<any> {
+  const response = await apiClient.patch(`/api/groups/${groupId}/members/${targetUserId}/role`, { role: newRole });
+  return response.data;
+}
+
+export async function leaveGroup(groupId: string | number): Promise<any> {
+  const response = await apiClient.post(`/api/groups/${groupId}/leave`);
+  return response.data;
+}
+
+export async function disbandGroup(groupId: string | number): Promise<any> {
+  const response = await apiClient.delete(`/api/groups/${groupId}`);
+  return response.data;
+}
+
+export async function getGroupMembers(groupId: string | number): Promise<any[]> {
+  const response = await apiClient.get(`/api/groups/${groupId}/members`);
+  return response.data;
+}
+
+export async function fetchPendingRequests(
+  groupId: string | number
+): Promise<any[]> {
+  const response = await apiClient.get(`/api/groups/${groupId}/requests`);
+  return response.data;
+}
+
+export async function handleJoinRequest(
+  groupId: string | number,
+  userId: string | number,
+  action: "APPROVE" | "REJECT"
+): Promise<{ message: string }> {
+  const response = await apiClient.patch(
+    `/api/groups/${groupId}/requests/${userId}`,
+    { action }
+  );
+  return response.data;
+}
+
+export async function updateGroupSettings(
+  groupId: string | number,
+  settings: { isApprovalRequired?: boolean }
+): Promise<{ message: string }> {
+  const response = await apiClient.patch(
+    `/api/groups/${groupId}/settings`,
+    settings
+  );
+  return response.data;
+}
+

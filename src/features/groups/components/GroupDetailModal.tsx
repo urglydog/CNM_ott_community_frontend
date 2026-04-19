@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { X, Users, Link2, Copy, Check, Shield } from "lucide-react";
 import { useToast } from "../../../contexts/ToastContext";
-import type { Group, InviteInfo } from "../types";
+import { useAuth } from "../../../contexts/AuthContext";
+import { useSocket } from "../../../contexts/SocketContext";
+import { useGroupsStore } from "../store/groupsStore";
+import type { Group, InviteInfo, GroupJoinRequest } from "../types";
+import { fetchPendingRequests, updateGroupSettings } from "../api";
+import InviteMemberModal from "./InviteMemberModal";
 
 interface GroupDetailModalProps {
   group: Group;
@@ -23,10 +28,47 @@ export default function GroupDetailModal({
   onGetInvite,
 }: GroupDetailModalProps) {
   const { addToast } = useToast();
+  const { user } = useAuth();
+  const { socket } = useSocket();
+  const {
+    selectedGroup,
+    setSelectedGroup,
+    updateGroup,
+    fetchMembers,
+    kickMember,
+    updateRole,
+    leaveGroupAction,
+    disbandGroupAction,
+    socketAddMember,
+    socketRemoveMember,
+    socketUpdateRole,
+    approveRequest
+  } = useGroupsStore();
+
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
   const [isLoadingInvite, setIsLoadingInvite] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
+  const [isDisbanding, setIsDisbanding] = useState(false);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"members" | "requests" | "settings">("members");
+  const [pendingRequests, setPendingRequests] = useState<GroupJoinRequest[]>([]);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+  const [requestBadgeCount, setRequestBadgeCount] = useState(0);
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+
+  const members = selectedGroup?.members || [];
+  const currentUserId = String(user?.id || user?.userId || "");
+  const currentUserRole = members.find((m) => String(m.userId) === currentUserId)?.role;
+  const needsApproval = selectedGroup?.isApprovalRequired ?? group.isApprovalRequired ?? false;
+
+  useEffect(() => {
+    setIsLoadingMembers(true);
+    fetchMembers(group.groupId).finally(() => {
+      setIsLoadingMembers(false);
+    });
+  }, [group.groupId, fetchMembers]);
 
   useEffect(() => {
     setIsLoadingInvite(true);
@@ -38,6 +80,90 @@ export default function GroupDetailModal({
       })
       .finally(() => setIsLoadingInvite(false));
   }, [group.groupId, onGetInvite]);
+
+  useEffect(() => {
+    if (currentUserRole === 'OWNER' || currentUserRole === 'DEPUTY') {
+      if (!needsApproval) {
+        setPendingRequests([]);
+        setRequestBadgeCount(0);
+        return;
+      }
+      setIsLoadingRequests(true);
+      fetchPendingRequests(group.groupId)
+        .then((res) => {
+          setPendingRequests(res);
+          setRequestBadgeCount(res.length);
+        })
+        .finally(() => setIsLoadingRequests(false));
+    }
+  }, [group.groupId, currentUserRole, needsApproval]);
+
+  useEffect(() => {
+    if (!socket) return;
+    
+    const handleMemberAdded = (data: any) => {
+      if (data.addedMembers && Array.isArray(data.addedMembers)) {
+        data.addedMembers.forEach((m: any) => socketAddMember(m));
+      } else if (data.member) {
+        socketAddMember(data.member);
+      }
+      addToast("Thành viên mới đã tham gia nhóm", "info");
+    };
+    
+    const handleMemberKicked = (data: any) => {
+      if (data.userId) socketRemoveMember(data.userId);
+      addToast("Ai đó đã bị mời ra khỏi nhóm", "info");
+    };
+    
+    const handleRoleUpdated = (data: any) => {
+      if (data.userId && data.role) socketUpdateRole(data.userId, data.role);
+    };
+    
+    const handleMemberLeft = (data: any) => {
+      if (data.userId) socketRemoveMember(data.userId);
+      addToast("Một người đã rời nhóm", "info");
+    };
+    
+    const handleGroupDisbanded = () => {
+      addToast("Nhóm đã bị giải tán", "error");
+      onClose(); // Đóng modal và thoát ra, active chat room sẽ được xoá bởi logic khác
+    };
+
+    const handleNewJoinRequest = () => {
+      if (currentUserRole === 'OWNER' || currentUserRole === 'DEPUTY') {
+        setRequestBadgeCount(prev => prev + 1);
+        fetchPendingRequests(group.groupId).then((res) => {
+          setPendingRequests(res);
+          setRequestBadgeCount(res.length);
+        });
+      }
+    };
+
+    socket.on("SERVER:MEMBER_ADDED", handleMemberAdded);
+    socket.on("SERVER:MEMBER_KICKED", handleMemberKicked);
+    socket.on("SERVER:ROLE_UPDATED", handleRoleUpdated);
+    socket.on("SERVER:MEMBER_LEFT", handleMemberLeft);
+    socket.on("SERVER:GROUP_DISBANDED", handleGroupDisbanded);
+    socket.on("SERVER:NEW_JOIN_REQUEST", handleNewJoinRequest);
+
+    return () => {
+      socket.off("SERVER:MEMBER_ADDED", handleMemberAdded);
+      socket.off("SERVER:MEMBER_KICKED", handleMemberKicked);
+      socket.off("SERVER:ROLE_UPDATED", handleRoleUpdated);
+      socket.off("SERVER:MEMBER_LEFT", handleMemberLeft);
+      socket.off("SERVER:GROUP_DISBANDED", handleGroupDisbanded);
+      socket.off("SERVER:NEW_JOIN_REQUEST", handleNewJoinRequest);
+    };
+  }, [
+    socket,
+    socketAddMember,
+    socketRemoveMember,
+    socketUpdateRole,
+    addToast,
+    onClose,
+    currentUserRole,
+    group.groupId
+  ]);
 
   const handleCopyCode = () => {
     if (!inviteInfo?.inviteCode) return;
@@ -53,6 +179,77 @@ export default function GroupDetailModal({
     navigator.clipboard.writeText(inviteInfo.inviteLink).then(() => {
       addToast("Đã sao chép liên kết mời", "success");
     });
+  };
+
+  const handleLeaveGroup = async () => {
+    try {
+      setIsLeaving(true);
+      await leaveGroupAction(group.groupId);
+      addToast("Bạn đã rời nhóm", "success");
+      onClose();
+    } catch (err: any) {
+      addToast("Lỗi rời nhóm: " + err.message, "error");
+    } finally {
+      setIsLeaving(false);
+    }
+  };
+
+  const handleDisbandGroup = async () => {
+    if (!confirm("Bạn có chắc chắn muốn giải tán nhóm này?")) return;
+    try {
+      setIsDisbanding(true);
+      await disbandGroupAction(group.groupId);
+      addToast("Đã giải tán nhóm thành công", "success");
+      onClose();
+    } catch (err: any) {
+      addToast("Lỗi giải tán nhóm: " + err.message, "error");
+    } finally {
+      setIsDisbanding(false);
+    }
+  };
+
+  const handleRejectReq = async (userId: string) => {
+    try {
+      await approveRequest(group.groupId, userId, "REJECT");
+      setPendingRequests(prev => prev.filter(r => String(r.userId) !== String(userId)));
+      setRequestBadgeCount(prev => Math.max(0, prev - 1));
+      addToast("Đã từ chối yêu cầu tham gia", "success");
+    } catch (err: any) {
+      addToast("Lỗi từ chối: " + err.message, "error");
+    }
+  };
+
+  const handleApproveReq = async (userId: string) => {
+    try {
+      await approveRequest(group.groupId, userId, "APPROVE");
+      setPendingRequests(prev => prev.filter(r => String(r.userId) !== String(userId)));
+      setRequestBadgeCount(prev => Math.max(0, prev - 1));
+      addToast("Đã duyệt yêu cầu tham gia", "success");
+    } catch (err: any) {
+      addToast("Lỗi duyệt yêu cầu: " + err.message, "error");
+    }
+  };
+
+  const handleToggleApproval = async () => {
+    const nextValue = !needsApproval;
+    try {
+      setIsUpdatingSettings(true);
+      await updateGroupSettings(group.groupId, { isApprovalRequired: nextValue });
+      updateGroup(group.groupId, { isApprovalRequired: nextValue });
+      if (selectedGroup) {
+        setSelectedGroup({ ...selectedGroup, isApprovalRequired: nextValue });
+      }
+      if (!nextValue) {
+        setPendingRequests([]);
+        setRequestBadgeCount(0);
+        if (activeTab === "requests") setActiveTab("members");
+      }
+      addToast("Đã cập nhật cài đặt nhóm", "success");
+    } catch (err: any) {
+      addToast("Lỗi cập nhật cài đặt: " + err.message, "error");
+    } finally {
+      setIsUpdatingSettings(false);
+    }
   };
 
   return (
@@ -112,7 +309,7 @@ export default function GroupDetailModal({
 
         {/* Body */}
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
-          {/* Description */}
+          {/* Default Info (Mobile/Compact) */}
           {group.description && (
             <div>
               <h3 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
@@ -124,18 +321,226 @@ export default function GroupDetailModal({
             </div>
           )}
 
-          {/* Owner Info */}
-          {group.ownerId && (
-            <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-              <div className="w-9 h-9 rounded-full bg-[#005ae0] flex items-center justify-center text-white text-[13px] font-semibold shrink-0">
-                <Shield className="w-4 h-4" />
+          {/* TABS HEADER */}
+          <div className="flex flex-col mb-4">
+            <div className="flex items-center gap-6 border-b border-gray-100">
+              <button
+                className={`pb-2 text-[13px] font-semibold transition-colors relative ${activeTab === 'members' ? 'text-[#005ae0]' : 'text-gray-500 hover:text-gray-700'}`}
+                onClick={() => setActiveTab('members')}
+              >
+                Thành viên ({members.length})
+                {activeTab === 'members' && (
+                  <span className="absolute bottom-0 left-0 w-full h-[2px] bg-[#005ae0] rounded-t-full" />
+                )}
+              </button>
+              
+              {(currentUserRole === 'OWNER' || currentUserRole === 'DEPUTY') && (
+                <button
+                  className={`pb-2 text-[13px] font-semibold transition-colors flex items-center gap-1 relative ${activeTab === 'requests' ? 'text-[#005ae0]' : 'text-gray-500 hover:text-gray-700'}`}
+                  onClick={() => setActiveTab('requests')}
+                >
+                  Yêu cầu duyệt
+                  {requestBadgeCount > 0 && (
+                    <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-1">{requestBadgeCount}</span>
+                  )}
+                  {activeTab === 'requests' && (
+                    <span className="absolute bottom-0 left-0 w-full h-[2px] bg-[#005ae0] rounded-t-full" />
+                  )}
+                </button>
+              )}
+              {currentUserRole === 'OWNER' && (
+                <button
+                  className={`pb-2 text-[13px] font-semibold transition-colors relative ${activeTab === 'settings' ? 'text-[#005ae0]' : 'text-gray-500 hover:text-gray-700'}`}
+                  onClick={() => setActiveTab('settings')}
+                >
+                  Cài đặt
+                  {activeTab === 'settings' && (
+                    <span className="absolute bottom-0 left-0 w-full h-[2px] bg-[#005ae0] rounded-t-full" />
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Members List Tab */}
+          {activeTab === 'members' && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wide mb-0">
+                Thành viên ({members.length})
+              </h3>
+              {(currentUserRole === 'OWNER' || currentUserRole === 'DEPUTY') && (
+                <button
+                  type="button"
+                  onClick={() => setIsInviteModalOpen(true)}
+                  className="text-[12px] font-medium text-[#005ae0] hover:bg-[#005ae0]/10 px-2 py-1 rounded transition-colors"
+                >
+                  + Thêm thành viên
+                </button>
+              )}
+            </div>
+            {isLoadingMembers ? (
+               <div className="flex justify-center py-4">
+                 <div className="w-6 h-6 border-2 border-[#005ae0] border-t-transparent rounded-full animate-spin" />
+               </div>
+            ) : (
+               <div className="space-y-2">
+                 {members.map((member) => {
+                   const isMe = String(member.userId) === currentUserId;
+                   return (
+                     <div key={member.userId} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg group text-sm">
+                       
+                       {/* ==========================================
+                           PHẦN 1: AI CŨNG NHÌN THẤY (Avatar, Tên, Badge) 
+                           ========================================== */}
+                       <div className="flex items-center gap-3">
+                         <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center shrink-0 overflow-hidden text-gray-600 font-bold">
+                           {member.avatarUrl ? (
+                             <img src={member.avatarUrl} alt="" className="w-full h-full object-cover" />
+                           ) : (
+                             getAvatarInitial(member.displayName || member.username)
+                           )}
+                         </div>
+                         <div className="flex flex-col">
+                           <span className="font-medium text-gray-800">
+                             {member.displayName || member.username} {isMe ? "(Bạn)" : ""}
+                           </span>
+                           
+                           {/* HIỂN THỊ BADGE: Chỉ phụ thuộc vào member.role */}
+                           <div className="flex gap-2 mt-0.5">
+                             {member.role === 'OWNER' && (
+                               <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded">Trưởng nhóm</span>
+                             )}
+                             {member.role === 'DEPUTY' && (
+                               <span className="text-[10px] bg-blue-100 text-blue-700 font-semibold px-1.5 py-0.5 rounded">Phó nhóm</span>
+                             )}
+                           </div>
+                         </div>
+                       </div>
+
+                       {/* ==========================================
+                           PHẦN 2: NÚT THAO TÁC (Bị giới hạn quyền) 
+                           ========================================== */}
+                       {!isMe && (
+                         <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                           {/* 1. Nếu người đang xem là OWNER -> Thấy mọi nút (Menu gán quyền, Xóa) */}
+                           {currentUserRole === 'OWNER' && (
+                             <>
+                               <button
+                                 onClick={() => updateRole(group.groupId, member.userId, member.role === 'DEPUTY' ? 'MEMBER' : 'DEPUTY')}
+                                 className="text-[12px] text-[#005ae0] hover:underline"
+                               >
+                                 {member.role === 'DEPUTY' ? 'Gỡ Phó nhóm' : 'Gán Phó nhóm'}
+                               </button>
+                               <button
+                                 onClick={() => kickMember(group.groupId, member.userId)}
+                                 className="text-[12px] text-red-600 hover:underline"
+                               >
+                                 Xóa khỏi nhóm
+                               </button>
+                             </>
+                           )}
+
+                           {/* 2. Nếu người đang xem là DEPUTY -> Chỉ được xóa MEMBER */}
+                           {currentUserRole === 'DEPUTY' && member.role === 'MEMBER' && (
+                             <button
+                               onClick={() => kickMember(group.groupId, member.userId)}
+                               className="text-[12px] text-red-600 hover:underline"
+                             >
+                               Xóa khỏi nhóm
+                             </button>
+                           )}
+                         </div>
+                       )}
+                       
+                     </div>
+                   );
+                 })}
+               </div>
+            )}
+          </div>
+          )}
+
+          {activeTab === 'settings' && currentUserRole === 'OWNER' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-gray-500" />
+                  <div>
+                    <div className="text-[13px] font-medium text-gray-800">Phê duyệt thành viên mới</div>
+                    <div className="text-[12px] text-gray-500">Bật để yêu cầu duyệt trước khi vào nhóm</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleApproval}
+                  disabled={isUpdatingSettings}
+                  aria-pressed={needsApproval}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${needsApproval ? 'bg-[#005ae0]' : 'bg-gray-200'} ${isUpdatingSettings ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${needsApproval ? 'translate-x-5' : 'translate-x-1'}`}
+                  />
+                </button>
               </div>
-              <div>
-                <p className="text-[12px] text-gray-500">Người tạo nhóm</p>
-                <p className="text-[13px] font-medium text-gray-800">
-                  {group.ownerId}
-                </p>
-              </div>
+            </div>
+          )}
+
+          {/* Requests Tab */}
+          {activeTab === 'requests' && (currentUserRole === 'OWNER' || currentUserRole === 'DEPUTY') && (
+            <div>
+              <h3 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Danh sách chờ duyệt
+              </h3>
+              {!needsApproval ? (
+                <div className="text-[13px] text-gray-600 bg-gray-50 border border-gray-100 rounded-lg p-3">
+                  Nhóm hiện đang ở chế độ công khai.
+                </div>
+              ) : isLoadingRequests ? (
+                <div className="flex justify-center py-4">
+                  <div className="w-6 h-6 border-2 border-[#005ae0] border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : pendingRequests.length === 0 ? (
+                <p className="text-center text-sm text-gray-500 py-6">Không có yêu cầu nào</p>
+              ) : (
+                <div className="space-y-2">
+                  {pendingRequests.map((req) => (
+                    <div key={req.userId} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg group text-sm border-b border-gray-50 last:border-0">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center shrink-0 overflow-hidden text-gray-600 font-bold">
+                          {req.avatarUrl ? (
+                            <img src={req.avatarUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            getAvatarInitial(req.displayName)
+                          )}
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="font-medium text-gray-800">
+                            {req.displayName}
+                          </span>
+                          <span className="text-[10px] text-gray-400">
+                            Xin vào lúc: {new Date(req.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleApproveReq(req.userId)}
+                          className="px-2 py-1 text-[11px] font-medium text-white bg-green-600 hover:bg-green-700 rounded-md transition-colors"
+                        >
+                          Chấp nhận
+                        </button>
+                        <button
+                          onClick={() => handleRejectReq(req.userId)}
+                          className="px-2 py-1 text-[11px] font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                        >
+                          Từ chối
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -215,17 +620,28 @@ export default function GroupDetailModal({
         </div>
 
         {/* Footer */}
-        <div className="flex justify-between px-6 py-4 border-t border-gray-100 bg-gray-50/80 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              addToast("Tính năng rời nhóm đang phát triển", "info");
-            }}
-            disabled={isLeaving}
-            className="px-4 py-2.5 text-[13px] font-medium rounded-xl text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
-          >
-            Rời nhóm
-          </button>
+        <div className="flex justify-between items-center px-6 py-4 border-t border-gray-100 bg-gray-50/80 shrink-0">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleLeaveGroup}
+              disabled={isLeaving}
+              className="px-4 py-2 text-[13px] font-medium rounded-lg text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              Rời nhóm
+            </button>
+            {currentUserRole === 'OWNER' && (
+              <button
+                type="button"
+                onClick={handleDisbandGroup}
+                disabled={isDisbanding}
+                className="px-4 py-2 text-[13px] font-medium rounded-lg text-red-600 bg-white border border-red-200 hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                Giải tán nhóm
+              </button>
+            )}
+          </div>
+          
           <button
             type="button"
             onClick={onClose}
@@ -235,6 +651,15 @@ export default function GroupDetailModal({
           </button>
         </div>
       </div>
+
+      {/* Tích hợp Modal Mời bạn bè */}
+      {isInviteModalOpen && (
+        <InviteMemberModal
+          group={group}
+          currentMembers={members}
+          onClose={() => setIsInviteModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

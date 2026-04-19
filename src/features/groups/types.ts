@@ -8,14 +8,17 @@ export type Group = {
   memberCount?: number;
   createdAt?: string;
   avatarUrl?: string | null;
+  isApprovalRequired?: boolean;
 };
+
+export type GroupRole = 'OWNER' | 'DEPUTY' | 'MEMBER';
 
 export interface GroupMember {
   userId: string;
   displayName: string;
   username: string;
   avatarUrl: string | null;
-  role: "owner" | "admin" | "member";
+  role: GroupRole;
   joinedAt?: string;
 }
 
@@ -24,4 +27,12 @@ export interface InviteInfo {
   inviteCode: string;
   inviteLink: string;
   expiresAt?: string;
+}
+
+export interface GroupJoinRequest {
+  userId: string;
+  status: string;
+  createdAt: string;
+  displayName: string;
+  avatarUrl: string | null;
 }

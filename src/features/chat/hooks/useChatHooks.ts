@@ -103,6 +103,20 @@ function getPreviewContent(
   return message.content;
 }
 
+function isSameDmConversation(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (!a.startsWith("dm:") || !b.startsWith("dm:")) return false;
+
+  const aParts = a.slice(3).split(":");
+  const bParts = b.slice(3).split(":");
+  if (aParts.length !== 2 || bParts.length !== 2) return false;
+
+  const [a1, a2] = aParts;
+  const [b1, b2] = bParts;
+  return (a1 === b1 && a2 === b2) || (a1 === b2 && a2 === b1);
+}
+
 export function useDirectMessage(
   friendId: string | null,
   options: {
@@ -200,7 +214,7 @@ export function useDirectMessage(
 
     const unsubReceive = onReceiveMessage((newMsg) => {
       if (Number(newMsg.senderId) === Number(user?.id)) return;
-      if (newMsg.conversationId !== currentRoomId) return;
+      if (!isSameDmConversation(newMsg.conversationId, currentRoomId)) return;
 
       // Cập nhật preview trong store
       const friendId = friendIdFromConversationId(

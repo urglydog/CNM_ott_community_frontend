@@ -21,6 +21,8 @@ export type MessageItem = {
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
   createdAt: string;
+  senderDisplayName?: string | null;
+  senderAvatarUrl?: string | null;
 };
 
 export interface MessageAttachment {
@@ -36,7 +38,11 @@ export type AuthUser = {
   displayName: string;
   email?: string;
   phone?: string;
+  avatarUrl?: string | null;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
   token: string;
+  refreshToken?: string;
 };
 
 // ── Friend System Types ─────────────────────────────────────────────────────────
@@ -124,6 +130,9 @@ export interface DirectMessageItem {
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
   createdAt: string;
+  /** Display name của người gửi, do backend enrich khi trả message */
+  senderDisplayName?: string | null;
+  senderAvatarUrl?: string | null;
 }
 
 export interface DirectMessagesResponse {

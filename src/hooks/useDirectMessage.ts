@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSocket } from "../contexts/SocketContext";
 import { useAuth } from "../contexts/AuthContext";
+import { useChatStore } from "../features/chat/store/chatStore";
 import { getDirectMessages } from "../api/client";
 import type { DirectMessageItem } from "../types";
 
@@ -81,6 +82,7 @@ export function useDirectMessage(
     onUserTyping,
     onUserStoppedTyping,
   } = useSocket();
+  const { setConversationPreview } = useChatStore();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -144,28 +146,27 @@ export function useDirectMessage(
     emitJoinRoom(currentRoomId);
 
     const unsubReceive = onReceiveMessage((newMsg) => {
-      // Bỏ qua nếu là tin nhắn của chính mình (đã có optimistic message)
+      // Bỏ qua nếu là tin nhắn của chính mình (đã có optimistic message xử lý)
       if (Number(newMsg.senderId) === Number(user?.id)) return;
 
       // Bỏ qua nếu tin nhắn không thuộc phòng hiện tại
       if (newMsg.conversationId !== currentRoomId) return;
 
-      // Thay thế optimistic message bằng tin nhắn thực từ server
       setMessages((prev) => {
-        const hasOptimistic = prev.some((m) => m.id !== undefined && String(m.id).startsWith('temp-'));
-        const replaced = prev.map((m) =>
-          String(m.id).startsWith('temp-')
-            ? { ...newMsg, isOwn: false, sendStatus: 'received' as const }
-            : m
-        );
-        // Nếu không có optimistic message nào, kiểm tra duplicate
-        if (!hasOptimistic) {
-          const exists = prev.some((m) => m.id === newMsg.id);
-          if (exists) return prev;
-          return [...prev, { ...newMsg, isOwn: false, sendStatus: 'received' as const }];
-        }
-        return replaced;
+        // Chỉ kiểm tra trùng lặp, không ghi đè optimistic message
+        const exists = prev.some((m) => m.id === newMsg.id);
+        if (exists) return prev;
+        return [...prev, { ...newMsg, isOwn: false, sendStatus: 'received' as const }];
       });
+
+      // Cập nhật preview để cuộc trò chuyện trồi lên đầu trong ChatListPanel
+      const fid = friendIdFromConversationId(currentRoomId);
+      if (fid) {
+        setConversationPreview(fid, {
+          content: newMsg.content,
+          createdAt: newMsg.createdAt,
+        });
+      }
     });
 
     const unsubTyping = onUserTyping(({ userId, userName }) => {
@@ -260,6 +261,16 @@ export function useDirectMessage(
             content: finalMsg.content,
             createdAt: finalMsg.createdAt,
           });
+
+          // Cập nhật preview để cuộc trò chuyện trồi lên đầu trong ChatListPanel
+          const fid = friendIdFromConversationId(currentRoomId);
+          if (fid) {
+            setConversationPreview(fid, {
+              content: finalMsg.content,
+              createdAt: finalMsg.createdAt,
+            });
+          }
+
           setMessages((prev) =>
             prev.map((m) =>
               m.id === tempId
@@ -284,7 +295,7 @@ export function useDirectMessage(
         setIsSending(false);
       }
     },
-    [currentRoomId, emitSendMessage, emitTypingStop, user?.id, onDmActivity]
+    [currentRoomId, emitSendMessage, emitTypingStop, user?.id, onDmActivity, setConversationPreview]
   );
 
   return {

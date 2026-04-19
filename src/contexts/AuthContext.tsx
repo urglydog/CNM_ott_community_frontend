@@ -26,8 +26,8 @@ export const VALIDATION_PATTERNS = {
 export const VALIDATION_MESSAGES = {
   username: "Tên đăng nhập phải từ 3-30 ký tự (chỉ chứa chữ, số và dấu gạch dưới)",
   password: "Mật khẩu phải có ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường và số",
-  email: "Email không hợp lệ",
-  phone: "Số điện thoại phải c�� 10 số bắt đầu bằng 03, 05, 07, 08 hoặc 09",
+  email: "Email không hợp lệ. Vui lòng nhập đúng định dạng (ví dụ: name@example.com)",
+  phone: "Số điện thoại phải có 10 số, bắt đầu bằng 03, 05, 07, 08 hoặc 09 (ví dụ: 0912345678)",
   fullName: "Họ tên phải từ 2-50 ký tự",
   confirmPassword: "Mật khẩu xác nhận không khớp",
 };
@@ -73,6 +73,8 @@ interface AuthContextValue {
   validateForm: () => boolean;
   errors: FormErrors;
   clearErrors: () => void;
+  clearSuccess: () => void;
+  authSuccess: { type: "login" | "register" | null; message: string };
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -93,7 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(defaultForm);
   const [errors, setErrors] = useState<FormErrors>({});
-  const [authSuccess, setAuthSuccess] = useState<string | null>(null);
+  const [authSuccess, setAuthSuccess] = useState<{ type: "login" | "register" | null; message: string }>({ type: null, message: "" });
 
   // Lấy toast context (có thể null nếu chưa được wrap trong ToastProvider)
   let addToast: ((message: string, type?: string) => void) | null = null;
@@ -110,7 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const stored = localStorage.getItem(AUTH_STORAGE_KEY);
       if (stored) {
         const parsed: AuthUser = JSON.parse(stored);
-        if (parsed.id && parsed.token) {
+        if ((parsed.id || parsed.userId) && parsed.token) {
           setUser(parsed);
         }
       }
@@ -127,6 +129,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearErrors = useCallback(() => {
     setErrors({});
+  }, []);
+
+  const clearSuccess = useCallback(() => {
+    setAuthSuccess((prev) => {
+      if (prev.type === null && prev.message === "") {
+        return prev;
+      }
+      return { type: null, message: "" };
+    });
   }, []);
 
   const validateForm = useCallback((): boolean => {
@@ -156,7 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       e.preventDefault();
       setIsLoading(true);
       setError(null);
-      setAuthSuccess(null);
+      clearSuccess();
 
       try {
         const body: Record<string, string> = {
@@ -170,9 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (!form.fullName.trim()) {
             newErrors.fullName = "Vui lòng nhập họ tên";
           }
-          if (!form.email.trim()) {
-            newErrors.email = "Vui lòng nhập email";
-          } else if (!VALIDATION_PATTERNS.email.test(form.email)) {
+          if (form.email.trim() && !VALIDATION_PATTERNS.email.test(form.email)) {
             newErrors.email = VALIDATION_MESSAGES.email;
           }
           if (!form.phone.trim()) {
@@ -195,34 +204,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           body.fullName = form.fullName;
         }
 
-        const { user: u, token } = await authRequest(mode, body as any);
+        const { user: u, token, accessToken, refreshToken } = await authRequest(mode, body as any);
+        const resolvedToken = token || accessToken;
+        if (!resolvedToken) {
+          throw new Error("Không nhận được token đăng nhập từ máy chủ");
+        }
+
+        const resolvedDisplayName =
+          u.display_name || u.displayName || u.fullName || u.full_name || u.username;
+        const resolvedPhone =
+          u.phone || u.phone_number || u.phoneNumber || form.phone || "";
+        const resolvedAvatar =
+          u.avatarUrl || u.avatar_url || null;
+        const resolvedEmailVerified = Boolean(
+          u.emailVerified ?? u.email_verified ?? false
+        );
+        const resolvedPhoneVerified = Boolean(
+          u.phoneVerified ?? u.phone_verified ?? false
+        );
+
         const authUser: AuthUser = {
-          id: u.id,
+          id: u.id ?? u.userId,
+          userId: u.userId ? String(u.userId) : undefined,
           username: u.username,
-          displayName: u.display_name || u.displayName || u.fullName || u.username,
+          displayName: resolvedDisplayName,
           email: u.email,
-          phone: u.phone,
-          token,
+          phone: resolvedPhone,
+          avatarUrl: resolvedAvatar,
+          emailVerified: resolvedEmailVerified,
+          phoneVerified: resolvedPhoneVerified,
+          token: resolvedToken,
+          refreshToken,
         };
         persistUser(authUser);
 
-        // Show success toast
+        // Show success message with delay before redirect
+        const successMsg = mode === "login"
+          ? "Đăng nhập thành công!"
+          : "Đăng ký thành công! Đang chuyển hướng...";
+        setAuthSuccess({ type: mode, message: successMsg });
+
+        // Add toast notification
         if (addToast) {
-          addToast(
-            mode === "login" ? "Đăng nhập thành công!" : "Đăng ký thành công!",
-            "success"
-          );
+          addToast(successMsg, "success");
         }
-        setAuthSuccess(mode === "login" ? "login" : "register");
+
       } catch (err: unknown) {
-        setError(
-          err instanceof Error ? err.message : "Đăng nhập/Đăng ký thất bại"
-        );
+        const rawMessage = err instanceof Error ? err.message : "Đăng nhập/Đăng ký thất bại";
+        const normalizedMessage =
+          rawMessage === "User not found, please register"
+            ? "Không tìm thấy tài khoản, vui lòng đăng ký trước"
+            : rawMessage === "Invalid username or password"
+            ? "Tên đăng nhập hoặc mật khẩu không đúng"
+            : rawMessage;
+        setError(normalizedMessage);
       } finally {
         setIsLoading(false);
       }
     },
-    [form, persistUser, addToast]
+    [form, persistUser, addToast, clearSuccess]
   );
 
   const login = useCallback(
@@ -241,13 +281,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setForm(defaultForm);
     setError(null);
     setErrors({});
-    setAuthSuccess(null);
+    setAuthSuccess({ type: null, message: "" });
   }, []);
 
   const updateUser = useCallback((updates: Partial<AuthUser>) => {
     setUser((prev: AuthUser | null) => {
       if (!prev) return null;
-      const updated = { ...prev, ...updates };
+
+      const safeUpdates = Object.fromEntries(
+        Object.entries(updates).filter(([, value]) => value !== undefined)
+      ) as Partial<AuthUser>;
+
+      const updated = { ...prev, ...safeUpdates };
       localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
@@ -271,6 +316,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         validateForm,
         errors,
         clearErrors,
+        clearSuccess,
+        authSuccess,
       }}
     >
       {children}

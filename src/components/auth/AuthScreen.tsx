@@ -2,6 +2,8 @@
 
 import React, { FormEvent, useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
+import { useRouter } from "next/navigation";
+import { useToast } from "../../contexts/ToastContext";
 import {
   User,
   Shield,
@@ -17,16 +19,42 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { VALIDATION_PATTERNS, VALIDATION_MESSAGES } from "../../contexts/AuthContext";
+import ForgotPasswordModal from "./ForgotPasswordModal";
 
 export type AuthMode = "login" | "register";
 
 export default function AuthScreen() {
-  const { login, register, isLoading, error, form, setForm, errors, clearErrors } = useAuth();
+  const { login, register, isLoading, error, form, setForm, errors, clearErrors, authSuccess, clearSuccess } = useAuth();
+  const { addToast } = useToast();
+  const router = useRouter();
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showForgotModal, setShowForgotModal] = useState(false);
 
+  // Lắng nghe authSuccess từ context
+  useEffect(() => {
+    let redirectTimer: ReturnType<typeof setTimeout> | null = null;
+    if (authSuccess.type) {
+      setSuccessMessage(authSuccess.message);
+
+      // Auto-redirect after delay for registration
+      if (authSuccess.type === "register") {
+        redirectTimer = setTimeout(() => {
+          router.replace("/chat");
+          clearSuccess();
+        }, 2500);
+      }
+    }
+    return () => {
+      if (redirectTimer) {
+        clearTimeout(redirectTimer);
+      }
+    };
+  }, [authSuccess, clearSuccess, router]);
+
+  // Clear errors và success khi chuyển auth mode
   useEffect(() => {
     clearErrors();
     setSuccessMessage(null);
@@ -323,7 +351,7 @@ export default function AuthScreen() {
                   {/* Email */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      Email <span className="text-red-500">*</span>
+                      Email <span className="text-slate-400">(tùy chọn)</span>
                     </label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -342,7 +370,6 @@ export default function AuthScreen() {
                           setForm({ ...form, email: e.target.value });
                           if (errors.email) clearErrors();
                         }}
-                        required
                       />
                       {form.email && (
                         <div className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -443,14 +470,28 @@ export default function AuthScreen() {
               </button>
 
               {isLogin && (
-                <p className="text-center text-xs text-slate-400 mt-3">
-                  Quên mật khẩu? Liên hệ quản trị viên để được hỗ trợ
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowForgotModal(true)}
+                  className="mx-auto mt-3 block text-center text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                >
+                  Quên mật khẩu? Đặt lại bằng email hoặc số điện thoại
+                </button>
               )}
             </div>
           </form>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      <ForgotPasswordModal
+        isOpen={showForgotModal}
+        onClose={() => setShowForgotModal(false)}
+        onSuccess={() => {
+          setShowForgotModal(false);
+          addToast("Vui lòng đăng nhập lại với mật khẩu mới", "info");
+        }}
+      />
     </div>
   );
 }

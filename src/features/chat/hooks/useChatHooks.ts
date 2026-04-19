@@ -98,6 +98,7 @@ export function useDirectMessage(
     onReceiveMessage,
     onUserTyping,
     onUserStoppedTyping,
+    onMessageRevoked,
   } = useSocket();
   const {
     setConversationPreview,
@@ -210,6 +211,17 @@ export function useDirectMessage(
       });
     });
 
+    const unsubRevoked = onMessageRevoked(({ conversationId, messageId }) => {
+      if (conversationId !== currentRoomId) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id) === String(messageId)
+            ? ({ ...m, contentType: "revoked" as const, content: null, attachments: null } as unknown as ChatMessage)
+            : m,
+        ),
+      );
+    });
+
     const unsubTyping = onUserTyping(({ userId, userName }) => {
       setTypingUsers((prev) =>
         prev.includes(userName) ? prev : [...prev, userName],
@@ -227,6 +239,7 @@ export function useDirectMessage(
 
     return () => {
       unsubReceive();
+      unsubRevoked();
       unsubTyping();
       unsubStopTyping();
       emitLeaveRoom(currentRoomId);
@@ -236,6 +249,7 @@ export function useDirectMessage(
     emitJoinRoom,
     emitLeaveRoom,
     onReceiveMessage,
+    onMessageRevoked,
     onUserTyping,
     onUserStoppedTyping,
     user?.id,
@@ -464,26 +478,47 @@ export function useJoinFriendDmRooms(
 // Hook để cập nhật preview khi nhận message
 export function useMessagePreviewUpdater(currentUserId?: string | number) {
   const { socket, onReceiveMessage } = useSocket();
-  const { selectedFriend, setConversationPreview, incrementUnread } =
-    useChatStore();
+  const {
+    selectedFriend,
+    setConversationPreview,
+    incrementUnread,
+    selectedGroup,
+    setGroupConversationPreview,
+    incrementGroupUnread,
+  } = useChatStore();
 
   useEffect(() => {
     if (!socket) return;
 
     const off = onReceiveMessage((msg) => {
       const cid = msg.conversationId;
-      const friendId = friendIdFromConversationId(cid, currentUserId);
-      if (!friendId) return;
 
-      // Cập nhật preview
-      setConversationPreview(friendId, {
-        content: msg.content,
-        createdAt: msg.createdAt,
-      });
+      // 1. Nếu là tin nhắn cá nhân (có tiền tố dm:)
+      if (cid && cid.startsWith("dm:")) {
+        const friendId = friendIdFromConversationId(cid, currentUserId);
+        if (!friendId) return;
 
-      // Tăng unread nếu không phải đang chat với người này
-      if (selectedFriend?.friend_id !== friendId) {
-        incrementUnread(friendId);
+        setConversationPreview(friendId, {
+          content: getPreviewContent(msg),
+          createdAt: msg.createdAt,
+        });
+
+        if (selectedFriend?.friend_id !== friendId) {
+          incrementUnread(friendId);
+        }
+      }
+      // 2. Nếu là tin nhắn nhóm
+      else if (cid) {
+        const groupId = cid;
+
+        setGroupConversationPreview(groupId, {
+          content: getPreviewContent(msg),
+          createdAt: msg.createdAt,
+        });
+
+        if (String(selectedGroup?.groupId) !== String(groupId)) {
+          incrementGroupUnread(groupId);
+        }
       }
     });
 
@@ -495,5 +530,8 @@ export function useMessagePreviewUpdater(currentUserId?: string | number) {
     selectedFriend,
     setConversationPreview,
     incrementUnread,
+    selectedGroup,
+    setGroupConversationPreview,
+    incrementGroupUnread,
   ]);
 }

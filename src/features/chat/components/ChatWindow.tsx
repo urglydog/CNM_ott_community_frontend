@@ -23,6 +23,7 @@ import {
   Users,
   RotateCcw,
   Trash2,
+  Share2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dmConversationId, useDirectMessage } from "../hooks/useChatHooks";
@@ -42,6 +43,7 @@ import { useChatStore } from "../store/chatStore";
 import apiClient from "../../../lib/axios";
 import type { AuthUser } from "../../../types";
 import { askBot } from "../api";
+import ForwardMessageModal from "./ForwardMessageModal";
 import VideoCallGroup from "../../../components/chat/VideoCallGroup";
 import VideoCall1vs1 from "../../../components/chat/VideoCall1vs1";
 import { useToast } from "../../../contexts/ToastContext";
@@ -489,6 +491,7 @@ interface MessageContextMenuProps {
   isOwn: boolean;
   onRevoke: () => void;
   onDeleteForMe: () => void;
+  onForward: () => void;
   isDeleting: boolean;
   onClose: () => void;
 }
@@ -500,6 +503,7 @@ function MessageContextMenu({
   isOwn,
   onRevoke,
   onDeleteForMe,
+  onForward,
   isDeleting,
   onClose,
 }: MessageContextMenuProps) {
@@ -582,6 +586,21 @@ function MessageContextMenu({
           <span className="text-sm font-medium text-red-600">Thu hồi</span>
         </button>
       )}
+
+      {/* Nút Chuyển tiếp — hiện cho MỌI tin nhắn (kể cả đã thu hồi trên Zalo UX) */}
+      <button
+        type="button"
+        onClick={() => {
+          onForward();
+          onClose();
+        }}
+        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left hover:bg-blue-50 transition-colors text-blue-600 group"
+      >
+        <span className="w-6 h-6 rounded-full bg-blue-50 group-hover:bg-blue-100 flex items-center justify-center transition-colors">
+          <Share2 className="w-3.5 h-3.5 text-blue-500" />
+        </span>
+        <span className="text-sm font-medium text-blue-600">Chuyển tiếp</span>
+      </button>
 
       {/* Tùy chọn khác cho tin nhắn người khác */}
       {!canRevoke && (
@@ -713,6 +732,12 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     canRevoke: boolean;
   } | null>(null);
 
+  // ── Forward modal state ────────────────────────────────────────────────
+  const [forwardModal, setForwardModal] = useState<{
+    message: GroupChatMessage;
+    sourceConversationId: string;
+  } | null>(null);
+
   function handleMessageContextMenu(
     e: React.MouseEvent,
     msg: GroupChatMessage,
@@ -788,6 +813,11 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     } finally {
       setDeletingMessageId(null);
     }
+  }
+
+  function handleForwardMessage(msg: GroupChatMessage, conversationId: string) {
+    closeCtxMenu();
+    setForwardModal({ message: msg, sourceConversationId: conversationId });
   }
 
   // Lấy ref đúng dựa trên mode
@@ -1503,8 +1533,19 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           isOwn={ctxMenu.canRevoke}
           onRevoke={handleRevokeMessage}
           onDeleteForMe={handleDeleteForMe}
+          onForward={() => handleForwardMessage(ctxMenu.msg, ctxMenu.conversationId)}
           isDeleting={deletingMessageId === String(ctxMenu.msg.id)}
           onClose={closeCtxMenu}
+        />
+      )}
+
+      {forwardModal && (
+        <ForwardMessageModal
+          isOpen
+          onClose={() => setForwardModal(null)}
+          message={forwardModal.message}
+          sourceConversationId={forwardModal.sourceConversationId}
+          authUserId={currentUserId}
         />
       )}
 

@@ -55,6 +55,16 @@ export interface MessageRevokedPayload {
   revokedBy?: string;
 }
 
+export interface MessageForwardedPayload {
+  type: "forwarded";
+  message: MessageItem & {
+    isForwarded: boolean;
+    originalSenderId: string | null;
+    originalMessageId: string | null;
+    originalConversationId: string | null;
+  };
+}
+
 interface SocketContextValue {
   socket: Socket | null;
   status: SocketStatus;
@@ -95,8 +105,8 @@ interface SocketContextValue {
   onCallAccepted: (handler: (data: CallSignalPayload) => void) => () => void;
   onCallDeclined: (handler: (data: CallSignalPayload) => void) => () => void;
   onEndCall: (handler: (data: CallSignalPayload) => void) => () => void;
-  onEndCall: (handler: (data: CallSignalPayload) => void) => () => void;
   onMessageRevoked: (handler: (data: MessageRevokedPayload) => void) => () => void;
+  onMessageForwarded: (handler: (data: MessageForwardedPayload) => void) => () => void;
 }
 
 interface GlobalCallState {
@@ -471,7 +481,18 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     (handler: (message: MessageItem) => void) => {
       const socket = socketRef.current;
       if (!socket) return () => {};
-      const listener = (message: MessageItem) => handler(message);
+
+      // Backend emits forwarded messages as { type: "forwarded", message: {...} }
+      // Normal messages are emitted as a flat MessageItem object.
+      // Unwrap the wrapper so consumers always receive a flat message.
+      const listener = (payload: MessageItem | { type: string; message: MessageItem }) => {
+        const msg =
+          "type" in payload && "message" in payload
+            ? (payload as { type: string; message: MessageItem }).message
+            : (payload as MessageItem);
+        handler(msg);
+      };
+
       socket.on("receive_message", listener);
       return () => socket.off("receive_message", listener);
     },
@@ -620,6 +641,21 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const onMessageForwarded = useCallback(
+    (handler: (data: MessageForwardedPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+
+      const listener = (data: MessageForwardedPayload) => handler(data);
+      socket.on("message:forwarded", listener);
+
+      return () => {
+        socket.off("message:forwarded", listener);
+      };
+    },
+    []
+  );
+
   return (
     <SocketContext.Provider
       value={{
@@ -646,6 +682,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         onCallDeclined,
         onEndCall,
         onMessageRevoked,
+        onMessageForwarded,
 
       }}
     >

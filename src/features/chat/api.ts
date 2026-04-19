@@ -198,6 +198,55 @@ export async function getGroupMembers(groupId: string | number): Promise<
   return response.data || [];
 }
 
+// ── Message Forward ──────────────────────────────────────────────────────────────
+
+export interface ForwardMessagePayload {
+  originalMessageId: string | number;
+  sourceConversationId: string;
+  targetConversationIds: string[];
+}
+
+export interface ForwardedMessage {
+  id: number;
+  senderId: string;
+  content: string;
+  contentType: string;
+  attachments: unknown;
+  isForwarded: boolean;
+  originalSenderId: string | null;
+  originalMessageId: string | null;
+  originalConversationId: string | null;
+  createdAt: string;
+  senderDisplayName: string;
+  senderAvatarUrl: string | null;
+}
+
+export interface ForwardResult {
+  targetConversationId: string;
+  forwardedMessage: ForwardedMessage;
+}
+
+export interface ForwardMessageResponse {
+  success: boolean;
+  message: string;
+  data: {
+    forwardedCount: number;
+    results: ForwardResult[];
+    skipped: string[];
+    errors: Array<{ targetConversationId: string; error: string }>;
+  };
+}
+
+export async function forwardMessage(
+  payload: ForwardMessagePayload,
+): Promise<ForwardMessageResponse> {
+  const response = await apiClient.post<ForwardMessageResponse>(
+    "/api/messages-extension/forward",
+    payload,
+  );
+  return response.data;
+}
+
 // ── Message Revoke ──────────────────────────────────────────────────────────────
 
 export interface RevokeMessagePayload {

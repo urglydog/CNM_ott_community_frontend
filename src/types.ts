@@ -28,8 +28,12 @@ export type MessageItem = {
 
 export interface MessageAttachment {
   url: string;
-  type: "image" | "file" | string;
+  type: "image" | "video" | "file" | string;
   size?: number;
+  thumbnailUrl?: string | null;
+  mimeType?: string | null;
+  key?: string | null;
+  name?: string | null;
 }
 
 export interface StickerData {

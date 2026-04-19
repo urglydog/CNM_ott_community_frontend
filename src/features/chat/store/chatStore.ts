@@ -30,13 +30,26 @@ interface ChatState {
   selectedGroup: Group | null;
   setSelectedGroup: (group: Group | null) => void;
 
+  // ── AI chat mode ───────────────────────────────────────────────────────
+  isAiChatOpen: boolean;
+  pendingAiPrompt: string;
+  openAiChat: (prompt?: string) => void;
+  closeAiChat: () => void;
+  clearPendingAiPrompt: () => void;
+
   // ── Preview tin nhắn ───────────────────────────────────────────────────
   conversationPreview: Record<string, ConversationPreview>;
-  setConversationPreview: (friendId: string, preview: ConversationPreview) => void;
+  setConversationPreview: (
+    friendId: string,
+    preview: ConversationPreview,
+  ) => void;
 
   // Preview nhóm
   groupConversationPreview: Record<string, ConversationPreview>;
-  setGroupConversationPreview: (groupId: string, preview: ConversationPreview) => void;
+  setGroupConversationPreview: (
+    groupId: string,
+    preview: ConversationPreview,
+  ) => void;
 
   // ── Số tin nhắn chưa đọc ───────────────────────────────────────────────
   unreadCounts: Record<string, number>;
@@ -75,12 +88,36 @@ export const useChatStore = create<ChatState>((set) => ({
   // ── Selected friend ─────────────────────────────────────────────────────
   selectedFriend: null,
   setSelectedFriend: (friend) =>
-    set({ selectedFriend: friend, chatMode: friend ? "PRIVATE" : "PRIVATE" }),
+    set({
+      selectedFriend: friend,
+      chatMode: "PRIVATE",
+      isAiChatOpen: false,
+      pendingAiPrompt: "",
+    }),
 
   // ── Selected group ─────────────────────────────────────────────────────
   selectedGroup: null,
   setSelectedGroup: (group) =>
-    set({ selectedGroup: group, chatMode: group ? "GROUP" : "PRIVATE" }),
+    set({
+      selectedGroup: group,
+      chatMode: group ? "GROUP" : "PRIVATE",
+      isAiChatOpen: false,
+      pendingAiPrompt: "",
+    }),
+
+  // ── AI chat state ──────────────────────────────────────────────────────
+  isAiChatOpen: false,
+  pendingAiPrompt: "",
+  openAiChat: (prompt = "") =>
+    set({
+      isAiChatOpen: true,
+      pendingAiPrompt: prompt,
+      selectedFriend: null,
+      selectedGroup: null,
+      chatMode: "PRIVATE",
+    }),
+  closeAiChat: () => set({ isAiChatOpen: false }),
+  clearPendingAiPrompt: () => set({ pendingAiPrompt: "" }),
 
   // ── Conversation preview ────────────────────────────────────────────────
   conversationPreview: {},
@@ -161,6 +198,8 @@ export const useChatStore = create<ChatState>((set) => ({
       friendsError: null,
       selectedFriend: null,
       selectedGroup: null,
+      isAiChatOpen: false,
+      pendingAiPrompt: "",
       conversationPreview: {},
       groupConversationPreview: {},
       unreadCounts: {},

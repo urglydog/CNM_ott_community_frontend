@@ -364,8 +364,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const emitCallUser = useCallback((payload: CallSignalPayload) => {
-    socketRef.current?.emit("call-request", payload);
-    socketRef.current?.emit("call-user", payload);
+    if (payload.isGroupCall) {
+      socketRef.current?.emit("group-call-request", payload);
+    } else {
+      socketRef.current?.emit("call-request", payload);
+      socketRef.current?.emit("call-user", payload);
+    }
   }, []);
 
   const emitCallAccepted = useCallback((payload: CallSignalPayload) => {

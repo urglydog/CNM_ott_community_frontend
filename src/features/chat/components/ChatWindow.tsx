@@ -1,9 +1,9 @@
 "use client";
 
 import { 
-  MoreHorizontal, Phone, Search, ThumbsUp, Video, Smile, Image, 
+  MoreHorizontal, Phone, Search, Video, Smile, Image, 
   Paperclip, Link as LinkIcon, MapPin, Contact, CheckSquare, Type, 
-  AtSign, Gift, Loader2, WifiOff, FileText, Users, RotateCcw, 
+  Loader2, WifiOff, FileText, Users, RotateCcw, 
   Trash2, Share2, Sparkles, X, Mic, Square, Send 
 } from "lucide-react";
 import { useAudioRecorder } from "../hooks/useAudioRecorder";
@@ -2273,45 +2273,56 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                 </button>
               </div>
             ) : (
-              <div className="flex items-end px-4 py-3 gap-2">
-                <textarea
-                  ref={textareaRef}
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  onFocus={() => activeTypingChange(true)}
-                  onBlur={() => activeTypingChange(false)}
-                  placeholder={placeHolder}
-                  disabled={!isConnected || activeSending}
-                  className="flex-1 resize-none h-11 max-h-32 focus:outline-none text-[15px] pt-2.5 bg-gray-50 rounded-lg px-3 border border-gray-200 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  rows={1}
-                />
-                <div className="flex items-center gap-3 pb-1">
-                  <AtSign className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
-                  <Gift className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
+              <div className="flex items-center px-4 py-3 gap-3">
+                {/* Left side: icon buttons */}
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
-                    onClick={startRecording}
+                    onClick={() => {
+                      activeTypingChange(false);
+                      startRecording();
+                    }}
                     disabled={!isConnected || activeSending}
-                    className="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors text-gray-400 hover:text-blue-500 hover:bg-blue-50"
+                    className="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors text-gray-500 hover:text-blue-500 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed"
                     title="Ghi âm"
                   >
                     <Mic className="w-5 h-5" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleSend}
-                    disabled={!inputValue.trim() || !isConnected || activeSending}
-                    className="w-9 h-9 rounded-md text-blue-500 flex items-center justify-center cursor-pointer hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
-                    title="Gửi tin nhắn (Enter)"
-                  >
-                    {activeSending ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <ThumbsUp className="w-5 h-5" fill="currentColor" />
-                    )}
-                  </button>
                 </div>
+
+                {/* Center: textarea input */}
+                <div className="flex-1 relative">
+                  <textarea
+                    ref={textareaRef}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onFocus={() => activeTypingChange(true)}
+                    onBlur={() => activeTypingChange(false)}
+                    placeholder={placeHolder}
+                    disabled={!isConnected || activeSending}
+                    className="w-full resize-none min-h-[44px] max-h-32 focus:outline-none text-[15px] py-2.5 bg-gray-50 rounded-full px-4 pr-12 border border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 focus:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-all placeholder:text-gray-400"
+                    rows={1}
+                  />
+                </div>
+
+                {/* Right side: send button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    activeTypingChange(false);
+                    handleSend();
+                  }}
+                  disabled={!inputValue.trim() || !isConnected || activeSending}
+                  className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center cursor-pointer hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-all shadow-sm shrink-0"
+                  title="Gửi tin nhắn (Enter)"
+                >
+                  {activeSending ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Send className="w-5 h-5" />
+                  )}
+                </button>
               </div>
             )}
           </>

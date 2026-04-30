@@ -1,31 +1,12 @@
 "use client";
 
-import {
-  MoreHorizontal,
-  Phone,
-  Search,
-  ThumbsUp,
-  Video,
-  Smile,
-  Image,
-  Paperclip,
-  Link as LinkIcon,
-  MapPin,
-  Contact,
-  CheckSquare,
-  Type,
-  SmilePlus,
-  AtSign,
-  Gift,
-  Loader2,
-  WifiOff,
-  FileText,
-  Users,
-  RotateCcw,
-  Trash2,
-  Share2,
-  Sparkles,
+import { 
+  MoreHorizontal, Phone, Search, Video, Smile, Image, 
+  Paperclip, Link as LinkIcon, MapPin, Contact, CheckSquare, Type, 
+  Loader2, WifiOff, FileText, Users, RotateCcw, 
+  Trash2, Share2, Sparkles, X, Mic, Square, Send 
 } from "lucide-react";
+import { useAudioRecorder } from "../hooks/useAudioRecorder";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dmConversationId, useDirectMessage } from "../hooks/useChatHooks";
 import {
@@ -35,17 +16,28 @@ import {
   type GroupChatMessage,
 } from "../hooks/useGroupChat";
 import { getGroupMembers } from "../api";
-import { getPresignedViewUrl } from "../../../api/client";
+import {
+  getPresignedViewUrl,
+  searchConversationMessages,
+  searchGlobalMessages,
+} from "../../../api/client";
 import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
+import { useGroupsStore } from "../../groups/store/groupsStore";
 import type { AuthUser } from "../../../types";
 import { askBot } from "../api";
 import ForwardMessageModal from "./ForwardMessageModal";
 import EmojiStickerPicker from "./EmojiStickerPicker";
+import AudioMessage from "./AudioMessage";
 import CallOverlay from "@/features/chat/components/CallOverlay";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
-import type { StickerData } from "../../../types";
+import type { StickerData, ReadReceiptReader } from "../../../types";
+import {
+  formatSearchDateTime,
+  getMessageDomId,
+  highlightKeyword,
+} from "../utils/messageSearch";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -57,6 +49,19 @@ interface AiConversationTurn {
   role: "user" | "assistant";
   content: string;
 }
+
+interface MessageSearchRow {
+  id: string | number;
+  senderId: string | number;
+  senderDisplayName?: string;
+  senderAvatarUrl?: string | null;
+  content: string;
+  contentType?: string;
+  createdAt: string;
+  conversationId: string;
+}
+
+type SearchScope = "conversation" | "global";
 
 const AI_HISTORY_STORAGE_PREFIX = "ott_ai_history_v1";
 
@@ -200,6 +205,58 @@ function SenderAvatar({
   );
 }
 
+/** Hiển thị avatar của những người đã đọc tin nhắn (Zalo style) */
+function ReadByAvatars({
+  readers,
+  maxShow = 3,
+  size = 18,
+}: {
+  readers: ReadReceiptReader[];
+  maxShow?: number;
+  size?: number;
+}) {
+  if (!readers || readers.length === 0) return null;
+
+  const visibleReaders = readers.slice(0, maxShow);
+  const remainingCount = readers.length - maxShow;
+
+  return (
+    <div className="flex items-center gap-1 mt-1">
+      <div className="flex -space-x-1.5">
+        {visibleReaders.map((reader, index) => (
+          <div
+            key={reader.userId}
+            className="relative rounded-full ring-2 ring-white overflow-hidden"
+            style={{
+              width: size,
+              height: size,
+              zIndex: maxShow - index,
+            }}
+            title={reader.readerName}
+          >
+            {reader.readerAvatar ? (
+              <img
+                src={reader.readerAvatar}
+                alt={reader.readerName}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-gray-300 flex items-center justify-center text-gray-600 text-[8px] font-medium">
+                {getAvatarInitial(reader.readerName)}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {remainingCount > 0 && (
+        <span className="text-[10px] text-gray-500 ml-1">
+          +{remainingCount}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** Tin nhắn hệ thống (hiển thị giữa màn hình) */
 function SystemMessageBubble({ content }: { content: string }) {
   return (
@@ -263,20 +320,24 @@ function GroupMessageBubble({
               className="w-28 h-28 object-contain rounded-xl"
             />
             <div
-              className={`mt-0.5 text-[10px] flex items-center gap-1 ${
-                isOwn ? "text-blue-200 justify-end" : "text-gray-400"
-              }`}
+              className={`mt-0.5 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+                }`}
             >
               {formatTime(msg.createdAt)}
               {isOwn && msg.sendStatus === "sending" && (
                 <Loader2 className="w-3 h-3 animate-spin inline-block" />
               )}
-              {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+              {isOwn && (msg.sendStatus === "sent" || msg.sendStatus === "delivered") && <span>✓</span>}
+              {isOwn && msg.sendStatus === "read" && <span className="text-blue-400">✓✓</span>}
               {isOwn && msg.sendStatus === "failed" && (
                 <span className="text-red-300">✗</span>
               )}
             </div>
           </div>
+          {/* Reader avatars for own messages */}
+          {isOwn && msg.readBy && msg.readBy.length > 0 && (
+            <ReadByAvatars readers={msg.readBy} maxShow={3} size={16} />
+          )}
         </div>
       </div>
     );
@@ -314,18 +375,17 @@ function GroupMessageBubble({
         )}
 
         <div
-          className={`px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${
-            isOwn
+          className={`px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
               ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
               : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
+            } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
           onContextMenu={(e) => {
             if (msg.contentType === "revoked") return;
             onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
           }}
         >
           {/* File/Image attachments */}
-          {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+          {msg.contentType !== "voice" && msg.contentType !== "voice" && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
             <div className="mb-2 space-y-2">
               {msg.attachments.map((att, idx) => {
                 if (att?.type === "image" && att.url) {
@@ -364,11 +424,10 @@ function GroupMessageBubble({
                       href={att.url}
                       target="_blank"
                       rel="noreferrer"
-                      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs border ${
-                        isOwn
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs border ${isOwn
                           ? "border-blue-200/50 bg-blue-400/30 text-blue-100"
                           : "border-gray-200 bg-gray-50 text-gray-700"
-                      }`}
+                        }`}
                     >
                       <FileText className="w-3.5 h-3.5 shrink-0" />
                       <span className="truncate max-w-36">
@@ -387,6 +446,10 @@ function GroupMessageBubble({
             <div className="italic text-gray-400 text-xs flex items-center gap-1">
               <span>Tin nhắn đã được thu hồi</span>
             </div>
+          ) : msg.contentType === "voice" || msg.contentType === "voice" ? (
+            <div className="py-1">
+              <AudioMessage audioUrl={msg.attachments?.[0]?.url || msg.content} isOwn={isOwn} />
+            </div>
           ) : (
             <div
               className={`whitespace-pre-wrap wrap-break-word ${isPureEmoji ? "text-3xl leading-none" : ""}`}
@@ -397,20 +460,24 @@ function GroupMessageBubble({
 
           {/* Thời gian + trạng thái gửi */}
           <div
-            className={`mt-1 text-[10px] flex items-center gap-1 ${
-              isOwn ? "text-blue-200 justify-end" : "text-gray-400"
-            }`}
+            className={`mt-1 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+              }`}
           >
             {formatTime(msg.createdAt)}
             {isOwn && msg.sendStatus === "sending" && (
               <Loader2 className="w-3 h-3 animate-spin inline-block" />
             )}
-            {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+            {isOwn && (msg.sendStatus === "sent" || msg.sendStatus === "delivered") && <span>✓</span>}
+            {isOwn && msg.sendStatus === "read" && <span className="text-blue-400">✓✓</span>}
             {isOwn && msg.sendStatus === "failed" && (
               <span className="text-red-300">✗</span>
             )}
           </div>
         </div>
+        {/* Reader avatars for own messages */}
+        {isOwn && msg.readBy && msg.readBy.length > 0 && (
+          <ReadByAvatars readers={msg.readBy} maxShow={3} size={16} />
+        )}
       </div>
     </div>
   );
@@ -458,20 +525,24 @@ function PrivateMessageBubble({
             className="w-28 h-28 object-contain rounded-xl"
           />
           <div
-            className={`mt-0.5 text-[10px] flex items-center gap-1 ${
-              isOwn ? "text-blue-200 justify-end" : "text-gray-400"
-            }`}
+            className={`mt-0.5 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+              }`}
           >
             {formatTime(msg.createdAt)}
             {isOwn && msg.sendStatus === "sending" && (
               <Loader2 className="w-3 h-3 animate-spin inline-block" />
             )}
-            {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+            {isOwn && (msg.sendStatus === "sent" || msg.sendStatus === "delivered") && <span>✓</span>}
+            {isOwn && msg.sendStatus === "read" && <span className="text-blue-400">✓✓</span>}
             {isOwn && msg.sendStatus === "failed" && (
               <span className="text-red-300">✗</span>
             )}
           </div>
         </div>
+        {/* Reader avatars for own messages */}
+        {isOwn && msg.readBy && msg.readBy.length > 0 && (
+          <ReadByAvatars readers={msg.readBy} maxShow={3} size={16} />
+        )}
       </div>
     );
   }
@@ -490,11 +561,10 @@ function PrivateMessageBubble({
       data-message-id={String(msg.id)}
     >
       <div
-        className={`max-w-[70%] px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${
-          isOwn
+        className={`max-w-[70%] px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
             ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
             : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
+          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
         onContextMenu={(e) => {
           if (msg.contentType === "revoked") return;
           onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
@@ -508,7 +578,7 @@ function PrivateMessageBubble({
           </div>
         )}
 
-        {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+        {msg.contentType !== "voice" && msg.contentType !== "voice" && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
           <div className="mb-2 space-y-2">
             {msg.attachments.map((att, idx) => {
               if (att?.type === "image" && att.url) {
@@ -547,11 +617,10 @@ function PrivateMessageBubble({
                     href={att.url}
                     target="_blank"
                     rel="noreferrer"
-                    className={`inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs border ${
-                      isOwn
+                    className={`inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs border ${isOwn
                         ? "border-blue-200 bg-blue-400/40 text-white"
                         : "border-gray-200 bg-gray-50 text-gray-700"
-                    }`}
+                      }`}
                   >
                     <FileText className="w-3.5 h-3.5" />
                     <span className="truncate max-w-44">
@@ -570,6 +639,10 @@ function PrivateMessageBubble({
           <div className="italic text-gray-400 text-xs flex items-center gap-1">
             <span>Tin nhắn đã được thu hồi</span>
           </div>
+        ) : msg.contentType === "voice" || msg.contentType === "voice" ? (
+          <div className="py-1">
+            <AudioMessage audioUrl={msg.attachments?.[0]?.url || msg.content} isOwn={isOwn} />
+          </div>
         ) : (
           <div
             className={`whitespace-pre-wrap wrap-break-word ${isPureEmoji ? "text-3xl leading-none" : ""}`}
@@ -579,20 +652,24 @@ function PrivateMessageBubble({
         )}
 
         <div
-          className={`mt-1 text-[10px] flex items-center gap-1 ${
-            isOwn ? "text-blue-200 justify-end" : "text-gray-400"
-          }`}
+          className={`mt-1 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+            }`}
         >
           {formatTime(msg.createdAt)}
           {isOwn && msg.sendStatus === "sending" && (
             <Loader2 className="w-3 h-3 animate-spin inline-block" />
           )}
-          {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+          {isOwn && (msg.sendStatus === "sent" || msg.sendStatus === "delivered") && <span>✓</span>}
+          {isOwn && msg.sendStatus === "read" && <span className="text-blue-400">✓✓</span>}
           {isOwn && msg.sendStatus === "failed" && (
             <span className="text-red-300">✗</span>
           )}
         </div>
       </div>
+      {/* Reader avatars for own messages */}
+      {isOwn && msg.readBy && msg.readBy.length > 0 && (
+        <ReadByAvatars readers={msg.readBy} maxShow={3} size={16} />
+      )}
     </div>
   );
 }
@@ -752,7 +829,21 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     pendingAiPrompt,
     clearPendingAiPrompt,
     setOutgoingCall,
+    friends,
+    setSelectedFriend,
+    setSelectedGroup,
   } = useChatStore();
+  const { myGroups } = useGroupsStore();
+
+  const {
+    isRecording,
+    audioBlob,
+    recordingTime,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+    setAudioBlob,
+  } = useAudioRecorder();
 
   const currentUserId = String((authUser as any)._id || authUser.id || "");
   const currentUserName = authUser.displayName || authUser.username || "User";
@@ -821,7 +912,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             String(m.role).toUpperCase() === "OWNER"
               ? "OWNER"
               : String(m.role).toUpperCase() === "DEPUTY" ||
-                  String(m.role).toUpperCase() === "ADMIN"
+                String(m.role).toUpperCase() === "ADMIN"
                 ? "DEPUTY"
                 : "MEMBER",
         }));
@@ -842,10 +933,38 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   );
   const [isAskingAI, setIsAskingAI] = useState(false);
   const [aiError, setAiError] = useState("");
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchScope, setSearchScope] = useState<SearchScope>("conversation");
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [searchFromDate, setSearchFromDate] = useState("");
+  const [searchToDate, setSearchToDate] = useState("");
+  const [searchResults, setSearchResults] = useState<MessageSearchRow[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
+  const [pendingFocusMessageId, setPendingFocusMessageId] = useState<string | null>(null);
+  const focusTimeoutRef = useRef<number | null>(null);
+
+  const todayDateString = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }, []);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isConnected = status === "connected";
+
+  const activeConversationId = useMemo(() => {
+    if (chatMode === "GROUP") {
+      return selectedGroup ? groupConversationId(selectedGroup.groupId) : null;
+    }
+    if (!selectedFriend?.friend_id) return null;
+    return dmConversationId(currentUserId, selectedFriend.friend_id);
+  }, [chatMode, currentUserId, selectedFriend?.friend_id, selectedGroup]);
 
   // ── Emoji / Sticker Picker state ─────────────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1160,9 +1279,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     try {
       const directFriendId = String(
         (selectedFriend as any)?.friend_id ??
-          (selectedFriend as any)?._id ??
-          (selectedFriend as any)?.id ??
-          "",
+        (selectedFriend as any)?._id ??
+        (selectedFriend as any)?.id ??
+        "",
       );
 
       if (!isGroupCall && !directFriendId) {
@@ -1298,6 +1417,24 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     }
   }
 
+  const handleSendAudio = async () => {
+    if (audioBlob) {
+      const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: "audio/webm" });
+      try {
+        if (chatMode === "GROUP") {
+          if (groupUploadingFile) return;
+          await sendGroupFileMessage(audioFile);
+        } else {
+          if (!selectedFriend?.friend_id) return;
+          await sendDmFileMessage(audioFile);
+        }
+        setAudioBlob(null);
+      } catch (error: any) {
+        addToast("Không thể gửi tin nhắn thoại", "error");
+      }
+    }
+  };
+
   async function handleAskAI() {
     await submitAiQuestion(aiQuestion);
   }
@@ -1306,6 +1443,181 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     if (e.key !== "Enter") return;
     e.preventDefault();
     void handleAskAI();
+  }
+
+  async function handleSearchMessages(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (searchScope === "conversation" && !activeConversationId) {
+      setSearchError("Vui lòng chọn một cuộc trò chuyện trước.");
+      return;
+    }
+
+    setSearchLoading(true);
+    setSearchError("");
+    try {
+      const response =
+        searchScope === "conversation"
+          ? await searchConversationMessages({
+              conversationId: activeConversationId as string,
+              keyword: searchKeyword.trim() || undefined,
+              fromDate: searchFromDate || undefined,
+              toDate: searchToDate || undefined,
+              limit: 100,
+            })
+          : await searchGlobalMessages({
+              keyword: searchKeyword.trim() || undefined,
+              fromDate: searchFromDate || undefined,
+              toDate: searchToDate || undefined,
+              limit: 100,
+            });
+      setSearchResults((response.data || []) as MessageSearchRow[]);
+    } catch (error: any) {
+      setSearchResults([]);
+      setSearchError(
+        error?.message || "Không thể tìm kiếm tin nhắn, vui lòng thử lại",
+      );
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setSearchOpen(false);
+    setSearchScope("conversation");
+    setSearchResults([]);
+    setSearchError("");
+    setSearchKeyword("");
+    setSearchFromDate("");
+    setSearchToDate("");
+  }, [activeConversationId]);
+
+  function triggerFocusMessage(messageId: string | number) {
+    const domId = getMessageDomId(messageId);
+    const target = document.getElementById(domId);
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFocusedMessageId(String(messageId));
+
+    if (focusTimeoutRef.current != null) {
+      window.clearTimeout(focusTimeoutRef.current);
+    }
+    focusTimeoutRef.current = window.setTimeout(() => {
+      setFocusedMessageId(null);
+      focusTimeoutRef.current = null;
+    }, 1800);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (focusTimeoutRef.current != null) {
+        window.clearTimeout(focusTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!pendingFocusMessageId) return;
+    const t = window.setTimeout(() => {
+      triggerFocusMessage(pendingFocusMessageId);
+      setPendingFocusMessageId(null);
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [
+    pendingFocusMessageId,
+    activeConversationId,
+    chatMode,
+    groupMessages,
+    dmMessages,
+  ]);
+
+  function handleSearchResultClick(item: MessageSearchRow) {
+    const targetConversationId = String(item.conversationId || "");
+    if (!targetConversationId) return;
+
+    if (targetConversationId === activeConversationId) {
+      triggerFocusMessage(item.id);
+      return;
+    }
+
+    if (targetConversationId.startsWith("dm:")) {
+      const ids = targetConversationId.slice(3).split(":");
+      const friendId = ids.find((id) => String(id) !== String(currentUserId));
+      const targetFriend = friends.find(
+        (friend) => String(friend.friend_id) === String(friendId || ""),
+      );
+      if (!targetFriend) {
+        addToast("Khong tim thay cuoc tro chuyen ca nhan tu ket qua nay", "error");
+        return;
+      }
+      setSelectedFriend(targetFriend);
+      setPendingFocusMessageId(String(item.id));
+      setSearchOpen(false);
+      return;
+    }
+
+    const targetGroup = myGroups.find(
+      (group) => String(group.groupId) === targetConversationId,
+    );
+    if (!targetGroup) {
+      addToast("Khong tim thay nhom tu ket qua nay", "error");
+      return;
+    }
+
+    setSelectedGroup(targetGroup as any);
+    setPendingFocusMessageId(String(item.id));
+    setSearchOpen(false);
+  }
+
+  function handleSearchFromDateChange(value: string) {
+    setSearchFromDate(value);
+    if (!value) {
+      setSearchToDate("");
+      return;
+    }
+
+    // Khi user vừa chọn ngày bắt đầu, mặc định ngày kết thúc giống ngày bắt đầu.
+    if (!searchToDate || searchToDate < value) {
+      setSearchToDate(value);
+    }
+  }
+
+  function handleSearchToDateChange(value: string) {
+    if (searchFromDate && value && value < searchFromDate) {
+      setSearchToDate(searchFromDate);
+      return;
+    }
+    setSearchToDate(value);
+  }
+
+  function getSearchResultContext(item: MessageSearchRow) {
+    const senderName = item.senderDisplayName || `Người dùng ${item.senderId}`;
+    const conversationId = String(item.conversationId || "");
+
+    if (conversationId.startsWith("dm:")) {
+      const ids = conversationId.slice(3).split(":");
+      const friendId = ids.find((id) => String(id) !== String(currentUserId));
+      const friend = friends.find(
+        (entry) => String(entry.friend_id) === String(friendId || ""),
+      );
+      const dmName =
+        friend?.friend_display_name ||
+        friend?.friend_username ||
+        friendId ||
+        "cuộc trò chuyện cá nhân";
+      return `Gửi bởi ${senderName} trong cuộc trò chuyện với ${dmName}`;
+    }
+
+    const group = myGroups.find(
+      (entry) => String(entry.groupId) === conversationId,
+    );
+    const groupName =
+      group?.name ||
+      (selectedGroup && String(selectedGroup.groupId) === conversationId
+        ? selectedGroup.name
+        : conversationId);
+
+    return `Gửi bởi ${senderName} trong nhóm ${groupName}`;
   }
 
   // ── Emoji / Sticker picker handlers ────────────────────────────────────
@@ -1446,6 +1758,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             type="button"
             className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
             title="Tìm kiếm"
+            onClick={() => setSearchOpen((prev) => !prev)}
+            disabled={!activeConversationId}
           >
             <Search className="w-5 h-5" />
           </button>
@@ -1496,32 +1810,43 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         )}
 
         {activeMessages.map((msg) => {
+          const wrapperClass =
+            focusedMessageId != null && String(msg.id) === focusedMessageId
+              ? "rounded-xl bg-yellow-100/70 ring-1 ring-yellow-300 transition-all"
+              : "";
+
           // System message
           if (isSystemMessage(msg)) {
-            return <SystemMessageBubble key={msg.id} content={msg.content} />;
+            return (
+              <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <SystemMessageBubble content={msg.content} />
+              </div>
+            );
           }
 
           if (chatMode === "GROUP") {
             return (
-              <GroupMessageBubble
-                key={msg.id}
-                msg={msg}
-                authUserId={currentUserId}
-                senderAvatarUrl={resolveDisplayAvatar(msg.senderAvatarUrl)}
-                onContextMenu={handleMessageContextMenu}
-              />
+              <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <GroupMessageBubble
+                  msg={msg}
+                  authUserId={currentUserId}
+                  senderAvatarUrl={resolveDisplayAvatar(msg.senderAvatarUrl)}
+                  onContextMenu={handleMessageContextMenu}
+                />
+              </div>
             );
           }
 
           return (
-            <PrivateMessageBubble
-              key={msg.id}
-              msg={msg}
-              friendName={friendName}
-              friendAvatarUrl={selectedFriend?.friend_avatar_url ?? null}
-              authUserId={currentUserId}
-              onContextMenu={handleMessageContextMenu}
-            />
+            <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
+              <PrivateMessageBubble
+                msg={msg}
+                friendName={friendName}
+                friendAvatarUrl={selectedFriend?.friend_avatar_url ?? null}
+                authUserId={currentUserId}
+                onContextMenu={handleMessageContextMenu}
+              />
+            </div>
           );
         })}
 
@@ -1555,11 +1880,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               className={`flex ${isUser ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm border shadow-sm whitespace-pre-wrap ${
-                  isUser
+                className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm border shadow-sm whitespace-pre-wrap ${isUser
                     ? "bg-blue-500 border-blue-500 text-white rounded-br-sm"
                     : "bg-white border-gray-200 text-gray-800 rounded-bl-sm"
-                }`}
+                  }`}
               >
                 {turn.content}
               </div>
@@ -1598,6 +1922,155 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   return (
     <div className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0">
       {renderHeader()}
+
+      {searchOpen && !isAiChatOpen && (
+        <div className="absolute right-4 top-20 z-20 w-[min(92vw,720px)] rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden">
+          <form
+            className="border-b border-gray-100 p-4 space-y-3"
+            onSubmit={handleSearchMessages}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">
+                  Tìm kiếm tin nhắn
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Lọc theo từ khóa, khoảng thời gian và phạm vi tìm kiếm.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSearchOpen(false)}
+                className="text-xs font-medium text-gray-500 hover:text-gray-800"
+              >
+                Đóng
+              </button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="space-y-1 text-xs text-gray-600">
+                <span>Từ khóa</span>
+                <input
+                  value={searchKeyword}
+                  onChange={(e) => setSearchKeyword(e.target.value)}
+                  placeholder="Ví dụ: họp, file, ảnh..."
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </label>
+              <label className="space-y-1 text-xs text-gray-600">
+                <span>Từ ngày</span>
+                <input
+                  type="date"
+                  value={searchFromDate}
+                  max={searchToDate || todayDateString}
+                  onChange={(e) => handleSearchFromDateChange(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </label>
+              <label className="space-y-1 text-xs text-gray-600">
+                <span>Đến ngày</span>
+                <input
+                  type="date"
+                  value={searchToDate}
+                  min={searchFromDate || undefined}
+                  max={todayDateString}
+                  onChange={(e) => handleSearchToDateChange(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center gap-3 text-xs text-gray-600">
+              <span className="font-medium">Phạm vi:</span>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="search-scope"
+                  checked={searchScope === "conversation"}
+                  onChange={() => setSearchScope("conversation")}
+                />
+                Cuộc trò chuyện hiện tại
+              </label>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="search-scope"
+                  checked={searchScope === "global"}
+                  onChange={() => setSearchScope("global")}
+                />
+                Tin nhắn tổng
+              </label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={
+                  searchLoading ||
+                  (searchScope === "conversation" && !activeConversationId)
+                }
+                className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {searchLoading ? "Đang tìm..." : "Tìm ngay"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchKeyword("");
+                  setSearchFromDate("");
+                  setSearchToDate("");
+                  setSearchResults([]);
+                  setSearchError("");
+                }}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              >
+                Xóa bộ lọc
+              </button>
+            </div>
+
+            {searchError && (
+              <p className="text-sm text-red-600">{searchError}</p>
+            )}
+          </form>
+
+          <div className="max-h-[42vh] overflow-y-auto">
+            {searchResults.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-gray-500">
+                {searchLoading
+                  ? "Đang tải kết quả..."
+                  : "Nhập điều kiện rồi bấm Tìm ngay để xem kết quả."}
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {searchResults.map((item) => (
+                  <button
+                    key={`${item.conversationId}-${item.id}`}
+                    type="button"
+                    onClick={() => handleSearchResultClick(item)}
+                    className="w-full px-4 py-3 text-left hover:bg-blue-50/60 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-3 text-xs text-gray-500">
+                      <span className="font-medium text-gray-700">
+                        {item.senderDisplayName || `Người gửi ${item.senderId}`}
+                      </span>
+                      <span>{formatSearchDateTime(item.createdAt)}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap wrap-break-word">
+                      {highlightKeyword(
+                        item.content || "[Không có nội dung]",
+                        searchKeyword,
+                      )}
+                    </p>
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      {getSearchResultContext(item)}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {isAiChatOpen ? renderAiMessages() : renderMessages()}
 
@@ -1747,37 +2220,111 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               </div>
             </div>
 
-            <div className="flex items-end px-4 py-3 gap-2">
-              <textarea
-                ref={textareaRef}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onFocus={() => activeTypingChange(true)}
-                onBlur={() => activeTypingChange(false)}
-                placeholder={placeHolder}
-                disabled={!isConnected || activeSending}
-                className="flex-1 resize-none h-11 max-h-32 focus:outline-none text-[15px] pt-2.5 bg-gray-50 rounded-lg px-3 border border-gray-200 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                rows={1}
-              />
-              <div className="flex items-center gap-3 pb-1">
-                <AtSign className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
-                <Gift className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
+            {isRecording || audioBlob ? (
+              <div className="flex items-center px-4 py-3 gap-3 w-full bg-white h-17 border-t border-gray-100">
                 <button
                   type="button"
-                  onClick={handleSend}
+                  onClick={cancelRecording}
+                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors shrink-0"
+                  title="Hủy"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+
+                {isRecording && (
+                  <button
+                    type="button"
+                    onClick={stopRecording}
+                    className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-colors shrink-0"
+                    title="Dừng"
+                  >
+                    <Square className="w-5 h-5" fill="currentColor" />
+                  </button>
+                )}
+
+                <div className="flex-1 h-11 bg-blue-50/80 border border-blue-100 rounded-full flex items-center justify-between px-4 overflow-hidden relative">
+                  {isRecording && (
+                    <div className="absolute left-0 top-0 bottom-0 bg-blue-200/50 animate-pulse w-full"></div>
+                  )}
+                  <div className="flex items-center gap-2 z-10 text-blue-500">
+                    <Mic className={`w-4 h-4 ${isRecording ? "animate-pulse text-red-500" : ""}`} />
+                    <span className="text-[15px] font-medium">
+                      {isRecording ? "Đang ghi âm..." : "Đã ghi âm"}
+                    </span>
+                  </div>
+                  <div className="z-10 text-[15px] font-mono text-blue-600 font-semibold">
+                    {Math.floor(recordingTime / 60)}:
+                    {(recordingTime % 60).toString().padStart(2, "0")}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSendAudio}
+                  disabled={!audioBlob || !isConnected || activeSending}
+                  className="w-11 h-11 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0 shadow-sm"
+                  title="Gửi"
+                >
+                  {activeSending ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Send className="w-5 h-5 ml-0.5" />
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center px-4 py-3 gap-3">
+                {/* Left side: icon buttons */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      activeTypingChange(false);
+                      startRecording();
+                    }}
+                    disabled={!isConnected || activeSending}
+                    className="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors text-gray-500 hover:text-blue-500 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Ghi âm"
+                  >
+                    <Mic className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Center: textarea input */}
+                <div className="flex-1 relative">
+                  <textarea
+                    ref={textareaRef}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onFocus={() => activeTypingChange(true)}
+                    onBlur={() => activeTypingChange(false)}
+                    placeholder={placeHolder}
+                    disabled={!isConnected || activeSending}
+                    className="w-full resize-none min-h-[44px] max-h-32 focus:outline-none text-[15px] py-2.5 bg-gray-50 rounded-full px-4 pr-12 border border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 focus:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-all placeholder:text-gray-400"
+                    rows={1}
+                  />
+                </div>
+
+                {/* Right side: send button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    activeTypingChange(false);
+                    handleSend();
+                  }}
                   disabled={!inputValue.trim() || !isConnected || activeSending}
-                  className="w-9 h-9 rounded-md text-blue-500 flex items-center justify-center cursor-pointer hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                  className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center cursor-pointer hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-all shadow-sm shrink-0"
                   title="Gửi tin nhắn (Enter)"
                 >
                   {activeSending ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
-                    <ThumbsUp className="w-5 h-5" fill="currentColor" />
+                    <Send className="w-5 h-5" />
                   )}
                 </button>
               </div>
-            </div>
+            )}
           </>
         )}
       </div>

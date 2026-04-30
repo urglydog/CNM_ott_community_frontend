@@ -342,7 +342,7 @@ export default function ProfilePage() {
         updateUser({ phone: verification.target, phoneVerified: true });
       }
       addToast("Xác thực thành công", "success");
-      setVerification({ type: null, target: "", otp: "", loading: false, step: "idle", error: "" });
+      setVerification({ type: null, target: "", otp: "", loading: false, step: "idle", error: "", debugOtp: "" });
     } catch (err: unknown) {
       setVerification((prev) => ({
         ...prev,

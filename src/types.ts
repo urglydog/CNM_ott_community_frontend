@@ -43,6 +43,13 @@ export interface StickerData {
   stickerName?: string;
 }
 
+export interface ReadReceiptReader {
+  userId: string;
+  readerName: string;
+  readerAvatar?: string | null;
+  readAt: string;
+}
+
 export type AuthUser = {
   id: string | number;
   userId?: string;
@@ -135,6 +142,8 @@ export interface FriendsListResponse {
 
 export interface DirectMessageItem {
   id: number | string;
+  /** Alternative ID field returned by some backend endpoints */
+  messageId?: number | string;
   conversationId: string;
   senderId: string | number;
   contentType: string;
@@ -152,4 +161,40 @@ export interface DirectMessagesResponse {
   message: string;
   data: DirectMessageItem[];
   count: number;
+}
+
+export interface NotificationConfig {
+  enabled: boolean;
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  messagingSenderId: string;
+  appId: string;
+  storageBucket?: string;
+  measurementId?: string;
+  vapidKey: string;
+}
+
+export interface SearchMessagesResponse<T = MessageItem | DirectMessageItem> {
+  conversationId: string;
+  keyword: string;
+  filters: {
+    senderId: string | null;
+    fromDate: string | null;
+    toDate: string | null;
+    limit: number;
+  };
+  count: number;
+  data: T[];
+}
+
+export interface SearchGlobalMessagesResponse<T = MessageItem | DirectMessageItem> {
+  keyword: string;
+  filters: {
+    fromDate: string | null;
+    toDate: string | null;
+    limit: number;
+  };
+  count: number;
+  data: T[];
 }

@@ -14,6 +14,11 @@ import { useToast } from "./ToastContext";
 
 const AUTH_STORAGE_KEY = "ott_auth_user";
 
+function getAuthStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage;
+}
+
 // ── Validation Patterns ─────────────────────────────────────────────────────────
 export const VALIDATION_PATTERNS = {
   username: /^[a-zA-Z0-9_]{3,30}$/,
@@ -97,19 +102,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [errors, setErrors] = useState<FormErrors>({});
   const [authSuccess, setAuthSuccess] = useState<{ type: "login" | "register" | null; message: string }>({ type: null, message: "" });
 
-  // Lấy toast context (có thể null nếu chưa được wrap trong ToastProvider)
-  let addToast: ((message: string, type?: string) => void) | null = null;
-  try {
-    const toastCtx = useToast();
-    addToast = (message: string, type = "info") => toastCtx.addToast(message, type as any);
-  } catch {
-    // ToastProvider chưa được mount
-  }
+  const toastCtx = useToast();
+  const addToast = (message: string, type = "info") => toastCtx.addToast(message, type as any);
 
   // Hydrate user từ localStorage khi component mount (tránh hydration mismatch)
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+      const storage = getAuthStorage();
+      const stored = storage?.getItem(AUTH_STORAGE_KEY);
       if (stored) {
         const parsed: AuthUser = JSON.parse(stored);
         if ((parsed.id || parsed.userId) && parsed.token) {
@@ -117,13 +117,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch {
-      localStorage.removeItem(AUTH_STORAGE_KEY);
+      getAuthStorage()?.removeItem(AUTH_STORAGE_KEY);
     }
     setIsInitialized(true);
   }, []);
 
   const persistUser = useCallback((authUser: AuthUser) => {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
+    getAuthStorage()?.setItem(AUTH_STORAGE_KEY, JSON.stringify(authUser));
     setUser(authUser);
   }, []);
 
@@ -276,7 +276,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(() => {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
+    getAuthStorage()?.removeItem(AUTH_STORAGE_KEY);
     setUser(null);
     setForm(defaultForm);
     setError(null);
@@ -293,7 +293,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ) as Partial<AuthUser>;
 
       const updated = { ...prev, ...safeUpdates };
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
+      getAuthStorage()?.setItem(AUTH_STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
   }, []);

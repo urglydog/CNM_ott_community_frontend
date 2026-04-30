@@ -301,3 +301,107 @@ export async function deleteMessageForMe(
   );
   return response.data;
 }
+
+// ── Read Receipts ───────────────────────────────────────────────────────────
+
+export interface ReadReceiptReader {
+  userId: string;
+  readerName: string;
+  readerAvatar: string | null;
+  readAt: string;
+}
+
+export interface GetReadReceiptsResponse {
+  messageId: string;
+  conversationId: string;
+  readCount: number;
+  readers: ReadReceiptReader[];
+}
+
+export interface ReadStatusEntry {
+  isRead: boolean;
+  readers: ReadReceiptReader[];
+}
+
+export interface GetReadStatusForMessagesResponse {
+  conversationId: string;
+  statuses: Record<string, ReadStatusEntry>;
+}
+
+export interface GetLastReadPositionResponse {
+  conversationId: string;
+  hasReadMessages: boolean;
+  lastReadMessageId: string | null;
+  lastReadAt: string | null;
+}
+
+export interface MarkAsReadResponse {
+  success: boolean;
+  receipt: {
+    conversationId: string;
+    messageId: string;
+    userId: string;
+    readerName: string | null;
+    readerAvatar: string | null;
+    readAt: string;
+  };
+}
+
+/**
+ * Get read receipts for a specific message
+ * GET /api/messages/read-receipts/:conversationId/:messageId
+ */
+export async function getReadReceipts(
+  conversationId: string,
+  messageId: string,
+): Promise<GetReadReceiptsResponse> {
+  const response = await apiClient.get<GetReadReceiptsResponse>(
+    `/api/messages/read-receipts/${encodeURIComponent(conversationId)}/${encodeURIComponent(messageId)}`,
+  );
+  return response.data;
+}
+
+/**
+ * Get read status for multiple messages in a conversation
+ * GET /api/messages/read-receipts/conversation/:conversationId?messageIds=id1,id2
+ */
+export async function getReadStatusForMessages(
+  conversationId: string,
+  messageIds: string[],
+): Promise<GetReadStatusForMessagesResponse> {
+  const response = await apiClient.get<GetReadStatusForMessagesResponse>(
+    `/api/messages/read-receipts/conversation/${encodeURIComponent(conversationId)}`,
+    {
+      params: { messageIds: messageIds.join(",") },
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Get user's last read position in a conversation
+ * GET /api/messages/read-receipts/last-read/:conversationId
+ */
+export async function getLastReadPosition(
+  conversationId: string,
+): Promise<GetLastReadPositionResponse> {
+  const response = await apiClient.get<GetLastReadPositionResponse>(
+    `/api/messages/read-receipts/last-read/${encodeURIComponent(conversationId)}`,
+  );
+  return response.data;
+}
+
+/**
+ * Mark a message as read (via HTTP API)
+ * POST /api/messages/read-receipts
+ */
+export async function markAsRead(
+  conversationId: string,
+  messageId: string,
+): Promise<MarkAsReadResponse> {
+  const response = await apiClient.post<MarkAsReadResponse>(
+    "/api/messages/read-receipts",
+    { conversationId, messageId },
+  );
+  return response.data;
+}

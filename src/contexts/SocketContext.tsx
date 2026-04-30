@@ -323,11 +323,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   // ── Emit helpers ────────────────────────────────────────────────────────────
 
   const emitJoinRoom = useCallback((roomId: string) => {
-    socketRef.current?.emit("join_room", { roomId });
+    socketRef.current?.emit("join_room", { roomId }, (response?: any) => {
+      if (response && response.error) {
+        console.warn(`Lỗi khi join room ${roomId}:`, response.error);
+      }
+    });
   }, []);
 
   const emitLeaveRoom = useCallback((roomId: string) => {
-    socketRef.current?.emit("leave_room", { roomId });
+    socketRef.current?.emit("leave_room", { roomId }, (response?: any) => {});
   }, []);
 
   const emitSendMessage = useCallback(
@@ -364,8 +368,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const emitCallUser = useCallback((payload: CallSignalPayload) => {
-    socketRef.current?.emit("call-request", payload);
-    socketRef.current?.emit("call-user", payload);
+    if (payload.isGroupCall) {
+      socketRef.current?.emit("group-call-request", payload);
+    } else {
+      socketRef.current?.emit("call-request", payload);
+      socketRef.current?.emit("call-user", payload);
+    }
   }, []);
 
   const emitCallAccepted = useCallback((payload: CallSignalPayload) => {

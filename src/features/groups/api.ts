@@ -176,8 +176,8 @@ export async function updateMemberRole(
   return response.data;
 }
 
-export async function leaveGroup(groupId: string | number): Promise<any> {
-  const response = await apiClient.post(`/api/groups/${groupId}/leave`);
+export async function leaveGroup(groupId: string | number, newOwnerId?: string | number): Promise<any> {
+  const response = await apiClient.delete(`/api/groups/${groupId}/leave`, { data: { newOwnerId } });
   return response.data;
 }
 

@@ -220,7 +220,7 @@ export function useGroupChat(
     const channelRoomId = `channel:${currentRoomId}`;
 
     emitJoinRoom(currentRoomId);
-    emitJoinRoom(channelRoomId);
+    // emitJoinRoom(channelRoomId);
 
     const unsubReceive = onReceiveMessage((newMsg) => {
       // Bỏ qua tin nhắn không thuộc phòng hiện tại
@@ -296,7 +296,7 @@ export function useGroupChat(
       unsubTyping();
       unsubStopTyping();
       emitLeaveRoom(currentRoomId);
-      emitLeaveRoom(channelRoomId);
+      // emitLeaveRoom(channelRoomId);
     };
   }, [
     currentRoomId,

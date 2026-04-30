@@ -32,7 +32,7 @@ import AudioMessage from "./AudioMessage";
 import CallOverlay from "@/features/chat/components/CallOverlay";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
-import type { StickerData } from "../../../types";
+import type { StickerData, ReadReceiptReader } from "../../../types";
 import {
   formatSearchDateTime,
   getMessageDomId,
@@ -205,6 +205,58 @@ function SenderAvatar({
   );
 }
 
+/** Hiển thị avatar của những người đã đọc tin nhắn (Zalo style) */
+function ReadByAvatars({
+  readers,
+  maxShow = 3,
+  size = 18,
+}: {
+  readers: ReadReceiptReader[];
+  maxShow?: number;
+  size?: number;
+}) {
+  if (!readers || readers.length === 0) return null;
+
+  const visibleReaders = readers.slice(0, maxShow);
+  const remainingCount = readers.length - maxShow;
+
+  return (
+    <div className="flex items-center gap-1 mt-1">
+      <div className="flex -space-x-1.5">
+        {visibleReaders.map((reader, index) => (
+          <div
+            key={reader.userId}
+            className="relative rounded-full ring-2 ring-white overflow-hidden"
+            style={{
+              width: size,
+              height: size,
+              zIndex: maxShow - index,
+            }}
+            title={reader.readerName}
+          >
+            {reader.readerAvatar ? (
+              <img
+                src={reader.readerAvatar}
+                alt={reader.readerName}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-gray-300 flex items-center justify-center text-gray-600 text-[8px] font-medium">
+                {getAvatarInitial(reader.readerName)}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {remainingCount > 0 && (
+        <span className="text-[10px] text-gray-500 ml-1">
+          +{remainingCount}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** Tin nhắn hệ thống (hiển thị giữa màn hình) */
 function SystemMessageBubble({ content }: { content: string }) {
   return (
@@ -275,12 +327,17 @@ function GroupMessageBubble({
               {isOwn && msg.sendStatus === "sending" && (
                 <Loader2 className="w-3 h-3 animate-spin inline-block" />
               )}
-              {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+              {isOwn && (msg.sendStatus === "sent" || msg.sendStatus === "delivered") && <span>✓</span>}
+              {isOwn && msg.sendStatus === "read" && <span className="text-blue-400">✓✓</span>}
               {isOwn && msg.sendStatus === "failed" && (
                 <span className="text-red-300">✗</span>
               )}
             </div>
           </div>
+          {/* Reader avatars for own messages */}
+          {isOwn && msg.readBy && msg.readBy.length > 0 && (
+            <ReadByAvatars readers={msg.readBy} maxShow={3} size={16} />
+          )}
         </div>
       </div>
     );
@@ -328,7 +385,7 @@ function GroupMessageBubble({
           }}
         >
           {/* File/Image attachments */}
-          {msg.contentType !== "voice" && msg.type !== "voice" && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+          {msg.contentType !== "voice" && msg.contentType !== "voice" && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
             <div className="mb-2 space-y-2">
               {msg.attachments.map((att, idx) => {
                 if (att?.type === "image" && att.url) {
@@ -389,7 +446,7 @@ function GroupMessageBubble({
             <div className="italic text-gray-400 text-xs flex items-center gap-1">
               <span>Tin nhắn đã được thu hồi</span>
             </div>
-          ) : msg.contentType === "voice" || msg.type === "voice" ? (
+          ) : msg.contentType === "voice" || msg.contentType === "voice" ? (
             <div className="py-1">
               <AudioMessage audioUrl={msg.attachments?.[0]?.url || msg.content} isOwn={isOwn} />
             </div>
@@ -410,12 +467,17 @@ function GroupMessageBubble({
             {isOwn && msg.sendStatus === "sending" && (
               <Loader2 className="w-3 h-3 animate-spin inline-block" />
             )}
-            {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+            {isOwn && (msg.sendStatus === "sent" || msg.sendStatus === "delivered") && <span>✓</span>}
+            {isOwn && msg.sendStatus === "read" && <span className="text-blue-400">✓✓</span>}
             {isOwn && msg.sendStatus === "failed" && (
               <span className="text-red-300">✗</span>
             )}
           </div>
         </div>
+        {/* Reader avatars for own messages */}
+        {isOwn && msg.readBy && msg.readBy.length > 0 && (
+          <ReadByAvatars readers={msg.readBy} maxShow={3} size={16} />
+        )}
       </div>
     </div>
   );
@@ -470,12 +532,17 @@ function PrivateMessageBubble({
             {isOwn && msg.sendStatus === "sending" && (
               <Loader2 className="w-3 h-3 animate-spin inline-block" />
             )}
-            {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+            {isOwn && (msg.sendStatus === "sent" || msg.sendStatus === "delivered") && <span>✓</span>}
+            {isOwn && msg.sendStatus === "read" && <span className="text-blue-400">✓✓</span>}
             {isOwn && msg.sendStatus === "failed" && (
               <span className="text-red-300">✗</span>
             )}
           </div>
         </div>
+        {/* Reader avatars for own messages */}
+        {isOwn && msg.readBy && msg.readBy.length > 0 && (
+          <ReadByAvatars readers={msg.readBy} maxShow={3} size={16} />
+        )}
       </div>
     );
   }
@@ -511,7 +578,7 @@ function PrivateMessageBubble({
           </div>
         )}
 
-        {msg.contentType !== "voice" && msg.type !== "voice" && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+        {msg.contentType !== "voice" && msg.contentType !== "voice" && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
           <div className="mb-2 space-y-2">
             {msg.attachments.map((att, idx) => {
               if (att?.type === "image" && att.url) {
@@ -572,7 +639,7 @@ function PrivateMessageBubble({
           <div className="italic text-gray-400 text-xs flex items-center gap-1">
             <span>Tin nhắn đã được thu hồi</span>
           </div>
-        ) : msg.contentType === "voice" || msg.type === "voice" ? (
+        ) : msg.contentType === "voice" || msg.contentType === "voice" ? (
           <div className="py-1">
             <AudioMessage audioUrl={msg.attachments?.[0]?.url || msg.content} isOwn={isOwn} />
           </div>
@@ -592,12 +659,17 @@ function PrivateMessageBubble({
           {isOwn && msg.sendStatus === "sending" && (
             <Loader2 className="w-3 h-3 animate-spin inline-block" />
           )}
-          {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+          {isOwn && (msg.sendStatus === "sent" || msg.sendStatus === "delivered") && <span>✓</span>}
+          {isOwn && msg.sendStatus === "read" && <span className="text-blue-400">✓✓</span>}
           {isOwn && msg.sendStatus === "failed" && (
             <span className="text-red-300">✗</span>
           )}
         </div>
       </div>
+      {/* Reader avatars for own messages */}
+      {isOwn && msg.readBy && msg.readBy.length > 0 && (
+        <ReadByAvatars readers={msg.readBy} maxShow={3} size={16} />
+      )}
     </div>
   );
 }
@@ -1983,7 +2055,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                       </span>
                       <span>{formatSearchDateTime(item.createdAt)}</span>
                     </div>
-                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap break-words">
+                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap wrap-break-word">
                       {highlightKeyword(
                         item.content || "[Không có nội dung]",
                         searchKeyword,
@@ -2153,7 +2225,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                 <button
                   type="button"
                   onClick={cancelRecording}
-                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors flex-shrink-0"
+                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors shrink-0"
                   title="Hủy"
                 >
                   <X className="w-6 h-6" />
@@ -2163,7 +2235,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                   <button
                     type="button"
                     onClick={stopRecording}
-                    className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-colors flex-shrink-0"
+                    className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-colors shrink-0"
                     title="Dừng"
                   >
                     <Square className="w-5 h-5" fill="currentColor" />
@@ -2190,7 +2262,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                   type="button"
                   onClick={handleSendAudio}
                   disabled={!audioBlob || !isConnected || activeSending}
-                  className="w-11 h-11 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-sm"
+                  className="w-11 h-11 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0 shadow-sm"
                   title="Gửi"
                 >
                   {activeSending ? (

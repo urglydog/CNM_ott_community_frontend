@@ -14,6 +14,7 @@ import type { MessageItem, StickerData } from "../types";
 import apiClient from "../lib/axios";
 import { useToast } from "./ToastContext";
 import { useChatStore } from "../features/chat/store/chatStore";
+import { useGroupsStore } from "../features/groups/store/groupsStore";
 
 const WS_URL =
   process.env.NEXT_PUBLIC_WS_URL ||
@@ -131,6 +132,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     setIsCallEnding,
     clearCallState,
   } = useChatStore();
+  const { addGroup, removeGroup } = useGroupsStore();
   const resolvedUserId = String(
     (user as any)?.id ?? (user as any)?._id ?? (user as any)?.userId ?? "",
   ).trim();
@@ -318,6 +320,35 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socket.on("call-canceled", handleCallEnded);
     socket.on("message:revoked", handleMessageRevoked);
 
+    const handleNewConversation = (data: any) => {
+      if (data?.conversationData) {
+        addGroup(data.conversationData);
+      }
+    };
+    const handleYouWereRemoved = (data: any) => {
+      if (data?.groupId) {
+        removeGroup(data.groupId);
+        const chatState = useChatStore.getState();
+        if (chatState.selectedGroup && String(chatState.selectedGroup.groupId) === String(data.groupId)) {
+          chatState.setSelectedGroup(null);
+        }
+        addToast("Bạn đã bị xóa khỏi nhóm", "info", 3000);
+      }
+    };
+    const handleGroupDeleted = (data: any) => {
+      if (data?.groupId) {
+        removeGroup(data.groupId);
+        const chatState = useChatStore.getState();
+        if (chatState.selectedGroup && String(chatState.selectedGroup.groupId) === String(data.groupId)) {
+          chatState.setSelectedGroup(null);
+        }
+        addToast("Nhóm đã bị giải tán", "info", 3000);
+      }
+    };
+    socket.on("chat:new_conversation", handleNewConversation);
+    socket.on("group:you_were_removed", handleYouWereRemoved);
+    socket.on("group:deleted", handleGroupDeleted);
+
     return () => {
       socket.off("incoming-call", handleIncomingCall);
       socket.off("call-request", handleIncomingCall);
@@ -328,8 +359,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off("call-rejected", handleCallEnded);
       socket.off("call-canceled", handleCallEnded);
       socket.off("message:revoked", handleMessageRevoked);
+      socket.off("chat:new_conversation", handleNewConversation);
+      socket.off("group:you_were_removed", handleYouWereRemoved);
+      socket.off("group:deleted", handleGroupDeleted);
     };
-  }, [addToast, activeCall, incomingCall, outgoingCall, resolvedUserId, scheduleCleanup, setActiveCall, setIncomingCall, setOutgoingCall, setIsCallEnding]);
+  }, [addToast, activeCall, incomingCall, outgoingCall, resolvedUserId, scheduleCleanup, setActiveCall, setIncomingCall, setOutgoingCall, setIsCallEnding, addGroup, removeGroup]);
 
   // ── Emit helpers ────────────────────────────────────────────────────────────
 

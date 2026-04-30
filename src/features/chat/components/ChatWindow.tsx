@@ -23,6 +23,8 @@ import {
   Users,
   RotateCcw,
   Trash2,
+  Share2,
+  Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dmConversationId, useDirectMessage } from "../hooks/useChatHooks";
@@ -34,48 +36,29 @@ import {
 } from "../hooks/useGroupChat";
 import { getGroupMembers } from "../api";
 import { getPresignedViewUrl } from "../../../api/client";
-import {
-  useSocket,
-  type CallSignalPayload,
-} from "../../../contexts/SocketContext";
+import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
-import apiClient from "../../../lib/axios";
 import type { AuthUser } from "../../../types";
 import { askBot } from "../api";
-import VideoCallGroup from "../../../components/chat/VideoCallGroup";
-import VideoCall1vs1 from "../../../components/chat/VideoCall1vs1";
+import ForwardMessageModal from "./ForwardMessageModal";
+import EmojiStickerPicker from "./EmojiStickerPicker";
+import CallOverlay from "@/features/chat/components/CallOverlay";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
+import type { StickerData } from "../../../types";
 
 interface ChatWindowProps {
   authUser: AuthUser;
 }
 
-interface ActiveCallData {
-  roomId: string;
-  token: string;
-  appId: number;
-  userId: string;
-  userName: string;
-  conversationId: string;
-  callerId: string;
-  callerName: string;
-  receiverId: string;
-  isGroupCall: boolean;
+
+interface AiConversationTurn {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
 }
 
-interface IncomingCallData {
-  conversationId: string;
-  roomId: string;
-  callerId: string;
-  callerName: string;
-  receiverId: string;
-  isGroupCall: boolean;
-}
-
-function sanitizeRoomId(roomId: string): string {
-  return roomId.replace(/:/g, "_");
-}
+const AI_HISTORY_STORAGE_PREFIX = "ott_ai_history_v1";
 
 function getAvatarInitial(name: string): string {
   return name?.charAt(0)?.toUpperCase() ?? "?";
@@ -249,6 +232,64 @@ function GroupMessageBubble({
 
   const senderName = msg.senderDisplayName || (isOwn ? "Bạn" : "Người dùng");
 
+  // ── Sticker: hiển thị hình ảnh lớn không có bubble ────────────────────
+  if (msg.contentType === "sticker" && msg.stickerData?.stickerUrl) {
+    return (
+      <div
+        className={`flex items-start gap-2 mb-3 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
+        data-message-id={String(msg.id)}
+      >
+        {!isOwn && (
+          <SenderAvatar
+            avatarUrl={senderAvatarUrl ?? msg.senderAvatarUrl}
+            name={senderName}
+          />
+        )}
+        <div className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
+          {!isOwn && (
+            <span className="text-xs text-gray-500 mb-0.5 ml-1">
+              {senderName}
+            </span>
+          )}
+          <div
+            className="relative group"
+            onContextMenu={(e) => {
+              onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
+            }}
+          >
+            <img
+              src={msg.stickerData.stickerUrl}
+              alt={msg.stickerData.stickerName || msg.content || "sticker"}
+              className="w-28 h-28 object-contain rounded-xl"
+            />
+            <div
+              className={`mt-0.5 text-[10px] flex items-center gap-1 ${
+                isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+              }`}
+            >
+              {formatTime(msg.createdAt)}
+              {isOwn && msg.sendStatus === "sending" && (
+                <Loader2 className="w-3 h-3 animate-spin inline-block" />
+              )}
+              {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+              {isOwn && msg.sendStatus === "failed" && (
+                <span className="text-red-300">✗</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Emoji: hiển thị lớn trong bubble ─────────────────────────────────
+  const isPureEmoji =
+    msg.contentType === "emoji" &&
+    msg.content &&
+    /^(\p{Emoji_Presentation}|\p{Extended_Pictographic})+$/u.test(
+      msg.content.trim(),
+    );
+
   return (
     <div
       className={`flex items-start gap-2 mb-3 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
@@ -263,7 +304,7 @@ function GroupMessageBubble({
       )}
 
       <div
-        className={`flex flex-col ${isOwn ? "items-end" : "items-start"} max-w-[68%]`}
+        className={`flex flex-col ${isOwn ? "items-end" : "items-start"} max-w-[68%] ${isPureEmoji ? "max-w-max" : ""}`}
       >
         {/* Tên người gửi — chỉ hiện nếu không phải mình */}
         {!isOwn && (
@@ -277,7 +318,7 @@ function GroupMessageBubble({
             isOwn
               ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
               : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""}`}
+          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
           onContextMenu={(e) => {
             if (msg.contentType === "revoked") return;
             onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
@@ -302,6 +343,18 @@ function GroupMessageBubble({
                         className="max-h-56 max-w-full rounded-lg border border-black/10 object-cover"
                       />
                     </a>
+                  );
+                }
+                if (att?.type === "video" && att.url) {
+                  return (
+                    <video
+                      key={`${msg.id}-att-${idx}`}
+                      src={att.url}
+                      controls
+                      preload="none"
+                      poster={att.thumbnailUrl || undefined}
+                      className="max-h-72 w-full rounded-lg border border-black/10 bg-black"
+                    />
                   );
                 }
                 if (att?.url) {
@@ -335,7 +388,9 @@ function GroupMessageBubble({
               <span>Tin nhắn đã được thu hồi</span>
             </div>
           ) : (
-            <div className="whitespace-pre-wrap wrap-break-word">
+            <div
+              className={`whitespace-pre-wrap wrap-break-word ${isPureEmoji ? "text-3xl leading-none" : ""}`}
+            >
               {msg.content || "[Không có nội dung]"}
             </div>
           )}
@@ -382,6 +437,53 @@ function PrivateMessageBubble({
 }) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
 
+  // ── Sticker: hiển thị hình ảnh lớn không có bubble ────────────────────
+  if (msg.contentType === "sticker" && msg.stickerData?.stickerUrl) {
+    return (
+      <div
+        className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-3`}
+        data-message-id={String(msg.id)}
+      >
+        <div
+          className="relative group"
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
+          }}
+        >
+          <img
+            src={msg.stickerData.stickerUrl}
+            alt={msg.stickerData.stickerName || msg.content || "sticker"}
+            className="w-28 h-28 object-contain rounded-xl"
+          />
+          <div
+            className={`mt-0.5 text-[10px] flex items-center gap-1 ${
+              isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+            }`}
+          >
+            {formatTime(msg.createdAt)}
+            {isOwn && msg.sendStatus === "sending" && (
+              <Loader2 className="w-3 h-3 animate-spin inline-block" />
+            )}
+            {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+            {isOwn && msg.sendStatus === "failed" && (
+              <span className="text-red-300">✗</span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Emoji: hiển thị lớn trong bubble ─────────────────────────────────
+  const isPureEmoji =
+    msg.contentType === "emoji" &&
+    msg.content &&
+    /^(\p{Emoji_Presentation}|\p{Extended_Pictographic})+$/u.test(
+      msg.content.trim(),
+    );
+
   return (
     <div
       className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-3`}
@@ -392,7 +494,7 @@ function PrivateMessageBubble({
           isOwn
             ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
             : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""}`}
+        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
         onContextMenu={(e) => {
           if (msg.contentType === "revoked") return;
           onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
@@ -426,6 +528,18 @@ function PrivateMessageBubble({
                   </a>
                 );
               }
+              if (att?.type === "video" && att.url) {
+                return (
+                  <video
+                    key={`${msg.id}-att-${idx}`}
+                    src={att.url}
+                    controls
+                    preload="none"
+                    poster={att.thumbnailUrl || undefined}
+                    className="max-h-72 w-full rounded-lg border border-black/10 bg-black"
+                  />
+                );
+              }
               if (att?.url) {
                 return (
                   <a
@@ -457,7 +571,9 @@ function PrivateMessageBubble({
             <span>Tin nhắn đã được thu hồi</span>
           </div>
         ) : (
-          <div className="whitespace-pre-wrap wrap-break-word">
+          <div
+            className={`whitespace-pre-wrap wrap-break-word ${isPureEmoji ? "text-3xl leading-none" : ""}`}
+          >
             {msg.content || "[Không có nội dung]"}
           </div>
         )}
@@ -489,6 +605,7 @@ interface MessageContextMenuProps {
   isOwn: boolean;
   onRevoke: () => void;
   onDeleteForMe: () => void;
+  onForward: () => void;
   isDeleting: boolean;
   onClose: () => void;
 }
@@ -500,6 +617,7 @@ function MessageContextMenu({
   isOwn,
   onRevoke,
   onDeleteForMe,
+  onForward,
   isDeleting,
   onClose,
 }: MessageContextMenuProps) {
@@ -541,7 +659,7 @@ function MessageContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 bg-white rounded-xl shadow-xl border border-gray-200 py-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
+      className="fixed z-50 bg-white rounded-xl shadow-xl border border-gray-200 py-1 min-w-40 animate-in fade-in zoom-in-95 duration-100"
       style={{ top: adjustedY, left: adjustedX }}
     >
       {/* Nút Xóa với tôi — hiện cho MỌI tin nhắn (kể cả của mình) */}
@@ -583,6 +701,21 @@ function MessageContextMenu({
         </button>
       )}
 
+      {/* Nút Chuyển tiếp — hiện cho MỌI tin nhắn (kể cả đã thu hồi trên Zalo UX) */}
+      <button
+        type="button"
+        onClick={() => {
+          onForward();
+          onClose();
+        }}
+        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left hover:bg-blue-50 transition-colors text-blue-600 group"
+      >
+        <span className="w-6 h-6 rounded-full bg-blue-50 group-hover:bg-blue-100 flex items-center justify-center transition-colors">
+          <Share2 className="w-3.5 h-3.5 text-blue-500" />
+        </span>
+        <span className="text-sm font-medium text-blue-600">Chuyển tiếp</span>
+      </button>
+
       {/* Tùy chọn khác cho tin nhắn người khác */}
       {!canRevoke && (
         <>
@@ -611,10 +744,19 @@ function MessageContextMenu({
 }
 
 export default function ChatWindow({ authUser }: ChatWindowProps) {
-  const { selectedFriend, selectedGroup, chatMode } = useChatStore();
+  const {
+    selectedFriend,
+    selectedGroup,
+    chatMode,
+    isAiChatOpen,
+    pendingAiPrompt,
+    clearPendingAiPrompt,
+    setOutgoingCall,
+  } = useChatStore();
 
   const currentUserId = String((authUser as any)._id || authUser.id || "");
   const currentUserName = authUser.displayName || authUser.username || "User";
+  const aiHistoryStorageKey = `${AI_HISTORY_STORAGE_PREFIX}:${currentUserId}`;
 
   // ── Private mode ───────────────────────────────────────────────────────
   const friendId = selectedFriend?.friend_id ?? null;
@@ -624,8 +766,11 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     historyError: dmError,
     sendMessage: sendDmMessage,
     sendFileMessage: sendDmFileMessage,
+    sendStickerMessage: sendDmStickerMessage,
+    sendEmojiMessage: sendDmEmojiMessage,
     isSending: dmSending,
     isUploadingFile: dmUploadingFile,
+    uploadProgress: dmUploadProgress,
     bottomSentinelRef: dmSentinelRef,
     scrollContainerRef: dmScrollRef,
     typingUsers: dmTypingUsers,
@@ -645,8 +790,11 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     historyError: groupError,
     sendMessage: sendGroupMessage,
     sendFileMessage: sendGroupFileMessage,
+    sendStickerMessage: sendGroupStickerMessage,
+    sendEmojiMessage: sendGroupEmojiMessage,
     isSending: groupSending,
     isUploadingFile: groupUploadingFile,
+    uploadProgress: groupUploadProgress,
     bottomSentinelRef: groupSentinelRef,
     scrollContainerRef: groupScrollRef,
     typingUsers: groupTypingUsers,
@@ -669,7 +817,13 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           displayName: m.displayName || m.username || String(m.userId),
           username: m.username || "",
           avatarUrl: m.avatarUrl || null,
-          role: (m.role as "owner" | "admin" | "member") || "member",
+          role:
+            String(m.role).toUpperCase() === "OWNER"
+              ? "OWNER"
+              : String(m.role).toUpperCase() === "DEPUTY" ||
+                  String(m.role).toUpperCase() === "ADMIN"
+                ? "DEPUTY"
+                : "MEMBER",
         }));
         setGroupMembers(normalized);
       })
@@ -677,32 +831,24 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }, [selectedGroup]);
 
   const {
-    socket,
     status,
-    onIncomingCall,
-    emitCallDeclined,
-    emitEndCall,
-    onCallAccepted,
-    onCallDeclined,
-    onEndCall,
+    emitCallUser,
   } = useSocket();
   const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
   const [aiQuestion, setAiQuestion] = useState("");
-  const [aiAnswer, setAiAnswer] = useState("");
+  const [aiConversation, setAiConversation] = useState<AiConversationTurn[]>(
+    [],
+  );
   const [isAskingAI, setIsAskingAI] = useState(false);
   const [aiError, setAiError] = useState("");
-  const [isInCall, setIsInCall] = useState(false);
-  const [isStartingCall, setIsStartingCall] = useState(false);
-  const [callData, setCallData] = useState<ActiveCallData | null>(null);
-  const [incomingCallData, setIncomingCallData] =
-    useState<IncomingCallData | null>(null);
-  const ringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const delayedUnmountRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isConnected = status === "connected";
+
+  // ── Emoji / Sticker Picker state ─────────────────────────────────────────
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // ── Context menu state ──────────────────────────────────────────────────
   const [ctxMenu, setCtxMenu] = useState<{
@@ -711,6 +857,12 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     msg: GroupChatMessage;
     conversationId: string;
     canRevoke: boolean;
+  } | null>(null);
+
+  // ── Forward modal state ────────────────────────────────────────────────
+  const [forwardModal, setForwardModal] = useState<{
+    message: GroupChatMessage;
+    sourceConversationId: string;
   } | null>(null);
 
   function handleMessageContextMenu(
@@ -788,6 +940,11 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     } finally {
       setDeletingMessageId(null);
     }
+  }
+
+  function handleForwardMessage(msg: GroupChatMessage, conversationId: string) {
+    closeCtxMenu();
+    setForwardModal({ message: msg, sourceConversationId: conversationId });
   }
 
   // Lấy ref đúng dựa trên mode
@@ -901,115 +1058,97 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     ta.style.height = `${Math.min(ta.scrollHeight, 128)}px`;
   }, [inputValue]);
 
-  useEffect(() => {
-    const offIncoming = onIncomingCall((payload: CallSignalPayload) => {
-      console.debug("[ChatWindow][onIncomingCall] payload:", payload);
-      if (String(payload.callerId) === currentUserId) return;
+  async function submitAiQuestion(rawQuestion: string) {
+    const trimmed = rawQuestion.trim();
+    if (!trimmed || isAskingAI) return;
 
-      const isGroupCall = Boolean(payload.isGroupCall);
+    const turnId = `${Date.now()}`;
+    setAiError("");
+    setAiQuestion("");
+    setAiConversation((prev) => {
+      const next = [
+        ...prev,
+        { id: `${turnId}-u`, role: "user" as const, content: trimmed },
+      ];
+      return next.slice(-60);
+    });
 
-      if (!isGroupCall && String(payload.receiverId ?? "") !== currentUserId) {
-        return;
-      }
-
-      setIncomingCallData({
-        conversationId: String(payload.conversationId || payload.roomId),
-        roomId: String(payload.roomId),
-        callerId: String(payload.callerId),
-        callerName: payload.callerName,
-        receiverId: String(payload.receiverId ?? currentUserId),
-        isGroupCall,
+    try {
+      setIsAskingAI(true);
+      const response = await askBot(trimmed);
+      setAiConversation((prev) => {
+        const next = [
+          ...prev,
+          {
+            id: `${turnId}-a`,
+            role: "assistant" as const,
+            content: response.content || "AI chưa có phản hồi.",
+          },
+        ];
+        return next.slice(-60);
       });
-    });
+    } catch (error: any) {
+      const errorMessage =
+        error?.response?.data?.message || "Không thể kết nối AI Bot.";
+      setAiError(errorMessage);
+    } finally {
+      setIsAskingAI(false);
+    }
+  }
 
-    const offAccepted = onCallAccepted((_payload: CallSignalPayload) => {
-      console.debug("[ChatWindow][onCallAccepted] payload:", _payload);
-      if (ringTimerRef.current) {
-        clearTimeout(ringTimerRef.current);
-        ringTimerRef.current = null;
+  useEffect(() => {
+    if (!isAiChatOpen || !pendingAiPrompt.trim()) return;
+    const prompt = pendingAiPrompt;
+    clearPendingAiPrompt();
+    void submitAiQuestion(prompt);
+  }, [isAiChatOpen, pendingAiPrompt, clearPendingAiPrompt]);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    try {
+      const raw = window.localStorage.getItem(aiHistoryStorageKey);
+      if (!raw) {
+        setAiConversation([]);
+        return;
       }
-      setIsStartingCall(false);
-    });
-
-    const offDeclined = onCallDeclined((payload: CallSignalPayload) => {
-      console.log("[Call] Da nhan tin hieu TU CHOI:", payload);
-      const targetId = String(payload.callerId || payload.to || "");
-      if (targetId !== currentUserId) {
-        console.log("[Call] Tin hieu tu choi cua nguoi khac, bo qua.");
+      const parsed = JSON.parse(raw) as AiConversationTurn[];
+      if (!Array.isArray(parsed)) {
+        setAiConversation([]);
         return;
       }
 
-      addToast("Người dùng đã từ chối cuộc gọi", "info");
-      setIsStartingCall(false);
+      const normalized = parsed
+        .filter(
+          (item) =>
+            item &&
+            (item.role === "user" || item.role === "assistant") &&
+            typeof item.content === "string" &&
+            item.content.trim().length > 0,
+        )
+        .map((item, index) => ({
+          id: String(item.id || `${Date.now()}-${index}`),
+          role: item.role,
+          content: item.content,
+        }))
+        .slice(-60);
 
-      if (ringTimerRef.current) {
-        clearTimeout(ringTimerRef.current);
-        ringTimerRef.current = null;
-      }
+      setAiConversation(normalized);
+    } catch {
+      setAiConversation([]);
+    }
+  }, [currentUserId, aiHistoryStorageKey]);
 
-      if (delayedUnmountRef.current) {
-        clearTimeout(delayedUnmountRef.current);
-      }
-
-      // Delay unmount to let Zego destroy internal DOM safely.
-      delayedUnmountRef.current = setTimeout(() => {
-        setIsInCall(false);
-        setCallData(null);
-        delayedUnmountRef.current = null;
-      }, 300);
-    });
-
-    const offEndCall = onEndCall((payload: CallSignalPayload) => {
-      console.debug("[ChatWindow][onEndCall] payload:", payload);
-      const endedCurrentCall = !callData || payload.roomId === callData.roomId;
-
-      if (!endedCurrentCall) return;
-
-      if (ringTimerRef.current) {
-        clearTimeout(ringTimerRef.current);
-        ringTimerRef.current = null;
-      }
-
-      addToast("Cuộc gọi đã kết thúc", "info", 2500);
-      setIsStartingCall(false);
-
-      if (delayedUnmountRef.current) {
-        clearTimeout(delayedUnmountRef.current);
-      }
-
-      // Delay unmount to avoid race between SDK cleanup and React DOM removal.
-      delayedUnmountRef.current = setTimeout(() => {
-        setIsInCall(false);
-        setCallData(null);
-        setIncomingCallData(null);
-        delayedUnmountRef.current = null;
-      }, 300);
-    });
-
-    return () => {
-      offIncoming();
-      offAccepted();
-      offDeclined();
-      offEndCall();
-      if (ringTimerRef.current) {
-        clearTimeout(ringTimerRef.current);
-        ringTimerRef.current = null;
-      }
-      if (delayedUnmountRef.current) {
-        clearTimeout(delayedUnmountRef.current);
-        delayedUnmountRef.current = null;
-      }
-    };
-  }, [
-    onIncomingCall,
-    onCallAccepted,
-    onCallDeclined,
-    onEndCall,
-    status,
-    currentUserId,
-    addToast,
-    callData,
-  ]);
+  useEffect(() => {
+    if (!currentUserId) return;
+    try {
+      window.localStorage.setItem(
+        aiHistoryStorageKey,
+        JSON.stringify(aiConversation.slice(-60)),
+      );
+    } catch {
+      // ignore localStorage write errors in private mode/quota limits
+    }
+  }, [aiConversation, currentUserId, aiHistoryStorageKey]);
 
   async function handleStartVideoCall() {
     const isGroupCall = chatMode === "GROUP";
@@ -1017,9 +1156,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       ? selectedGroup != null
       : selectedFriend != null;
 
-    if (!hasTarget || isStartingCall || isInCall) return;
-
-    setIsStartingCall(true);
+    if (!hasTarget) return;
     try {
       const directFriendId = String(
         (selectedFriend as any)?.friend_id ??
@@ -1039,34 +1176,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       const rawRoomId = isGroupCall
         ? `group_call_${normalizedGroupId}`
         : `call_1vs1_${[currentUserId, directFriendId].sort().join("_")}`;
-      const safeRoomId = sanitizeRoomId(rawRoomId);
+      const safeRoomId = rawRoomId.replace(/:/g, "_");
       const conversationId = isGroupCall
         ? groupConversationId(selectedGroup!.groupId)
         : dmConversationId(currentUserId, directFriendId);
-
-      const response = await apiClient.get<{ appID: number; token: string }>(
-        "/api/calls/token",
-        {
-          params: {
-            userID: currentUserId,
-          },
-        },
-      );
-
-      const payload: ActiveCallData = {
-        roomId: safeRoomId,
-        token: String(response.data.token),
-        appId: Number(response.data.appID),
-        userId: currentUserId,
-        userName: currentUserName,
-        conversationId,
-        callerId: currentUserId,
-        callerName: currentUserName,
-        receiverId: isGroupCall
-          ? String(selectedGroup!.groupId)
-          : directFriendId,
-        isGroupCall,
-      };
 
       if (isGroupCall) {
         const groupCallPayload = {
@@ -1079,114 +1192,42 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           "[ChatWindow][emit group-call-request] payload:",
           groupCallPayload,
         );
-        socket?.emit("group-call-request", groupCallPayload);
+        emitCallUser({
+          ...groupCallPayload,
+          receiverId: String(selectedGroup!.groupId),
+          conversationId,
+          isGroupCall: true,
+        });
+        setOutgoingCall({
+          roomId: safeRoomId,
+          conversationId,
+          receiverId: String(selectedGroup!.groupId),
+          receiverName: groupName || "Nhom",
+          isGroupCall: true,
+        });
       } else {
         const oneToOnePayload = {
-          to: String(selectedFriend!.friend_id),
           roomId: safeRoomId,
           callerId: currentUserId,
           callerName: currentUserName,
+          receiverId: directFriendId,
+          to: directFriendId,
+          conversationId,
+          isGroupCall: false,
         };
         console.debug("[ChatWindow][emit call-user] payload:", oneToOnePayload);
-        socket?.emit("call-user", oneToOnePayload);
-
-        // Tu dong huy trang thai dang goi neu khong co phan hoi trong 30s
-        if (ringTimerRef.current) {
-          clearTimeout(ringTimerRef.current);
-        }
-        ringTimerRef.current = setTimeout(() => {
-          setIsInCall(false);
-          setCallData(null);
-          setIsStartingCall(false);
-          addToast("Khong co phan hoi cuoc goi", "info", 2500);
-          ringTimerRef.current = null;
-        }, 30_000);
+        emitCallUser(oneToOnePayload);
+        setOutgoingCall({
+          roomId: safeRoomId,
+          conversationId,
+          receiverId: directFriendId,
+          receiverName: friendName || "Ban be",
+          isGroupCall: false,
+        });
       }
-
-      setCallData(payload);
-      setIsInCall(true);
     } catch {
-      setIsInCall(false);
-      setCallData(null);
-    } finally {
-      setIsStartingCall(false);
+      addToast("Khong the bat dau cuoc goi", "error", 2500);
     }
-  }
-
-  async function handleAcceptIncomingCall() {
-    if (!incomingCallData) return;
-
-    try {
-      const response = await apiClient.get<{ appID: number; token: string }>(
-        "/api/calls/token",
-        {
-          params: {
-            userID: currentUserId,
-          },
-        },
-      );
-
-      const acceptedPayload: ActiveCallData = {
-        roomId: sanitizeRoomId(incomingCallData.roomId),
-        token: String(response.data.token),
-        appId: Number(response.data.appID),
-        userId: currentUserId,
-        userName: currentUserName,
-        conversationId: incomingCallData.conversationId,
-        callerId: incomingCallData.callerId,
-        callerName: incomingCallData.callerName,
-        receiverId: currentUserId,
-        isGroupCall: incomingCallData.isGroupCall,
-      };
-
-      socket?.emit("call-accepted", {
-        to: incomingCallData.callerId,
-        roomId: incomingCallData.roomId,
-      });
-      console.debug("[ChatWindow][emit call-accepted] payload:", {
-        to: incomingCallData.callerId,
-        roomId: incomingCallData.roomId,
-      });
-
-      setCallData(acceptedPayload);
-      setIsInCall(true);
-      setIncomingCallData(null);
-    } catch (error) {
-      console.error("Loi khi nguoi nghe lay token:", error);
-    }
-  }
-
-  function handleDeclineIncomingCall() {
-    if (!incomingCallData) return;
-    emitCallDeclined({
-      ...incomingCallData,
-      to: String(incomingCallData.callerId),
-      callerId: String(incomingCallData.callerId),
-      from: currentUserId,
-    });
-    setIncomingCallData(null);
-  }
-
-  function handleHangUp(shouldEmitSignal = true) {
-    if (shouldEmitSignal && callData && !callData.isGroupCall) {
-      const remoteUserId =
-        String(callData.callerId) === currentUserId
-          ? String(callData.receiverId)
-          : String(callData.callerId);
-
-      emitEndCall({
-        conversationId: callData.conversationId,
-        roomId: callData.roomId,
-        callerId: currentUserId,
-        callerName: currentUserName,
-        receiverId: remoteUserId,
-        to: remoteUserId,
-        from: currentUserId,
-      });
-    }
-
-    setIsInCall(false);
-    setCallData(null);
   }
 
   // Khi chuyển đổi giữa nhóm và DM, clear input
@@ -1235,42 +1276,56 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       return;
     }
 
-    if (chatMode === "GROUP") {
-      if (groupUploadingFile) return;
-      await sendGroupFileMessage(file);
-      return;
-    }
-
-    if (!selectedFriend?.friend_id) {
-      addToast("Vui lòng chọn một cuộc trò chuyện cá nhân", "error");
-      return;
-    }
-
     try {
+      if (chatMode === "GROUP") {
+        if (groupUploadingFile) return;
+        await sendGroupFileMessage(file);
+        return;
+      }
+
+      if (!selectedFriend?.friend_id) {
+        addToast("Vui lòng chọn một cuộc trò chuyện cá nhân", "error");
+        return;
+      }
+
       await sendDmFileMessage(file);
     } catch (error: any) {
       const message =
-        error?.response?.data?.message || "Không thể gửi tệp, vui lòng thử lại";
+        error?.response?.data?.message ||
+        error?.message ||
+        "Không thể gửi tệp, vui lòng thử lại";
       addToast(message, "error");
     }
   }
 
   async function handleAskAI() {
-    const trimmed = aiQuestion.trim();
-    if (!trimmed || isAskingAI) return;
+    await submitAiQuestion(aiQuestion);
+  }
 
-    try {
-      setIsAskingAI(true);
-      setAiError("");
-      const response = await askBot(trimmed);
-      setAiAnswer(response.content || "AI chưa có phản hồi.");
-    } catch (error: any) {
-      const errorMessage =
-        error?.response?.data?.message || "Không thể kết nối AI Bot.";
-      setAiError(errorMessage);
-      setAiAnswer("");
-    } finally {
-      setIsAskingAI(false);
+  function handleAiKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    void handleAskAI();
+  }
+
+  // ── Emoji / Sticker picker handlers ────────────────────────────────────
+  async function handleEmojiSelect(emoji: string) {
+    setPickerOpen(false);
+    if (!emoji.trim()) return;
+
+    if (chatMode === "GROUP") {
+      await sendGroupEmojiMessage(emoji);
+    } else {
+      await sendDmEmojiMessage(emoji);
+    }
+  }
+
+  async function handleStickerSelect(stickerData: StickerData) {
+    setPickerOpen(false);
+    if (chatMode === "GROUP") {
+      await sendGroupStickerMessage(stickerData);
+    } else {
+      await sendDmStickerMessage(stickerData);
     }
   }
 
@@ -1282,6 +1337,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const activeSending = chatMode === "GROUP" ? groupSending : dmSending;
   const activeUploading =
     chatMode === "GROUP" ? groupUploadingFile : dmUploadingFile;
+  const activeUploadProgress =
+    chatMode === "GROUP" ? groupUploadProgress : dmUploadProgress;
 
   const placeHolder =
     chatMode === "GROUP"
@@ -1290,6 +1347,24 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   // ── Header ──────────────────────────────────────────────────────────
   function renderHeader() {
+    if (isAiChatOpen) {
+      return (
+        <div className="h-17 bg-white border-b border-gray-200 flex items-center justify-between px-4 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-linear-to-br from-cyan-500 via-blue-500 to-indigo-500 text-white flex items-center justify-center shadow-sm">
+              <Sparkles className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-gray-900 text-base leading-tight">
+                AI Bot
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">Trợ lý thông minh</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const isGroup = chatMode === "GROUP";
 
     return (
@@ -1362,13 +1437,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
             title="Gọi video"
             onClick={handleStartVideoCall}
-            disabled={!isConnected || isStartingCall || isInCall}
+            disabled={!isConnected}
           >
-            {isStartingCall ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Video className="w-5 h-5" />
-            )}
+            <Video className="w-5 h-5" />
           </button>
           <div className="w-px h-5 bg-gray-300 mx-1" />
           <button
@@ -1459,8 +1530,55 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     );
   }
 
+  function renderAiMessages() {
+    return (
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+        {aiConversation.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
+            <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+              <Sparkles className="w-6 h-6" />
+            </div>
+            <p className="text-sm text-gray-600">
+              Bắt đầu cuộc trò chuyện với AI
+            </p>
+            <p className="text-xs">
+              Bạn có thể hỏi nhanh ngay trong khung chat này.
+            </p>
+          </div>
+        )}
+
+        {aiConversation.map((turn) => {
+          const isUser = turn.role === "user";
+          return (
+            <div
+              key={turn.id}
+              className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+            >
+              <div
+                className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm border shadow-sm whitespace-pre-wrap ${
+                  isUser
+                    ? "bg-blue-500 border-blue-500 text-white rounded-br-sm"
+                    : "bg-white border-gray-200 text-gray-800 rounded-bl-sm"
+                }`}
+              >
+                {turn.content}
+              </div>
+            </div>
+          );
+        })}
+
+        {isAskingAI && (
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            AI đang trả lời...
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // ── Empty state ────────────────────────────────────────────────────
-  if (!selectedFriend && !selectedGroup) {
+  if (!selectedFriend && !selectedGroup && !isAiChatOpen) {
     return (
       <div className="flex-1 bg-[#f3f5f6] flex flex-col items-center justify-center min-w-0 text-gray-400 px-6">
         <div className="w-16 h-16 rounded-full bg-gray-200/80 flex items-center justify-center mb-4">
@@ -1481,16 +1599,33 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     <div className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0">
       {renderHeader()}
 
-      {renderMessages()}
+      {isAiChatOpen ? renderAiMessages() : renderMessages()}
 
       {/* Typing indicator */}
-      {activeTypingUsers.length > 0 && (
+      {!isAiChatOpen && activeTypingUsers.length > 0 && (
         <div className="px-4 py-1.5 bg-[#f3f5f6]">
           <p className="text-xs italic text-gray-500">
             {activeTypingUsers.length === 1
               ? `${activeTypingUsers[0]} đang soạn tin...`
               : `${activeTypingUsers.slice(0, -1).join(", ")} và ${activeTypingUsers[activeTypingUsers.length - 1]} đang soạn tin...`}
           </p>
+        </div>
+      )}
+
+      {!isAiChatOpen && activeUploading && (
+        <div className="px-4 py-2 bg-[#f3f5f6] border-t border-gray-200/70">
+          <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+            <span>Đang tải tệp lên S3...</span>
+            <span>{Math.max(0, Math.min(100, activeUploadProgress))}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
+            <div
+              className="h-full bg-blue-500 transition-all duration-150"
+              style={{
+                width: `${Math.max(0, Math.min(100, activeUploadProgress))}%`,
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -1503,174 +1638,151 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           isOwn={ctxMenu.canRevoke}
           onRevoke={handleRevokeMessage}
           onDeleteForMe={handleDeleteForMe}
+          onForward={() =>
+            handleForwardMessage(ctxMenu.msg, ctxMenu.conversationId)
+          }
           isDeleting={deletingMessageId === String(ctxMenu.msg.id)}
           onClose={closeCtxMenu}
         />
       )}
 
-      {/* Input area */}
-      <div className="bg-white border-t border-gray-200 flex flex-col shrink-0">
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/gif"
-          className="hidden"
-          onChange={handlePickFile}
+      {forwardModal && (
+        <ForwardMessageModal
+          isOpen
+          onClose={() => setForwardModal(null)}
+          message={forwardModal.message}
+          sourceConversationId={forwardModal.sourceConversationId}
+          authUserId={currentUserId}
         />
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.docx,.txt"
-          className="hidden"
-          onChange={handlePickFile}
-        />
-
-        {/* Toolbar */}
-        <div className="flex items-center gap-4 px-4 py-2.5 border-b border-gray-100">
-          <Smile className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-          <button
-            type="button"
-            onClick={() => imageInputRef.current?.click()}
-            disabled={!isConnected || activeSending || activeUploading}
-            className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Gửi ảnh"
-          >
-            <Image className="w-5 h-5 cursor-pointer" />
-          </button>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={!isConnected || activeSending || activeUploading}
-            className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Gửi tệp"
-          >
-            <Paperclip className="w-5 h-5 cursor-pointer" />
-          </button>
-          <LinkIcon className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-          <MapPin className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-          <Contact className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-          <CheckSquare className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-          <Type className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-          <MoreHorizontal className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-        </div>
-
-        {/* Text input + send */}
-        <div className="flex items-end px-4 py-3 gap-2">
-          <textarea
-            ref={textareaRef}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onFocus={() => activeTypingChange(true)}
-            onBlur={() => activeTypingChange(false)}
-            placeholder={placeHolder}
-            disabled={!isConnected || activeSending}
-            className="flex-1 resize-none h-11 max-h-32 focus:outline-none text-[15px] pt-2.5 bg-gray-50 rounded-lg px-3 border border-gray-200 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            rows={1}
-          />
-          <div className="flex items-center gap-3 pb-1">
-            <SmilePlus className="w-6 h-6 text-gray-400 cursor-pointer hover:text-gray-600" />
-            <AtSign className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
-            <Gift className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={!inputValue.trim() || !isConnected || activeSending}
-              className="w-9 h-9 rounded-md text-blue-500 flex items-center justify-center cursor-pointer hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
-              title="Gửi tin nhắn (Enter)"
-            >
-              {activeSending ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <ThumbsUp className="w-5 h-5" fill="currentColor" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        <div className="border-t border-gray-100 px-4 py-3 bg-gray-50">
-          <p className="text-xs font-semibold text-gray-700 mb-2">Trợ lý AI</p>
-
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={aiQuestion}
-              onChange={(e) => setAiQuestion(e.target.value)}
-              placeholder="Nhập câu hỏi cho AI..."
-              disabled={isAskingAI}
-              className="flex-1 h-10 rounded-md border border-gray-300 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-60"
-            />
-
-            <button
-              type="button"
-              onClick={handleAskAI}
-              disabled={!aiQuestion.trim() || isAskingAI}
-              className="h-10 px-4 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {isAskingAI ? "Đang hỏi..." : "Hỏi AI"}
-            </button>
-          </div>
-
-          {aiError && <p className="mt-2 text-xs text-red-500">{aiError}</p>}
-
-          {aiAnswer && (
-            <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 p-3">
-              <p className="text-xs font-medium text-blue-700">AI Bot:</p>
-              <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">
-                {aiAnswer}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {incomingCallData && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Cuộc gọi đến
-            </h3>
-            <p className="mt-1 text-sm text-gray-600">
-              {friendName || "Bạn bè"} đang gọi video cho bạn.
-            </p>
-            <div className="mt-5 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={handleDeclineIncomingCall}
-                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Từ chối
-              </button>
-              <button
-                type="button"
-                onClick={handleAcceptIncomingCall}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              >
-                Chấp nhận
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
-      {isInCall &&
-        callData &&
-        (() => {
-          const commonProps = {
-            roomId: callData.roomId,
-            token: callData.token,
-            userId: currentUserId,
-            userName: currentUserName,
-            appId: 816047107,
-            onLeave: () => handleHangUp(),
-          };
+      {/* Input area */}
+      <div className="bg-white border-t border-gray-200 flex flex-col shrink-0">
+        {isAiChatOpen ? (
+          <div className="px-4 py-3 bg-gray-50">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={aiQuestion}
+                  onChange={(e) => setAiQuestion(e.target.value)}
+                  onKeyDown={handleAiKeyDown}
+                  placeholder="Nhập câu hỏi cho AI..."
+                  disabled={isAskingAI}
+                  className="w-full h-11 rounded-lg border border-gray-300 pl-10 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-60"
+                />
+                <Sparkles className="w-4 h-4 text-blue-500 absolute left-3 top-3.5" />
+              </div>
 
-          return callData.isGroupCall ? (
-            <VideoCallGroup {...commonProps} />
-          ) : (
-            <VideoCall1vs1 {...commonProps} />
-          );
-        })()}
+              <button
+                type="button"
+                onClick={handleAskAI}
+                disabled={!aiQuestion.trim() || isAskingAI}
+                className="h-11 px-4 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isAskingAI ? "Đang hỏi..." : "Hỏi AI"}
+              </button>
+            </div>
+
+            {aiError && <p className="mt-2 text-xs text-red-500">{aiError}</p>}
+          </div>
+        ) : (
+          <>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif"
+              className="hidden"
+              onChange={handlePickFile}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/mp4,video/webm,video/quicktime,.pdf,.doc,.docx,.txt"
+              className="hidden"
+              onChange={handlePickFile}
+            />
+
+            {/* Toolbar + Emoji/Sticker picker */}
+            <div className="relative border-b border-gray-100">
+              <div className="flex items-center gap-4 px-4 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen((prev) => !prev)}
+                  className={`text-gray-500 hover:text-gray-700 ${pickerOpen ? "text-blue-500" : ""}`}
+                  title="Biểu tượng cảm xúc & Sticker"
+                >
+                  <Smile className="w-5 h-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={!isConnected || activeSending || activeUploading}
+                  className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Gửi ảnh"
+                >
+                  <Image className="w-5 h-5 cursor-pointer" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!isConnected || activeSending || activeUploading}
+                  className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Gửi tệp"
+                >
+                  <Paperclip className="w-5 h-5 cursor-pointer" />
+                </button>
+                <LinkIcon className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+                <MapPin className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+                <Contact className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+                <CheckSquare className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+                <Type className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+                <MoreHorizontal className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+                <EmojiStickerPicker
+                  isOpen={pickerOpen}
+                  onClose={() => setPickerOpen(false)}
+                  onEmojiSelect={handleEmojiSelect}
+                  onStickerSelect={handleStickerSelect}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-end px-4 py-3 gap-2">
+              <textarea
+                ref={textareaRef}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onFocus={() => activeTypingChange(true)}
+                onBlur={() => activeTypingChange(false)}
+                placeholder={placeHolder}
+                disabled={!isConnected || activeSending}
+                className="flex-1 resize-none h-11 max-h-32 focus:outline-none text-[15px] pt-2.5 bg-gray-50 rounded-lg px-3 border border-gray-200 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                rows={1}
+              />
+              <div className="flex items-center gap-3 pb-1">
+                <AtSign className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
+                <Gift className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={!inputValue.trim() || !isConnected || activeSending}
+                  className="w-9 h-9 rounded-md text-blue-500 flex items-center justify-center cursor-pointer hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                  title="Gửi tin nhắn (Enter)"
+                >
+                  {activeSending ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <ThumbsUp className="w-5 h-5" fill="currentColor" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      <CallOverlay />
     </div>
   );
 }

@@ -30,7 +30,12 @@ import {
   Pin,
   Info,
   X,
+  Mic,
+  X,
+  Square,
+  Send,
 } from "lucide-react";
+import { useAudioRecorder } from "../hooks/useAudioRecorder";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dmConversationId, useDirectMessage } from "../hooks/useChatHooks";
 import {
@@ -52,6 +57,7 @@ import type { AuthUser } from "../../../types";
 import { askBot } from "../api";
 import ForwardMessageModal from "./ForwardMessageModal";
 import EmojiStickerPicker from "./EmojiStickerPicker";
+import AudioMessage from "./AudioMessage";
 import CallOverlay from "@/features/chat/components/CallOverlay";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
@@ -291,9 +297,8 @@ function GroupMessageBubble({
               className="w-28 h-28 object-contain rounded-xl"
             />
             <div
-              className={`mt-0.5 text-[10px] flex items-center gap-1 ${
-                isOwn ? "text-blue-200 justify-end" : "text-gray-400"
-              }`}
+              className={`mt-0.5 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+                }`}
             >
               {formatTime(msg.createdAt)}
               {isOwn && msg.sendStatus === "sending" && (
@@ -342,18 +347,17 @@ function GroupMessageBubble({
         )}
 
         <div
-          className={`px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${
-            isOwn
+          className={`px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
               ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
               : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
+            } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
           onContextMenu={(e) => {
             if (msg.contentType === "revoked") return;
             onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
           }}
         >
           {/* File/Image attachments */}
-          {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+          {msg.contentType !== "voice" && msg.type !== "voice" && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
             <div className="mb-2 space-y-2">
               {msg.attachments.map((att, idx) => {
                 if (att?.type === "image" && att.url) {
@@ -392,11 +396,10 @@ function GroupMessageBubble({
                       href={att.url}
                       target="_blank"
                       rel="noreferrer"
-                      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs border ${
-                        isOwn
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs border ${isOwn
                           ? "border-blue-200/50 bg-blue-400/30 text-blue-100"
                           : "border-gray-200 bg-gray-50 text-gray-700"
-                      }`}
+                        }`}
                     >
                       <FileText className="w-3.5 h-3.5 shrink-0" />
                       <span className="truncate max-w-36">
@@ -415,6 +418,10 @@ function GroupMessageBubble({
             <div className="italic text-gray-400 text-xs flex items-center gap-1">
               <span>Tin nhắn đã được thu hồi</span>
             </div>
+          ) : msg.contentType === "voice" || msg.type === "voice" ? (
+            <div className="py-1">
+              <AudioMessage audioUrl={msg.attachments?.[0]?.url || msg.content} isOwn={isOwn} />
+            </div>
           ) : (
             <div
               className={`whitespace-pre-wrap wrap-break-word ${isPureEmoji ? "text-3xl leading-none" : ""}`}
@@ -425,9 +432,8 @@ function GroupMessageBubble({
 
           {/* Thời gian + trạng thái gửi */}
           <div
-            className={`mt-1 text-[10px] flex items-center gap-1 ${
-              isOwn ? "text-blue-200 justify-end" : "text-gray-400"
-            }`}
+            className={`mt-1 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+              }`}
           >
             {formatTime(msg.createdAt)}
             {isOwn && msg.sendStatus === "sending" && (
@@ -486,9 +492,8 @@ function PrivateMessageBubble({
             className="w-28 h-28 object-contain rounded-xl"
           />
           <div
-            className={`mt-0.5 text-[10px] flex items-center gap-1 ${
-              isOwn ? "text-blue-200 justify-end" : "text-gray-400"
-            }`}
+            className={`mt-0.5 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+              }`}
           >
             {formatTime(msg.createdAt)}
             {isOwn && msg.sendStatus === "sending" && (
@@ -518,11 +523,10 @@ function PrivateMessageBubble({
       data-message-id={String(msg.id)}
     >
       <div
-        className={`max-w-[70%] px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${
-          isOwn
+        className={`max-w-[70%] px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
             ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
             : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
+          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${isPureEmoji ? "px-4 py-3" : ""}`}
         onContextMenu={(e) => {
           if (msg.contentType === "revoked") return;
           onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
@@ -536,7 +540,7 @@ function PrivateMessageBubble({
           </div>
         )}
 
-        {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+        {msg.contentType !== "voice" && msg.type !== "voice" && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
           <div className="mb-2 space-y-2">
             {msg.attachments.map((att, idx) => {
               if (att?.type === "image" && att.url) {
@@ -575,11 +579,10 @@ function PrivateMessageBubble({
                     href={att.url}
                     target="_blank"
                     rel="noreferrer"
-                    className={`inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs border ${
-                      isOwn
+                    className={`inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs border ${isOwn
                         ? "border-blue-200 bg-blue-400/40 text-white"
                         : "border-gray-200 bg-gray-50 text-gray-700"
-                    }`}
+                      }`}
                   >
                     <FileText className="w-3.5 h-3.5" />
                     <span className="truncate max-w-44">
@@ -598,6 +601,10 @@ function PrivateMessageBubble({
           <div className="italic text-gray-400 text-xs flex items-center gap-1">
             <span>Tin nhắn đã được thu hồi</span>
           </div>
+        ) : msg.contentType === "voice" || msg.type === "voice" ? (
+          <div className="py-1">
+            <AudioMessage audioUrl={msg.attachments?.[0]?.url || msg.content} isOwn={isOwn} />
+          </div>
         ) : (
           <div
             className={`whitespace-pre-wrap wrap-break-word ${isPureEmoji ? "text-3xl leading-none" : ""}`}
@@ -607,9 +614,8 @@ function PrivateMessageBubble({
         )}
 
         <div
-          className={`mt-1 text-[10px] flex items-center gap-1 ${
-            isOwn ? "text-blue-200 justify-end" : "text-gray-400"
-          }`}
+          className={`mt-1 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+            }`}
         >
           {formatTime(msg.createdAt)}
           {isOwn && msg.sendStatus === "sending" && (
@@ -786,6 +792,16 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   } = useChatStore();
   const { myGroups } = useGroupsStore();
 
+  const {
+    isRecording,
+    audioBlob,
+    recordingTime,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+    setAudioBlob,
+  } = useAudioRecorder();
+
   const currentUserId = String((authUser as any)._id || authUser.id || "");
   const currentUserName = authUser.displayName || authUser.username || "User";
   const aiHistoryStorageKey = `${AI_HISTORY_STORAGE_PREFIX}:${currentUserId}`;
@@ -853,7 +869,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             String(m.role).toUpperCase() === "OWNER"
               ? "OWNER"
               : String(m.role).toUpperCase() === "DEPUTY" ||
-                  String(m.role).toUpperCase() === "ADMIN"
+                String(m.role).toUpperCase() === "ADMIN"
                 ? "DEPUTY"
                 : "MEMBER",
         }));
@@ -1220,9 +1236,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     try {
       const directFriendId = String(
         (selectedFriend as any)?.friend_id ??
-          (selectedFriend as any)?._id ??
-          (selectedFriend as any)?.id ??
-          "",
+        (selectedFriend as any)?._id ??
+        (selectedFriend as any)?.id ??
+        "",
       );
 
       if (!isGroupCall && !directFriendId) {
@@ -1357,6 +1373,24 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       addToast(message, "error");
     }
   }
+
+  const handleSendAudio = async () => {
+    if (audioBlob) {
+      const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: "audio/webm" });
+      try {
+        if (chatMode === "GROUP") {
+          if (groupUploadingFile) return;
+          await sendGroupFileMessage(audioFile);
+        } else {
+          if (!selectedFriend?.friend_id) return;
+          await sendDmFileMessage(audioFile);
+        }
+        setAudioBlob(null);
+      } catch (error: any) {
+        addToast("Không thể gửi tin nhắn thoại", "error");
+      }
+    }
+  };
 
   async function handleAskAI() {
     await submitAiQuestion(aiQuestion);
@@ -1803,11 +1837,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               className={`flex ${isUser ? "justify-end" : "justify-start"}`}
             >
               <div
-                className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm border shadow-sm whitespace-pre-wrap ${
-                  isUser
+                className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm border shadow-sm whitespace-pre-wrap ${isUser
                     ? "bg-blue-500 border-blue-500 text-white rounded-br-sm"
                     : "bg-white border-gray-200 text-gray-800 rounded-bl-sm"
-                }`}
+                  }`}
               >
                 {turn.content}
               </div>
@@ -2144,37 +2177,100 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               </div>
             </div>
 
-            <div className="flex items-end px-4 py-3 gap-2">
-              <textarea
-                ref={textareaRef}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onFocus={() => activeTypingChange(true)}
-                onBlur={() => activeTypingChange(false)}
-                placeholder={placeHolder}
-                disabled={!isConnected || activeSending}
-                className="flex-1 resize-none h-11 max-h-32 focus:outline-none text-[15px] pt-2.5 bg-gray-50 rounded-lg px-3 border border-gray-200 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                rows={1}
-              />
-              <div className="flex items-center gap-3 pb-1">
-                <AtSign className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
-                <Gift className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
+            {isRecording || audioBlob ? (
+              <div className="flex items-center px-4 py-3 gap-3 w-full bg-white h-17 border-t border-gray-100">
                 <button
                   type="button"
-                  onClick={handleSend}
-                  disabled={!inputValue.trim() || !isConnected || activeSending}
-                  className="w-9 h-9 rounded-md text-blue-500 flex items-center justify-center cursor-pointer hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
-                  title="Gửi tin nhắn (Enter)"
+                  onClick={cancelRecording}
+                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors flex-shrink-0"
+                  title="Hủy"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+
+                {isRecording && (
+                  <button
+                    type="button"
+                    onClick={stopRecording}
+                    className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-colors flex-shrink-0"
+                    title="Dừng"
+                  >
+                    <Square className="w-5 h-5" fill="currentColor" />
+                  </button>
+                )}
+
+                <div className="flex-1 h-11 bg-blue-50/80 border border-blue-100 rounded-full flex items-center justify-between px-4 overflow-hidden relative">
+                  {isRecording && (
+                    <div className="absolute left-0 top-0 bottom-0 bg-blue-200/50 animate-pulse w-full"></div>
+                  )}
+                  <div className="flex items-center gap-2 z-10 text-blue-500">
+                    <Mic className={`w-4 h-4 ${isRecording ? "animate-pulse text-red-500" : ""}`} />
+                    <span className="text-[15px] font-medium">
+                      {isRecording ? "Đang ghi âm..." : "Đã ghi âm"}
+                    </span>
+                  </div>
+                  <div className="z-10 text-[15px] font-mono text-blue-600 font-semibold">
+                    {Math.floor(recordingTime / 60)}:
+                    {(recordingTime % 60).toString().padStart(2, "0")}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSendAudio}
+                  disabled={!audioBlob || !isConnected || activeSending}
+                  className="w-11 h-11 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-sm"
+                  title="Gửi"
                 >
                   {activeSending ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
-                    <ThumbsUp className="w-5 h-5" fill="currentColor" />
+                    <Send className="w-5 h-5 ml-0.5" />
                   )}
                 </button>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-end px-4 py-3 gap-2">
+                <textarea
+                  ref={textareaRef}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onFocus={() => activeTypingChange(true)}
+                  onBlur={() => activeTypingChange(false)}
+                  placeholder={placeHolder}
+                  disabled={!isConnected || activeSending}
+                  className="flex-1 resize-none h-11 max-h-32 focus:outline-none text-[15px] pt-2.5 bg-gray-50 rounded-lg px-3 border border-gray-200 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  rows={1}
+                />
+                <div className="flex items-center gap-3 pb-1">
+                  <AtSign className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
+                  <Gift className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
+                  <button
+                    type="button"
+                    onClick={startRecording}
+                    disabled={!isConnected || activeSending}
+                    className="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors text-gray-400 hover:text-blue-500 hover:bg-blue-50"
+                    title="Ghi âm"
+                  >
+                    <Mic className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSend}
+                    disabled={!inputValue.trim() || !isConnected || activeSending}
+                    className="w-9 h-9 rounded-md text-blue-500 flex items-center justify-center cursor-pointer hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                    title="Gửi tin nhắn (Enter)"
+                  >
+                    {activeSending ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <ThumbsUp className="w-5 h-5" fill="currentColor" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

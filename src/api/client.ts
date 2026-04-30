@@ -9,6 +9,9 @@ import type {
   FriendsListResponse,
   DirectMessageItem,
   DirectMessagesResponse,
+  NotificationConfig,
+  SearchMessagesResponse,
+  SearchGlobalMessagesResponse,
 } from "../types";
 
 // Cho phép cấu hình qua biến môi trường, fallback localhost
@@ -85,11 +88,77 @@ export async function fetchMessagesByChannel(
   return Array.isArray(data) ? (data as MessageItem[]) : [];
 }
 
+export async function searchConversationMessages(params: {
+  conversationId: string;
+  keyword?: string;
+  senderId?: string | number;
+  fromDate?: string;
+  toDate?: string;
+  limit?: number;
+}): Promise<SearchMessagesResponse> {
+  const query = new URLSearchParams();
+  query.set("conversationId", params.conversationId);
+  if (params.keyword) query.set("keyword", params.keyword);
+  if (params.senderId != null) query.set("senderId", String(params.senderId));
+  if (params.fromDate) query.set("fromDate", params.fromDate);
+  if (params.toDate) query.set("toDate", params.toDate);
+  if (params.limit != null) query.set("limit", String(params.limit));
+
+  const res = await authFetch(`${API_BASE}/api/messages/search?${query.toString()}`);
+  return handleJson<SearchMessagesResponse>(res);
+}
+
+export async function searchGlobalMessages(params: {
+  keyword?: string;
+  fromDate?: string;
+  toDate?: string;
+  limit?: number;
+}): Promise<SearchGlobalMessagesResponse> {
+  const query = new URLSearchParams();
+  if (params.keyword) query.set("keyword", params.keyword);
+  if (params.fromDate) query.set("fromDate", params.fromDate);
+  if (params.toDate) query.set("toDate", params.toDate);
+  if (params.limit != null) query.set("limit", String(params.limit));
+
+  const res = await authFetch(`${API_BASE}/api/messages/search/global?${query.toString()}`);
+  return handleJson<SearchGlobalMessagesResponse>(res);
+}
+
+export async function getNotificationConfig(): Promise<NotificationConfig> {
+  const res = await fetch(`${API_BASE}/api/notifications/firebase-config`);
+  return handleJson<NotificationConfig>(res);
+}
+
+export async function registerNotificationDeviceToken(payload: {
+  token: string;
+  platform?: string;
+  deviceName?: string;
+}): Promise<{ message: string; data: { token: string } }> {
+  const res = await authFetch(`${API_BASE}/api/notifications/devices`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return handleJson<{ message: string; data: { token: string } }>(res);
+}
+
+export async function unregisterNotificationDeviceToken(token: string): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/notifications/devices`, {
+    method: "DELETE",
+    body: JSON.stringify({ token }),
+  });
+  await handleJson<{ message: string; removed: boolean }>(res);
+}
+
 // ── Auth token helper (lấy token từ localStorage) ──────────────────────────────
+
+function getAuthStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage;
+}
 
 function getAuthHeaders(): Record<string, string> {
   try {
-    const stored = localStorage.getItem("ott_auth_user");
+    const stored = getAuthStorage()?.getItem("ott_auth_user");
     if (stored) {
       const user: AuthUser = JSON.parse(stored);
       return { Authorization: `Bearer ${user.token}` };
@@ -102,7 +171,7 @@ function getAuthHeaders(): Record<string, string> {
 
 function getStoredUser(): AuthUser | null {
   try {
-    const raw = localStorage.getItem("ott_auth_user");
+    const raw = getAuthStorage()?.getItem("ott_auth_user");
     if (!raw) return null;
     return JSON.parse(raw) as AuthUser;
   } catch {
@@ -111,7 +180,7 @@ function getStoredUser(): AuthUser | null {
 }
 
 function persistStoredUser(user: AuthUser) {
-  localStorage.setItem("ott_auth_user", JSON.stringify(user));
+  getAuthStorage()?.setItem("ott_auth_user", JSON.stringify(user));
 }
 
 let refreshPromise: Promise<string | null> | null = null;
@@ -184,7 +253,7 @@ async function authFetch(
 
   const newToken = await refreshAccessToken();
   if (!newToken) {
-    localStorage.removeItem("ott_auth_user");
+    getAuthStorage()?.removeItem("ott_auth_user");
     return response;
   }
 
@@ -312,6 +381,13 @@ export interface SendOTPResponse {
   debugOtp?: string;
 }
 
+export interface PasswordRecoveryStartResponse {
+  recoveryToken: string;
+  channel: "email" | "phone";
+  target: string;
+  expiresIn: number;
+}
+
 export interface PresignedUploadResponse {
   uploadUrl: string;
   key: string;
@@ -386,6 +462,41 @@ export async function verifyPhoneOTP(
 ): Promise<{ message: string }> {
   const res = await authFetch(`${API_BASE}/api/users/verify/phone/confirm`, {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return handleJson<{ message: string }>(res);
+}
+
+export async function startPasswordRecovery(payload: {
+  identifier: string;
+}): Promise<PasswordRecoveryStartResponse> {
+  const res = await fetch(`${API_BASE}/api/users/recovery/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return handleJson<PasswordRecoveryStartResponse>(res);
+}
+
+export async function verifyPasswordRecoveryOTP(payload: {
+  recoveryToken: string;
+  otp: string;
+}): Promise<{ message: string }> {
+  const res = await fetch(`${API_BASE}/api/users/recovery/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return handleJson<{ message: string }>(res);
+}
+
+export async function resetPasswordWithRecovery(payload: {
+  recoveryToken: string;
+  newPassword: string;
+}): Promise<{ message: string }> {
+  const res = await fetch(`${API_BASE}/api/users/recovery/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   return handleJson<{ message: string }>(res);

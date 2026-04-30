@@ -25,6 +25,11 @@ import {
   Trash2,
   Share2,
   Sparkles,
+  Bell,
+  BellOff,
+  Pin,
+  Info,
+  X,
   Mic,
   X,
   Square,
@@ -40,9 +45,14 @@ import {
   type GroupChatMessage,
 } from "../hooks/useGroupChat";
 import { getGroupMembers } from "../api";
-import { getPresignedViewUrl } from "../../../api/client";
+import {
+  getPresignedViewUrl,
+  searchConversationMessages,
+  searchGlobalMessages,
+} from "../../../api/client";
 import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
+import { useGroupsStore } from "../../groups/store/groupsStore";
 import type { AuthUser } from "../../../types";
 import { askBot } from "../api";
 import ForwardMessageModal from "./ForwardMessageModal";
@@ -52,6 +62,11 @@ import CallOverlay from "@/features/chat/components/CallOverlay";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
 import type { StickerData } from "../../../types";
+import {
+  formatSearchDateTime,
+  getMessageDomId,
+  highlightKeyword,
+} from "../utils/messageSearch";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -63,6 +78,19 @@ interface AiConversationTurn {
   role: "user" | "assistant";
   content: string;
 }
+
+interface MessageSearchRow {
+  id: string | number;
+  senderId: string | number;
+  senderDisplayName?: string;
+  senderAvatarUrl?: string | null;
+  content: string;
+  contentType?: string;
+  createdAt: string;
+  conversationId: string;
+}
+
+type SearchScope = "conversation" | "global";
 
 const AI_HISTORY_STORAGE_PREFIX = "ott_ai_history_v1";
 
@@ -758,7 +786,11 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     pendingAiPrompt,
     clearPendingAiPrompt,
     setOutgoingCall,
+    friends,
+    setSelectedFriend,
+    setSelectedGroup,
   } = useChatStore();
+  const { myGroups } = useGroupsStore();
 
   const {
     isRecording,
@@ -858,10 +890,38 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   );
   const [isAskingAI, setIsAskingAI] = useState(false);
   const [aiError, setAiError] = useState("");
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchScope, setSearchScope] = useState<SearchScope>("conversation");
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [searchFromDate, setSearchFromDate] = useState("");
+  const [searchToDate, setSearchToDate] = useState("");
+  const [searchResults, setSearchResults] = useState<MessageSearchRow[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
+  const [pendingFocusMessageId, setPendingFocusMessageId] = useState<string | null>(null);
+  const focusTimeoutRef = useRef<number | null>(null);
+
+  const todayDateString = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }, []);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isConnected = status === "connected";
+
+  const activeConversationId = useMemo(() => {
+    if (chatMode === "GROUP") {
+      return selectedGroup ? groupConversationId(selectedGroup.groupId) : null;
+    }
+    if (!selectedFriend?.friend_id) return null;
+    return dmConversationId(currentUserId, selectedFriend.friend_id);
+  }, [chatMode, currentUserId, selectedFriend?.friend_id, selectedGroup]);
 
   // ── Emoji / Sticker Picker state ─────────────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -1342,6 +1402,181 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     void handleAskAI();
   }
 
+  async function handleSearchMessages(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (searchScope === "conversation" && !activeConversationId) {
+      setSearchError("Vui lòng chọn một cuộc trò chuyện trước.");
+      return;
+    }
+
+    setSearchLoading(true);
+    setSearchError("");
+    try {
+      const response =
+        searchScope === "conversation"
+          ? await searchConversationMessages({
+              conversationId: activeConversationId as string,
+              keyword: searchKeyword.trim() || undefined,
+              fromDate: searchFromDate || undefined,
+              toDate: searchToDate || undefined,
+              limit: 100,
+            })
+          : await searchGlobalMessages({
+              keyword: searchKeyword.trim() || undefined,
+              fromDate: searchFromDate || undefined,
+              toDate: searchToDate || undefined,
+              limit: 100,
+            });
+      setSearchResults((response.data || []) as MessageSearchRow[]);
+    } catch (error: any) {
+      setSearchResults([]);
+      setSearchError(
+        error?.message || "Không thể tìm kiếm tin nhắn, vui lòng thử lại",
+      );
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setSearchOpen(false);
+    setSearchScope("conversation");
+    setSearchResults([]);
+    setSearchError("");
+    setSearchKeyword("");
+    setSearchFromDate("");
+    setSearchToDate("");
+  }, [activeConversationId]);
+
+  function triggerFocusMessage(messageId: string | number) {
+    const domId = getMessageDomId(messageId);
+    const target = document.getElementById(domId);
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFocusedMessageId(String(messageId));
+
+    if (focusTimeoutRef.current != null) {
+      window.clearTimeout(focusTimeoutRef.current);
+    }
+    focusTimeoutRef.current = window.setTimeout(() => {
+      setFocusedMessageId(null);
+      focusTimeoutRef.current = null;
+    }, 1800);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (focusTimeoutRef.current != null) {
+        window.clearTimeout(focusTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!pendingFocusMessageId) return;
+    const t = window.setTimeout(() => {
+      triggerFocusMessage(pendingFocusMessageId);
+      setPendingFocusMessageId(null);
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [
+    pendingFocusMessageId,
+    activeConversationId,
+    chatMode,
+    groupMessages,
+    dmMessages,
+  ]);
+
+  function handleSearchResultClick(item: MessageSearchRow) {
+    const targetConversationId = String(item.conversationId || "");
+    if (!targetConversationId) return;
+
+    if (targetConversationId === activeConversationId) {
+      triggerFocusMessage(item.id);
+      return;
+    }
+
+    if (targetConversationId.startsWith("dm:")) {
+      const ids = targetConversationId.slice(3).split(":");
+      const friendId = ids.find((id) => String(id) !== String(currentUserId));
+      const targetFriend = friends.find(
+        (friend) => String(friend.friend_id) === String(friendId || ""),
+      );
+      if (!targetFriend) {
+        addToast("Khong tim thay cuoc tro chuyen ca nhan tu ket qua nay", "error");
+        return;
+      }
+      setSelectedFriend(targetFriend);
+      setPendingFocusMessageId(String(item.id));
+      setSearchOpen(false);
+      return;
+    }
+
+    const targetGroup = myGroups.find(
+      (group) => String(group.groupId) === targetConversationId,
+    );
+    if (!targetGroup) {
+      addToast("Khong tim thay nhom tu ket qua nay", "error");
+      return;
+    }
+
+    setSelectedGroup(targetGroup as any);
+    setPendingFocusMessageId(String(item.id));
+    setSearchOpen(false);
+  }
+
+  function handleSearchFromDateChange(value: string) {
+    setSearchFromDate(value);
+    if (!value) {
+      setSearchToDate("");
+      return;
+    }
+
+    // Khi user vừa chọn ngày bắt đầu, mặc định ngày kết thúc giống ngày bắt đầu.
+    if (!searchToDate || searchToDate < value) {
+      setSearchToDate(value);
+    }
+  }
+
+  function handleSearchToDateChange(value: string) {
+    if (searchFromDate && value && value < searchFromDate) {
+      setSearchToDate(searchFromDate);
+      return;
+    }
+    setSearchToDate(value);
+  }
+
+  function getSearchResultContext(item: MessageSearchRow) {
+    const senderName = item.senderDisplayName || `Người dùng ${item.senderId}`;
+    const conversationId = String(item.conversationId || "");
+
+    if (conversationId.startsWith("dm:")) {
+      const ids = conversationId.slice(3).split(":");
+      const friendId = ids.find((id) => String(id) !== String(currentUserId));
+      const friend = friends.find(
+        (entry) => String(entry.friend_id) === String(friendId || ""),
+      );
+      const dmName =
+        friend?.friend_display_name ||
+        friend?.friend_username ||
+        friendId ||
+        "cuộc trò chuyện cá nhân";
+      return `Gửi bởi ${senderName} trong cuộc trò chuyện với ${dmName}`;
+    }
+
+    const group = myGroups.find(
+      (entry) => String(entry.groupId) === conversationId,
+    );
+    const groupName =
+      group?.name ||
+      (selectedGroup && String(selectedGroup.groupId) === conversationId
+        ? selectedGroup.name
+        : conversationId);
+
+    return `Gửi bởi ${senderName} trong nhóm ${groupName}`;
+  }
+
   // ── Emoji / Sticker picker handlers ────────────────────────────────────
   async function handleEmojiSelect(emoji: string) {
     setPickerOpen(false);
@@ -1480,6 +1715,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             type="button"
             className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
             title="Tìm kiếm"
+            onClick={() => setSearchOpen((prev) => !prev)}
+            disabled={!activeConversationId}
           >
             <Search className="w-5 h-5" />
           </button>
@@ -1530,32 +1767,43 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         )}
 
         {activeMessages.map((msg) => {
+          const wrapperClass =
+            focusedMessageId != null && String(msg.id) === focusedMessageId
+              ? "rounded-xl bg-yellow-100/70 ring-1 ring-yellow-300 transition-all"
+              : "";
+
           // System message
           if (isSystemMessage(msg)) {
-            return <SystemMessageBubble key={msg.id} content={msg.content} />;
+            return (
+              <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <SystemMessageBubble content={msg.content} />
+              </div>
+            );
           }
 
           if (chatMode === "GROUP") {
             return (
-              <GroupMessageBubble
-                key={msg.id}
-                msg={msg}
-                authUserId={currentUserId}
-                senderAvatarUrl={resolveDisplayAvatar(msg.senderAvatarUrl)}
-                onContextMenu={handleMessageContextMenu}
-              />
+              <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <GroupMessageBubble
+                  msg={msg}
+                  authUserId={currentUserId}
+                  senderAvatarUrl={resolveDisplayAvatar(msg.senderAvatarUrl)}
+                  onContextMenu={handleMessageContextMenu}
+                />
+              </div>
             );
           }
 
           return (
-            <PrivateMessageBubble
-              key={msg.id}
-              msg={msg}
-              friendName={friendName}
-              friendAvatarUrl={selectedFriend?.friend_avatar_url ?? null}
-              authUserId={currentUserId}
-              onContextMenu={handleMessageContextMenu}
-            />
+            <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
+              <PrivateMessageBubble
+                msg={msg}
+                friendName={friendName}
+                friendAvatarUrl={selectedFriend?.friend_avatar_url ?? null}
+                authUserId={currentUserId}
+                onContextMenu={handleMessageContextMenu}
+              />
+            </div>
           );
         })}
 
@@ -1631,6 +1879,155 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   return (
     <div className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0">
       {renderHeader()}
+
+      {searchOpen && !isAiChatOpen && (
+        <div className="absolute right-4 top-20 z-20 w-[min(92vw,720px)] rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden">
+          <form
+            className="border-b border-gray-100 p-4 space-y-3"
+            onSubmit={handleSearchMessages}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">
+                  Tìm kiếm tin nhắn
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Lọc theo từ khóa, khoảng thời gian và phạm vi tìm kiếm.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSearchOpen(false)}
+                className="text-xs font-medium text-gray-500 hover:text-gray-800"
+              >
+                Đóng
+              </button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="space-y-1 text-xs text-gray-600">
+                <span>Từ khóa</span>
+                <input
+                  value={searchKeyword}
+                  onChange={(e) => setSearchKeyword(e.target.value)}
+                  placeholder="Ví dụ: họp, file, ảnh..."
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </label>
+              <label className="space-y-1 text-xs text-gray-600">
+                <span>Từ ngày</span>
+                <input
+                  type="date"
+                  value={searchFromDate}
+                  max={searchToDate || todayDateString}
+                  onChange={(e) => handleSearchFromDateChange(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </label>
+              <label className="space-y-1 text-xs text-gray-600">
+                <span>Đến ngày</span>
+                <input
+                  type="date"
+                  value={searchToDate}
+                  min={searchFromDate || undefined}
+                  max={todayDateString}
+                  onChange={(e) => handleSearchToDateChange(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center gap-3 text-xs text-gray-600">
+              <span className="font-medium">Phạm vi:</span>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="search-scope"
+                  checked={searchScope === "conversation"}
+                  onChange={() => setSearchScope("conversation")}
+                />
+                Cuộc trò chuyện hiện tại
+              </label>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="search-scope"
+                  checked={searchScope === "global"}
+                  onChange={() => setSearchScope("global")}
+                />
+                Tin nhắn tổng
+              </label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={
+                  searchLoading ||
+                  (searchScope === "conversation" && !activeConversationId)
+                }
+                className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {searchLoading ? "Đang tìm..." : "Tìm ngay"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchKeyword("");
+                  setSearchFromDate("");
+                  setSearchToDate("");
+                  setSearchResults([]);
+                  setSearchError("");
+                }}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              >
+                Xóa bộ lọc
+              </button>
+            </div>
+
+            {searchError && (
+              <p className="text-sm text-red-600">{searchError}</p>
+            )}
+          </form>
+
+          <div className="max-h-[42vh] overflow-y-auto">
+            {searchResults.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-gray-500">
+                {searchLoading
+                  ? "Đang tải kết quả..."
+                  : "Nhập điều kiện rồi bấm Tìm ngay để xem kết quả."}
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {searchResults.map((item) => (
+                  <button
+                    key={`${item.conversationId}-${item.id}`}
+                    type="button"
+                    onClick={() => handleSearchResultClick(item)}
+                    className="w-full px-4 py-3 text-left hover:bg-blue-50/60 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-3 text-xs text-gray-500">
+                      <span className="font-medium text-gray-700">
+                        {item.senderDisplayName || `Người gửi ${item.senderId}`}
+                      </span>
+                      <span>{formatSearchDateTime(item.createdAt)}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap break-words">
+                      {highlightKeyword(
+                        item.content || "[Không có nội dung]",
+                        searchKeyword,
+                      )}
+                    </p>
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      {getSearchResultContext(item)}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {isAiChatOpen ? renderAiMessages() : renderMessages()}
 

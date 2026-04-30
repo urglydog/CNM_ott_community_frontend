@@ -6,9 +6,14 @@ const AUTH_STORAGE_KEY = "ott_auth_user";
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
 
+function getAuthStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage;
+}
+
 function getToken(): string | null {
   try {
-    const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+    const stored = getAuthStorage()?.getItem(AUTH_STORAGE_KEY);
     if (stored) {
       const user: AuthUser = JSON.parse(stored);
       return user.token || null;
@@ -21,7 +26,7 @@ function getToken(): string | null {
 
 function getStoredAuth(): AuthUser | null {
   try {
-    const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+    const stored = getAuthStorage()?.getItem(AUTH_STORAGE_KEY);
     if (!stored) return null;
     return JSON.parse(stored) as AuthUser;
   } catch {
@@ -30,7 +35,7 @@ function getStoredAuth(): AuthUser | null {
 }
 
 function persistStoredAuth(user: AuthUser) {
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+  getAuthStorage()?.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
 }
 
 let refreshPromise: Promise<string | null> | null = null;
@@ -108,7 +113,7 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       }
 
-      localStorage.removeItem(AUTH_STORAGE_KEY);
+      getAuthStorage()?.removeItem(AUTH_STORAGE_KEY);
       window.dispatchEvent(new Event("auth:logout"));
       return Promise.reject(new Error("SESSION_EXPIRED"));
     }

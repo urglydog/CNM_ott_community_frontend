@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   X,
   Mail,
-  Phone,
   Send,
   Loader2,
   KeyRound,
@@ -16,14 +15,12 @@ import {
 } from "lucide-react";
 import { VALIDATION_PATTERNS } from "../../contexts/AuthContext";
 import {
-  sendEmailOTP,
-  verifyEmailOTP,
-  sendPhoneOTP,
-  verifyPhoneOTP,
+  resetPasswordWithRecovery,
+  startPasswordRecovery,
+  verifyPasswordRecoveryOTP,
 } from "../../api/client";
 
-type VerificationStep = "choose" | "sending" | "verifying" | "reset" | "done";
-type VerificationType = "email" | "phone" | null;
+type VerificationStep = "enter" | "verifying" | "reset" | "done";
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -36,9 +33,11 @@ export default function ForgotPasswordModal({
   onClose,
   onSuccess,
 }: ForgotPasswordModalProps) {
-  const [step, setStep] = useState<VerificationStep>("choose");
-  const [type, setType] = useState<VerificationType>(null);
+  const [step, setStep] = useState<VerificationStep>("enter");
   const [identifier, setIdentifier] = useState("");
+  const [recoveryToken, setRecoveryToken] = useState("");
+  const [recoveryChannel, setRecoveryChannel] = useState<"email" | "phone" | null>(null);
+  const [recoveryTarget, setRecoveryTarget] = useState("");
   const [otp, setOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -46,10 +45,7 @@ export default function ForgotPasswordModal({
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [otpSent, setOtpSent] = useState(false);
-  const [expiresIn, setExpiresIn] = useState(0);
 
-  // Validate new password
   const validateNewPassword = (pw: string): string | null => {
     if (pw.length < 8) return "Mật khẩu phải có ít nhất 8 ký tự";
     if (!/[A-Z]/.test(pw)) return "Phải có ít nhất 1 chữ hoa (A-Z)";
@@ -59,17 +55,18 @@ export default function ForgotPasswordModal({
   };
 
   const resetForm = useCallback(() => {
-    setStep("choose");
-    setType(null);
+    setStep("enter");
     setIdentifier("");
+    setRecoveryToken("");
+    setRecoveryChannel(null);
+    setRecoveryTarget("");
     setOtp("");
     setNewPassword("");
     setConfirmPassword("");
     setShowPassword(false);
     setShowConfirm(false);
     setError(null);
-    setOtpSent(false);
-    setExpiresIn(0);
+    setLoading(false);
   }, []);
 
   const handleClose = () => {
@@ -77,33 +74,37 @@ export default function ForgotPasswordModal({
     onClose();
   };
 
-  const handleSendOTP = async () => {
+  const handleFinish = () => {
+    resetForm();
+    onSuccess?.();
+    onClose();
+  };
+
+  const handleStartRecovery = async () => {
     setError(null);
-    if (!identifier.trim()) {
+
+    const trimmed = identifier.trim();
+    if (!trimmed) {
       setError("Vui lòng nhập email hoặc số điện thoại");
       return;
     }
-    const trimmed = identifier.trim();
-    const isEmail = VALIDATION_PATTERNS.email.test(trimmed);
+
     const isPhone = VALIDATION_PATTERNS.phone.test(trimmed);
-    if (!isEmail && !isPhone) {
-      setError("Định dạng email hoặc số điện thoại không hợp lệ");
+    const isEmail = VALIDATION_PATTERNS.email.test(trimmed);
+    if (!isPhone && !isEmail) {
+      setError("Email hoặc số điện thoại không hợp lệ");
       return;
     }
+
     setLoading(true);
     try {
-      if (isEmail) {
-        setType("email");
-        await sendEmailOTP(trimmed);
-      } else {
-        setType("phone");
-        await sendPhoneOTP(trimmed);
-      }
+      const result = await startPasswordRecovery({ identifier: trimmed });
+      setRecoveryToken(result.recoveryToken);
+      setRecoveryChannel(result.channel);
+      setRecoveryTarget(result.target);
       setStep("verifying");
-      setOtpSent(true);
-      setExpiresIn(300);
     } catch (err: any) {
-      setError(err.message || "Gửi mã xác thực thất bại");
+      setError(err.message || "Khởi tạo xác thực thất bại");
     } finally {
       setLoading(false);
     }
@@ -115,13 +116,10 @@ export default function ForgotPasswordModal({
       setError("Vui lòng nhập đầy đủ mã 6 số");
       return;
     }
+
     setLoading(true);
     try {
-      if (type === "email") {
-        await verifyEmailOTP({ email: identifier.trim(), otp });
-      } else if (type === "phone") {
-        await verifyPhoneOTP({ phone: identifier.trim(), otp });
-      }
+      await verifyPasswordRecoveryOTP({ recoveryToken, otp });
       setStep("reset");
     } catch (err: any) {
       setError(err.message || "Mã xác thực không đúng");
@@ -132,6 +130,7 @@ export default function ForgotPasswordModal({
 
   const handleResetPassword = async () => {
     setError(null);
+
     const pwErr = validateNewPassword(newPassword);
     if (pwErr) {
       setError(pwErr);
@@ -141,27 +140,12 @@ export default function ForgotPasswordModal({
       setError("Mật khẩu xác nhận không khớp");
       return;
     }
+
     setLoading(true);
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000"}/api/users/reset-password`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            identifier: identifier.trim(),
-            newPassword,
-            otp,
-            type,
-          }),
-        }
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "Đặt lại mật khẩu thất bại");
-      }
+      await resetPasswordWithRecovery({ recoveryToken, newPassword });
       setStep("done");
-      if (onSuccess) onSuccess();
+      onSuccess?.();
     } catch (err: any) {
       setError(err.message || "Đặt lại mật khẩu thất bại");
     } finally {
@@ -174,11 +158,10 @@ export default function ForgotPasswordModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
             <h3 className="text-lg font-bold text-slate-800">Quên mật khẩu</h3>
-            <p className="text-xs text-slate-500">Đặt lại mật khẩu qua Email/SMS</p>
+            <p className="text-xs text-slate-500">Xác thực tài khoản rồi mới đặt lại mật khẩu</p>
           </div>
           <button
             onClick={handleClose}
@@ -189,11 +172,10 @@ export default function ForgotPasswordModal({
         </div>
 
         <div className="p-6">
-          {/* Step: Choose identifier */}
-          {step === "choose" && (
+          {step === "enter" && (
             <div className="space-y-4">
               <p className="text-sm text-slate-600">
-                Nhập email hoặc số điện thoại đã đăng ký để nhận mã xác thực:
+                Nhập đúng email hoặc số điện thoại đã đăng ký để bắt đầu xác thực:
               </p>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -205,7 +187,7 @@ export default function ForgotPasswordModal({
                     setError(null);
                   }}
                   className="w-full border-2 border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                  placeholder="email@example.com hoặc 0912345678"
+                  placeholder="Email hoặc 0912345678"
                 />
               </div>
               {error && (
@@ -215,33 +197,35 @@ export default function ForgotPasswordModal({
                 </div>
               )}
               <button
-                onClick={handleSendOTP}
+                onClick={handleStartRecovery}
                 disabled={loading}
                 className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Đang gửi...
+                    Đang kiểm tra...
                   </>
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    Gửi mã xác thực
+                    Xác thực tài khoản
                   </>
                 )}
               </button>
             </div>
           )}
 
-          {/* Step: Verify OTP */}
           {step === "verifying" && (
             <div className="space-y-4">
               <p className="text-sm text-slate-600">
                 Nhập mã 6 số đã gửi đến{" "}
-                <span className="font-semibold">
-                  {type === "email" ? identifier : `***${identifier.slice(-4)}`}
-                </span>
+                <span className="font-semibold">{recoveryTarget}</span>
+                {recoveryChannel ? (
+                  <span className="ml-1 text-slate-400">
+                    ({recoveryChannel === "email" ? "email" : "số điện thoại"})
+                  </span>
+                ) : null}
               </p>
               <div className="relative">
                 <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -276,12 +260,19 @@ export default function ForgotPasswordModal({
                 ) : (
                   <>
                     <CheckCircle className="w-4 h-4" />
-                    Xác thực
+                    Xác thực OTP
                   </>
                 )}
               </button>
               <button
-                onClick={() => setStep("choose")}
+                onClick={handleStartRecovery}
+                disabled={loading}
+                className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium text-center"
+              >
+                Gửi lại mã xác thực
+              </button>
+              <button
+                onClick={() => setStep("enter")}
                 className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 font-medium text-center"
               >
                 ← Quay lại
@@ -289,12 +280,12 @@ export default function ForgotPasswordModal({
             </div>
           )}
 
-          {/* Step: Reset password */}
           {step === "reset" && (
             <div className="space-y-4">
-              <p className="text-sm text-slate-600">Mã xác thực đúng. Nhập mật khẩu mới:</p>
+              <p className="text-sm text-slate-600">
+                Mã xác thực đúng. Nhập mật khẩu mới:
+              </p>
 
-              {/* New Password */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
                   Mật khẩu mới
@@ -326,7 +317,6 @@ export default function ForgotPasswordModal({
                 )}
               </div>
 
-              {/* Confirm Password */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
                   Xác nhận mật khẩu mới
@@ -377,21 +367,20 @@ export default function ForgotPasswordModal({
             </div>
           )}
 
-          {/* Step: Success */}
           {step === "done" && (
             <div className="text-center py-8 space-y-3">
               <div className="w-16 h-16 mx-auto bg-green-100 rounded-full flex items-center justify-center">
                 <CheckCircle className="w-10 h-10 text-green-500" />
               </div>
-              <h4 className="text-lg font-bold text-slate-800">Đặt lại thành công!</h4>
+              <h4 className="text-lg font-bold text-slate-800">Đổi mật khẩu thành công!</h4>
               <p className="text-sm text-slate-500">
                 Bạn có thể đăng nhập bằng mật khẩu mới.
               </p>
               <button
-                onClick={handleClose}
+                onClick={handleFinish}
                 className="mt-2 w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700"
               >
-                Đóng
+                Quay lại đăng nhập
               </button>
             </div>
           )}

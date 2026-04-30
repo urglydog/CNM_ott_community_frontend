@@ -2,9 +2,14 @@ import apiClient from "../../lib/axios";
 import type { Group, InviteInfo } from "./types";
 import type { AuthUser } from "../../types";
 
+function getAuthStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage;
+}
+
 function getUserId(): string | null {
   try {
-    const stored = localStorage.getItem("ott_auth_user");
+    const stored = getAuthStorage()?.getItem("ott_auth_user");
     if (stored) {
       const user: AuthUser = JSON.parse(stored);
       return String(user.id || user.userId);

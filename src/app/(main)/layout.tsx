@@ -10,6 +10,7 @@ import { useContactsStore } from "../../features/contacts/store/contactsStore";
 import { useGroupsStore } from "../../features/groups/store/groupsStore";
 import { useJoinFriendDmRooms, friendIdFromConversationId } from "../../features/chat/hooks/useChatHooks";
 import { useFriendSocket } from "../../hooks/useFriendSocket";
+import { usePushNotifications } from "../../hooks/usePushNotifications";
 import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
@@ -46,6 +47,8 @@ export default function MainLayout({
 
   const { resetPending: resetContactsStore } = useContactsStore();
   const { reset: resetGroupsStore } = useGroupsStore();
+
+  usePushNotifications();
 
   // Load friends list
   const loadFriends = useCallback(async () => {
@@ -108,7 +111,9 @@ export default function MainLayout({
         const previewContent = msg.content.length > 50
           ? msg.content.substring(0, 50) + '...'
           : msg.content;
-        addToast(`${senderName}: ${previewContent}`, "message");
+        if (document.visibilityState === "visible") {
+          addToast(`${senderName}: ${previewContent}`, "message");
+        }
         return;
       }
 
@@ -129,7 +134,9 @@ export default function MainLayout({
       const previewContent = msg.content.length > 50
         ? msg.content.substring(0, 50) + '...'
         : msg.content;
-      addToast(`${senderName} ở nhóm: ${previewContent}`, "message");
+      if (document.visibilityState === "visible") {
+        addToast(`${senderName} ở nhóm: ${previewContent}`, "message");
+      }
     });
 
     return off;

@@ -478,6 +478,7 @@ export default function AuthScreen() {
                   Quên mật khẩu? Đặt lại bằng email hoặc số điện thoại
                 </button>
               )}
+
             </div>
           </form>
         </div>
@@ -489,7 +490,7 @@ export default function AuthScreen() {
         onClose={() => setShowForgotModal(false)}
         onSuccess={() => {
           setShowForgotModal(false);
-          addToast("Vui lòng đăng nhập lại với mật khẩu mới", "info");
+          addToast("Đổi mật khẩu thành công. Vui lòng đăng nhập lại.", "success");
         }}
       />
     </div>

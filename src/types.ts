@@ -153,3 +153,39 @@ export interface DirectMessagesResponse {
   data: DirectMessageItem[];
   count: number;
 }
+
+export interface NotificationConfig {
+  enabled: boolean;
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  messagingSenderId: string;
+  appId: string;
+  storageBucket?: string;
+  measurementId?: string;
+  vapidKey: string;
+}
+
+export interface SearchMessagesResponse<T = MessageItem | DirectMessageItem> {
+  conversationId: string;
+  keyword: string;
+  filters: {
+    senderId: string | null;
+    fromDate: string | null;
+    toDate: string | null;
+    limit: number;
+  };
+  count: number;
+  data: T[];
+}
+
+export interface SearchGlobalMessagesResponse<T = MessageItem | DirectMessageItem> {
+  keyword: string;
+  filters: {
+    fromDate: string | null;
+    toDate: string | null;
+    limit: number;
+  };
+  count: number;
+  data: T[];
+}

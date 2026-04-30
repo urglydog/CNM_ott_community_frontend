@@ -258,11 +258,12 @@ function ReadByAvatars({
 }
 
 /** Tin nhắn hệ thống (hiển thị giữa màn hình) */
-function SystemMessageBubble({ content }: { content: string }) {
+function SystemMessageBubble({ msg }: { msg: GroupChatMessage }) {
+  const text = msg.senderDisplayName ? `${msg.senderDisplayName} ${msg.content}` : msg.content;
   return (
     <div className="flex justify-center my-2">
       <div className="bg-gray-200/70 text-gray-500 text-xs px-3 py-1 rounded-full">
-        {content}
+        {text}
       </div>
     </div>
   );
@@ -1819,7 +1820,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           if (isSystemMessage(msg)) {
             return (
               <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
-                <SystemMessageBubble content={msg.content} />
+                <SystemMessageBubble msg={msg} />
               </div>
             );
           }

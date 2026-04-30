@@ -42,6 +42,8 @@ export interface GroupChatMessage extends DirectMessageItem {
   senderAvatarUrl?: string | null;
   /** Danh sách người đã đọc tin nhắn (chỉ dùng cho tin nhắn của chính mình) */
   readBy?: ReadReceiptReader[];
+  /** Hàm để trigger reply action - được set từ ChatWindow */
+  onReplyClick?: (message: GroupChatMessage) => void;
 }
 
 /** Tạo conversationId cho nhóm — chính là groupId */
@@ -64,7 +66,7 @@ interface UseGroupChatReturn {
   isLoadingHistory: boolean;
   historyError: string | null;
   currentRoomId: string | null;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, replyTo?: string | number | null) => Promise<void>;
   sendFileMessage: (file: File) => Promise<void>;
   sendStickerMessage: (stickerData: StickerData) => Promise<void>;
   sendEmojiMessage: (emoji: string) => Promise<void>;
@@ -441,7 +443,7 @@ export function useGroupChat(
 
   // ── Gửi tin nhắn nhóm ────────────────────────────────────────────────
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, replyTo?: string | number | null) => {
       if (!currentRoomId || !content.trim()) return;
 
       const tempId = `temp-${Date.now()}`;
@@ -456,6 +458,7 @@ export function useGroupChat(
         sendStatus: "sending",
         senderDisplayName: user?.displayName ?? null,
         senderAvatarUrl: null,
+        replyTo: replyTo || null,
       };
 
       setMessages((prev) => [...prev, optimisticMsg]);
@@ -467,6 +470,8 @@ export function useGroupChat(
           content.trim(),
           "text",
           null,
+          undefined,
+          replyTo || null,
         );
 
         if (result.ok && result.message) {

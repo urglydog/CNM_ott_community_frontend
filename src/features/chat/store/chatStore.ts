@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { FriendItem } from "../../../types";
 import type { Group } from "../../groups/types";
+import type { ReplyToMessage } from "../../../types";
 
 export type ChatMode = "PRIVATE" | "GROUP";
 
@@ -63,6 +64,12 @@ interface ChatState {
   openAiChat: (prompt?: string) => void;
   closeAiChat: () => void;
   clearPendingAiPrompt: () => void;
+
+  // ── Reply Message State ─────────────────────────────────────────────────
+  /** Tin nhắn đang được chọn để trả lời */
+  replyingMessage: ReplyToMessage | null;
+  setReplyingMessage: (message: ReplyToMessage | null) => void;
+  clearReplyingMessage: () => void;
 
   // ── Preview tin nhắn ───────────────────────────────────────────────────
   conversationPreview: Record<string, ConversationPreview>;
@@ -156,6 +163,11 @@ export const useChatStore = create<ChatState>((set) => ({
     }),
   closeAiChat: () => set({ isAiChatOpen: false }),
   clearPendingAiPrompt: () => set({ pendingAiPrompt: "" }),
+
+  // ── Reply Message State ─────────────────────────────────────────────────
+  replyingMessage: null,
+  setReplyingMessage: (message) => set({ replyingMessage: message }),
+  clearReplyingMessage: () => set({ replyingMessage: null }),
 
   // ── Conversation preview ────────────────────────────────────────────────
   conversationPreview: {},
@@ -251,6 +263,7 @@ export const useChatStore = create<ChatState>((set) => ({
       selectedGroup: null,
       isAiChatOpen: false,
       pendingAiPrompt: "",
+      replyingMessage: null,
       conversationPreview: {},
       groupConversationPreview: {},
       unreadCounts: {},

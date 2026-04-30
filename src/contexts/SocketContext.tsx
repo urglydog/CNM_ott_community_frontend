@@ -80,7 +80,8 @@ interface SocketContextValue {
     content: string,
     contentType?: string,
     attachments?: object | null,
-    stickerData?: StickerData
+    stickerData?: StickerData,
+    replyTo?: string | number | null
   ) => Promise<{ ok: boolean; message?: MessageItem; error?: string }>;
   emitTypingStart: (roomId: string) => void;
   emitTypingStop: (roomId: string) => void;
@@ -385,7 +386,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       content: string,
       contentType = "text",
       attachments: object | null = null,
-      stickerData?: StickerData
+      stickerData?: StickerData,
+      replyTo?: string | number | null
     ): Promise<{ ok: boolean; message?: MessageItem; error?: string }> => {
       return new Promise((resolve) => {
         if (!socketRef.current) {
@@ -394,7 +396,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         }
         socketRef.current.emit(
           "send_message",
-          { roomId, content, contentType, attachments, stickerData },
+          { roomId, content, contentType, attachments, stickerData, replyTo },
           (response: { ok: boolean; message?: MessageItem; error?: string }) => {
             resolve(response);
           }

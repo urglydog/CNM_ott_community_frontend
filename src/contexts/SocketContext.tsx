@@ -58,6 +58,15 @@ export interface MessageForwardedPayload {
   };
 }
 
+export interface ReadReceiptPayload {
+  conversationId: string;
+  messageId: string;
+  readerId: string;
+  readerName: string;
+  readerAvatar: string | null;
+  readAt: string;
+}
+
 interface SocketContextValue {
   socket: Socket | null;
   status: SocketStatus;
@@ -79,6 +88,7 @@ interface SocketContextValue {
   emitCallDeclined: (payload: CallSignalPayload) => void;
   emitCallCancel: (payload: CallSignalPayload) => void;
   emitEndCall: (payload: CallSignalPayload) => void;
+  emitMarkRead: (conversationId: string, messageId: string) => void;
   // Event listeners
   onReceiveMessage: (
     handler: (message: MessageItem) => void
@@ -102,6 +112,7 @@ interface SocketContextValue {
   onEndCall: (handler: (data: CallSignalPayload) => void) => () => void;
   onMessageRevoked: (handler: (data: MessageRevokedPayload) => void) => () => void;
   onMessageForwarded: (handler: (data: MessageForwardedPayload) => void) => () => void;
+  onMessageRead: (handler: (data: ReadReceiptPayload) => void) => () => void;
 }
 
 
@@ -393,6 +404,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socketRef.current?.emit("end-call", payload);
   }, []);
 
+  const emitMarkRead = useCallback((conversationId: string, messageId: string) => {
+    socketRef.current?.emit("mark_read", { conversationId, messageId });
+  }, []);
+
   // UI handlers are implemented in CallOverlay.
 
   // ── Event listener helpers (trả về hàm hủy đăng ký) ───────────────────────
@@ -581,6 +596,21 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const onMessageRead = useCallback(
+    (handler: (data: ReadReceiptPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+
+      const listener = (data: ReadReceiptPayload) => handler(data);
+      socket.on("message_read", listener);
+
+      return () => {
+        socket.off("message_read", listener);
+      };
+    },
+    []
+  );
+
   return (
     <SocketContext.Provider
       value={{
@@ -597,6 +627,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         emitCallDeclined,
         emitCallCancel,
         emitEndCall,
+        emitMarkRead,
         onReceiveMessage,
         onRoomJoined,
         onUserJoined,
@@ -609,6 +640,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         onEndCall,
         onMessageRevoked,
         onMessageForwarded,
+        onMessageRead,
 
       }}
     >

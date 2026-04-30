@@ -43,6 +43,13 @@ export interface StickerData {
   stickerName?: string;
 }
 
+export interface ReadReceiptReader {
+  userId: string;
+  readerName: string;
+  readerAvatar?: string | null;
+  readAt: string;
+}
+
 export type AuthUser = {
   id: string | number;
   userId?: string;
@@ -135,6 +142,8 @@ export interface FriendsListResponse {
 
 export interface DirectMessageItem {
   id: number | string;
+  /** Alternative ID field returned by some backend endpoints */
+  messageId?: number | string;
   conversationId: string;
   senderId: string | number;
   contentType: string;

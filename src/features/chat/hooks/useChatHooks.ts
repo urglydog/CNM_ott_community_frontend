@@ -4,16 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSocket } from "../../../contexts/SocketContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useChatStore } from "../store/chatStore";
-import { getDirectMessages, sendDirectFileMessage } from "../api";
+import { getDirectMessages, sendDirectFileMessage, getReadStatusForMessages } from "../api";
 import { getPresignedUploadUrl } from "../../../api/client";
 import { generateVideoThumbnail, handleUploadToS3 } from "../utils/videoUpload";
-import type { DirectMessageItem, StickerData } from "../../../types";
+import type { DirectMessageItem, StickerData, ReadReceiptReader } from "../../../types";
 
-export type MessageSendStatus = "sending" | "sent" | "failed" | "received";
+export type MessageSendStatus = "sending" | "sent" | "delivered" | "read" | "failed";
 
 export interface ChatMessage extends DirectMessageItem {
   sendStatus?: MessageSendStatus;
   isOwn?: boolean;
+  /** Danh sách người đã đọc tin nhắn (chỉ dùng cho tin nhắn của chính mình trong nhóm) */
+  readBy?: ReadReceiptReader[];
 }
 
 export type DmActivityPayload = {
@@ -133,10 +135,12 @@ export function useDirectMessage(
     emitSendMessage,
     emitTypingStart,
     emitTypingStop,
+    emitMarkRead,
     onReceiveMessage,
     onUserTyping,
     onUserStoppedTyping,
     onMessageRevoked,
+    onMessageRead,
   } = useSocket();
   const {
     setConversationPreview,
@@ -180,10 +184,42 @@ export function useDirectMessage(
       setHistoryError(null);
       try {
         const list = await getDirectMessages(roomId);
-        const enriched: ChatMessage[] = list.map((msg) => ({
-          ...msg,
-          isOwn: Number(msg.senderId) === Number(user?.id),
-        }));
+
+        // Get message IDs that are from the current user (for read status check)
+        const myMessageIds = list
+          .filter((m) => Number(m.senderId) === Number(user?.id))
+          .map((m) => String(m.id || m.messageId));
+
+        // Fetch read status for all messages from current user
+        let readStatuses: Record<string, { isRead: boolean; readers: ReadReceiptReader[] }> = {};
+        try {
+          if (myMessageIds.length > 0 && user?.id) {
+            const readStatusResult = await getReadStatusForMessages(roomId, myMessageIds);
+            readStatuses = readStatusResult.statuses || {};
+          }
+        } catch (readErr) {
+          console.warn("[Chat] Could not fetch read statuses:", readErr);
+        }
+
+        const enriched: ChatMessage[] = list.map((msg) => {
+          const msgId = String(msg.id || msg.messageId || "");
+          const isMyMessage = Number(msg.senderId) === Number(user?.id);
+          const readStatus = readStatuses[msgId];
+
+          // Determine initial status based on read receipt
+          let sendStatus: MessageSendStatus = "sent";
+          if (isMyMessage && readStatus?.isRead) {
+            sendStatus = "read";
+          }
+
+          return {
+            ...msg,
+            isOwn: Number(msg.senderId) === Number(user?.id),
+            sendStatus,
+            // Include readers info only for own messages
+            ...(isMyMessage && readStatus?.readers ? { readBy: readStatus.readers } : {}),
+          };
+        });
         setMessages(enriched);
       } catch (err: unknown) {
         setHistoryError(
@@ -266,6 +302,40 @@ export function useDirectMessage(
       );
     });
 
+    // Listen for read receipt events
+    const unsubRead = onMessageRead(({ conversationId, messageId, readerId, readerName, readerAvatar, readAt }) => {
+      if (conversationId !== currentRoomId) return;
+
+      setMessages((prev) =>
+        prev.map((m) => {
+          // Only update messages sent by the current user
+          if (Number(m.senderId) !== Number(user?.id)) return m;
+          // Only update the specific message
+          if (String(m.id || m.messageId) !== String(messageId)) return m;
+
+          // Add reader to readBy array
+          const newReader: ReadReceiptReader = {
+            userId: readerId,
+            readerName,
+            readerAvatar: readerAvatar ?? null,
+            readAt,
+          };
+
+          const existingReaders = m.readBy || [];
+          // Avoid duplicates
+          if (existingReaders.some(r => r.userId === readerId)) {
+            return { ...m, sendStatus: "read" as const };
+          }
+
+          return {
+            ...m,
+            sendStatus: "read" as const,
+            readBy: [...existingReaders, newReader],
+          };
+        }),
+      );
+    });
+
     const unsubTyping = onUserTyping(({ userId, userName }) => {
       setTypingUsers((prev) =>
         prev.includes(userName) ? prev : [...prev, userName],
@@ -284,6 +354,7 @@ export function useDirectMessage(
     return () => {
       unsubReceive();
       unsubRevoked();
+      unsubRead();
       unsubTyping();
       unsubStopTyping();
       emitLeaveRoom(currentRoomId);
@@ -294,6 +365,7 @@ export function useDirectMessage(
     emitLeaveRoom,
     onReceiveMessage,
     onMessageRevoked,
+    onMessageRead,
     onUserTyping,
     onUserStoppedTyping,
     user?.id,
@@ -313,6 +385,29 @@ export function useDirectMessage(
     },
     [currentRoomId, emitTypingStart, emitTypingStop],
   );
+
+  // ─── Auto-mark messages as read ──────────────────────────────────────────
+  const markMessagesAsRead = useCallback(() => {
+    if (messages.length === 0) return;
+
+    // Get the last message that is not from the current user
+    const lastReceivedMessage = [...messages]
+      .reverse()
+      .find((m) => !m.isOwn);
+
+    if (lastReceivedMessage) {
+      const messageId = String(lastReceivedMessage.id || lastReceivedMessage.messageId);
+      console.log(`[Chat] Marking message ${messageId} as read in conversation ${currentRoomId}`);
+      emitMarkRead(currentRoomId, messageId);
+    }
+  }, [messages, currentRoomId, emitMarkRead]);
+
+  // Auto-mark as read when receiving a new message
+  useEffect(() => {
+    if (messages.length > 0) {
+      markMessagesAsRead();
+    }
+  }, [messages.length, markMessagesAsRead]);
 
   // Auto-scroll khi có tin nhắn mới
   useEffect(() => {

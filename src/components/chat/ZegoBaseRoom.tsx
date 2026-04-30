@@ -14,38 +14,40 @@ export default function ZegoBaseRoom({
   const isJoined = useRef(false);
 
   const myMeeting = useCallback(
-    async (element: HTMLDivElement | null) => {
+    (element: HTMLDivElement | null) => {
       if (!element || isJoined.current) return;
       isJoined.current = true;
 
-      try {
-        const { ZegoUIKitPrebuilt } = await import(
-          "@zegocloud/zego-uikit-prebuilt"
-        );
+      void (async () => {
+        try {
+          const { ZegoUIKitPrebuilt } = await import(
+            "@zegocloud/zego-uikit-prebuilt"
+          );
 
-        const kitToken = ZegoUIKitPrebuilt.generateKitTokenForProduction(
-          appId,
-          token,
-          roomId,
-          String(userId),
-          userName
-        );
+          const kitToken = ZegoUIKitPrebuilt.generateKitTokenForProduction(
+            appId,
+            token,
+            roomId,
+            String(userId),
+            userName
+          );
 
-        const zp = ZegoUIKitPrebuilt.create(kitToken);
+          const zp = ZegoUIKitPrebuilt.create(kitToken);
 
-        zp.joinRoom({
-          container: element,
-          scenario: { mode: scenarioMode },
-          showPreJoinView: false,
-          onLeaveRoom: () => {
-            if (typeof onLeave === "function") {
-              onLeave();
-            }
-          },
-        });
-      } catch (error) {
-        console.error("Zego Initialization Error:", error);
-      }
+          zp.joinRoom({
+            container: element,
+            scenario: { mode: scenarioMode },
+            showPreJoinView: false,
+            onLeaveRoom: () => {
+              if (typeof onLeave === "function") {
+                onLeave();
+              }
+            },
+          });
+        } catch (error) {
+          console.error("Zego Initialization Error:", error);
+        }
+      })();
     },
     [roomId, token, userId, userName, appId, scenarioMode, onLeave]
   );

@@ -1,39 +1,10 @@
 "use client";
 
-import {
-  MoreHorizontal,
-  Phone,
-  Search,
-  ThumbsUp,
-  Video,
-  Smile,
-  Image,
-  Paperclip,
-  Link as LinkIcon,
-  MapPin,
-  Contact,
-  CheckSquare,
-  Type,
-  SmilePlus,
-  AtSign,
-  Gift,
-  Loader2,
-  WifiOff,
-  FileText,
-  Users,
-  RotateCcw,
-  Trash2,
-  Share2,
-  Sparkles,
-  Bell,
-  BellOff,
-  Pin,
-  Info,
-  X,
-  Mic,
-  X,
-  Square,
-  Send,
+import { 
+  MoreHorizontal, Phone, Search, ThumbsUp, Video, Smile, Image, 
+  Paperclip, Link as LinkIcon, MapPin, Contact, CheckSquare, Type, 
+  AtSign, Gift, Loader2, WifiOff, FileText, Users, RotateCcw, 
+  Trash2, Share2, Sparkles, X, Mic, Square, Send 
 } from "lucide-react";
 import { useAudioRecorder } from "../hooks/useAudioRecorder";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

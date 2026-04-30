@@ -52,7 +52,7 @@ interface UseDirectMessageReturn {
   isLoadingHistory: boolean;
   historyError: string | null;
   currentRoomId: string | null;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, replyTo?: string | number | null) => Promise<void>;
   sendFileMessage: (file: File) => Promise<void>;
   sendStickerMessage: (stickerData: StickerData) => Promise<void>;
   sendEmojiMessage: (emoji: string) => Promise<void>;
@@ -395,7 +395,7 @@ export function useDirectMessage(
       .reverse()
       .find((m) => !m.isOwn);
 
-    if (lastReceivedMessage) {
+    if (lastReceivedMessage && currentRoomId) {
       const messageId = String(lastReceivedMessage.id || lastReceivedMessage.messageId);
       console.log(`[Chat] Marking message ${messageId} as read in conversation ${currentRoomId}`);
       emitMarkRead(currentRoomId, messageId);
@@ -430,7 +430,7 @@ export function useDirectMessage(
 
   // Gửi tin nhắn DM
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, replyTo?: string | number | null) => {
       if (!currentRoomId || !content.trim()) return;
 
       const tempId = `temp-${Date.now()}`;
@@ -443,6 +443,7 @@ export function useDirectMessage(
         createdAt: new Date().toISOString(),
         isOwn: true,
         sendStatus: "sending",
+        replyTo: replyTo || null,
       };
 
       setMessages((prev) => [...prev, optimisticMsg]);
@@ -454,6 +455,8 @@ export function useDirectMessage(
           content.trim(),
           "text",
           null,
+          undefined,
+          replyTo || null,
         );
 
         if (result.ok && result.message) {

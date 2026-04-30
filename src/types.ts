@@ -21,6 +21,8 @@ export type MessageItem = {
   stickerData?: StickerData;
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
+  replyTo?: string | number | null;
+  replyToMessage?: ReplyToMessage | null;
   createdAt: string;
   senderDisplayName?: string | null;
   senderAvatarUrl?: string | null;
@@ -34,6 +36,20 @@ export interface MessageAttachment {
   mimeType?: string | null;
   key?: string | null;
   name?: string | null;
+}
+
+/**
+ * Thông tin cơ bản của tin nhắn gốc đang được trả lời.
+ * Dùng để hiển thị preview trong UI.
+ */
+export interface ReplyToMessage {
+  id: string | number;
+  content: string;
+  contentType: string;
+  senderId: string | number;
+  senderDisplayName?: string | null;
+  senderAvatarUrl?: string | null;
+  attachments?: MessageAttachment[] | null;
 }
 
 export interface StickerData {
@@ -151,6 +167,10 @@ export interface DirectMessageItem {
   stickerData?: StickerData;
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
+  /** ID của tin nhắn đang được trả lời */
+  replyTo?: string | number | null;
+  /** Thông tin đã populate của tin nhắn gốc (hiển thị preview) */
+  replyToMessage?: ReplyToMessage | null;
   createdAt: string;
   /** Display name của người gửi, do backend enrich khi trả message */
   senderDisplayName?: string | null;

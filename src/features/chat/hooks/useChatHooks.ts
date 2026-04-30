@@ -421,11 +421,14 @@ export function useDirectMessage(
       const tempId = `temp-file-${Date.now()}`;
       const tempUrl = URL.createObjectURL(file);
       const isVideo = file.type.startsWith("video/");
+      const isVoice = file.type.startsWith("audio/");
       const attachmentType = isVideo
         ? "video"
         : file.type.startsWith("image/")
           ? "image"
-          : "file";
+          : isVoice
+            ? "voice"
+            : "file";
 
       if (isVideo && file.size > MAX_VIDEO_FILE_SIZE) {
         URL.revokeObjectURL(tempUrl);

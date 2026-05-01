@@ -116,7 +116,14 @@ export function MessageSearchPanel({
   }
 
   return (
-    <div className="absolute right-4 top-20 z-20 w-[min(92vw,720px)] rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden">
+    <>
+      <div 
+        className="fixed inset-0 z-[55] bg-black/5" 
+        onClick={onClose}
+      />
+      <div className="absolute right-4 top-20 z-[60] w-[min(92vw,720px)] rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden">
+
+
       <form
         className="border-b border-gray-100 p-4 space-y-3"
         onSubmit={onSearch}
@@ -256,5 +263,7 @@ export function MessageSearchPanel({
         )}
       </div>
     </div>
+    </>
   );
 }
+

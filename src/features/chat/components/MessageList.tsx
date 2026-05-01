@@ -102,9 +102,11 @@ export function MessageList({
         const wrapperClass =
           focusedMessageId != null && String(msg.id) === focusedMessageId
             ? isFocusBlue
-              ? "rounded-xl bg-blue-50/20 ring-1 ring-blue-200/50 transition-all"
-              : "rounded-xl bg-yellow-100/70 ring-1 ring-yellow-300 transition-all"
-            : "";
+              ? "rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20 transition-all duration-700 py-2 px-2 mx-1 shadow-sm"
+              : "rounded-xl bg-yellow-400/15 ring-1 ring-yellow-400/30 transition-all duration-700 py-2 px-2 mx-1 shadow-sm"
+            : "px-2 py-2";
+
+
 
 
         // System message

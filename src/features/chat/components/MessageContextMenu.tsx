@@ -8,6 +8,7 @@ import {
   Share2,
   Smile,
   Trash2,
+  Pin,
 } from "lucide-react";
 
 interface MessageContextMenuProps {
@@ -18,9 +19,11 @@ interface MessageContextMenuProps {
   onRevoke: () => void;
   onDeleteForMe: () => void;
   onForward: () => void;
+  onPin?: () => void;
   isDeleting: boolean;
   onClose: () => void;
 }
+
 
 export function MessageContextMenu({
   x,
@@ -30,7 +33,9 @@ export function MessageContextMenu({
   onRevoke,
   onDeleteForMe,
   onForward,
+  onPin,
   isDeleting,
+
   onClose,
 }: MessageContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -113,7 +118,23 @@ export function MessageContextMenu({
         </button>
       )}
 
+      {/* Nút Ghim tin nhắn */}
+      <button
+        type="button"
+        onClick={() => {
+          onPin?.();
+          onClose();
+        }}
+        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left hover:bg-blue-50 transition-colors text-blue-600 group"
+      >
+        <span className="w-6 h-6 rounded-full bg-blue-50 group-hover:bg-blue-100 flex items-center justify-center transition-colors">
+          <Pin className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
+        </span>
+        <span className="text-sm font-medium text-blue-600">Ghim tin nhắn</span>
+      </button>
+
       {/* Nút Chuyển tiếp — hiện cho MỌI tin nhắn (kể cả đã thu hồi trên Zalo UX) */}
+
       <button
         type="button"
         onClick={() => {

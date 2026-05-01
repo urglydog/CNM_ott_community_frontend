@@ -582,3 +582,38 @@ export async function getPresignedViewUrl(params: {
   );
   return handleJson<PresignedViewResponse>(res);
 }
+
+// ── Friend Settings API ─────────────────────────────────────────────────────────
+
+export async function updateFriendNickname(payload: {
+  friendshipId: string;
+  nickname: string | null;
+}): Promise<{ message: string; data: { friendshipId: string; nickname: string | null } }> {
+  const res = await authFetch(`${API_BASE}/api/friends/nickname`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  return handleJson(res);
+}
+
+export async function updateChatBackground(payload: {
+  friendshipId: string;
+  bgUrl: string | null;
+  bothSides?: boolean;
+}): Promise<{ message: string; data: { friendshipId: string; chatBgUrl: string | null } }> {
+  const res = await authFetch(`${API_BASE}/api/friends/chat-background`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  return handleJson(res);
+}
+
+export async function getChatBackground(
+  friendshipId: string,
+): Promise<{ chatBgUrl: string | null }> {
+  const res = await authFetch(
+    `${API_BASE}/api/friends/chat-background/${encodeURIComponent(friendshipId)}`,
+  );
+  return handleJson(res);
+}
+

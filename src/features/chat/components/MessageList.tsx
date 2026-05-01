@@ -3,7 +3,7 @@
 import { Loader2, Smile } from "lucide-react";
 import type { GroupChatMessage } from "../hooks/useGroupChat";
 import type { GroupMember } from "../../groups/types";
-import type { Friend } from "../../../types";
+import type { FriendItem } from "../../../types";
 import type { ChatMode } from "../store/chatStore";
 import { GroupMessageBubble } from "./GroupMessageBubble";
 import { PrivateMessageBubble } from "./PrivateMessageBubble";
@@ -18,11 +18,12 @@ interface MessageListProps {
   currentUserId: string;
   groupName: string;
   friendName: string;
-  selectedFriend?: Friend | null;
+  selectedFriend?: FriendItem | null;
   groupMembers?: GroupMember[];
   focusedMessageId: string | null;
   activeScrollRef: React.RefObject<HTMLDivElement>;
   activeSentinelRef: React.RefObject<HTMLDivElement>;
+  onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
   onMessageContextMenu?: (
     e: React.MouseEvent,
     msg: GroupChatMessage,
@@ -47,6 +48,7 @@ export function MessageList({
   focusedMessageId,
   activeScrollRef,
   activeSentinelRef,
+  onScroll,
   onMessageContextMenu,
   onReplyToMessage,
   onJumpToMessage,
@@ -57,6 +59,7 @@ export function MessageList({
   return (
     <div
       ref={activeScrollRef}
+      onScroll={onScroll}
       className="flex-1 overflow-y-auto p-4 flex flex-col"
     >
       {isLoading && (

@@ -291,7 +291,9 @@ export function useDirectMessage(
     emitJoinRoom(currentRoomId);
 
     const unsubReceive = onReceiveMessage((newMsg) => {
-      if (Number(newMsg.senderId) === Number(user?.id)) return;
+      // Chặn tin nhắn của chính mình, NGOẠI TRỪ call_log (cả 2 bên đều cần thấy)
+      const isCallLog = (newMsg as any).contentType === "call_log" || (newMsg as any).messageType === "call_log";
+      if (!isCallLog && Number(newMsg.senderId) === Number(user?.id)) return;
       if (!isSameDmConversation(newMsg.conversationId, currentRoomId)) return;
 
       // Cập nhật preview trong store

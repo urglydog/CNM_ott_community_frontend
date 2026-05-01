@@ -7,7 +7,7 @@ import type { FriendItem } from "../../../types";
 import type { ChatMode } from "../store/chatStore";
 import { GroupMessageBubble } from "./GroupMessageBubble";
 import { PrivateMessageBubble } from "./PrivateMessageBubble";
-import { SystemMessageBubble } from "./GroupMessageBubble";
+import { SystemMessageBubble, GroupCallStartedBanner } from "./GroupMessageBubble";
 import { getMessageDomId } from "../utils/messageSearch";
 
 interface MessageListProps {
@@ -33,6 +33,7 @@ interface MessageListProps {
   onReplyToMessage?: (msg: GroupChatMessage) => void;
   onJumpToMessage?: (messageId: string | number) => void;
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
+  onJoinGroupCall?: (roomId: string) => void;
 }
 
 export function MessageList({
@@ -53,8 +54,12 @@ export function MessageList({
   onReplyToMessage,
   onJumpToMessage,
   resolveDisplayAvatar,
+  onJoinGroupCall,
 }: MessageListProps) {
   const isSystemMessage = (msg: GroupChatMessage) => msg.contentType === "system";
+  const isGroupCallStarted = (msg: GroupChatMessage) =>
+    (msg as any).contentType === "group_call_started" ||
+    (msg as any).messageType === "group_call_started";
 
   return (
     <div
@@ -100,6 +105,15 @@ export function MessageList({
           return (
             <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
               <SystemMessageBubble msg={msg} />
+            </div>
+          );
+        }
+
+        // Banner cuộc gọi nhóm đang diễn ra — hiển thị nút [Tham gia]
+        if (isGroupCallStarted(msg)) {
+          return (
+            <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
+              <GroupCallStartedBanner msg={msg} onJoin={onJoinGroupCall} />
             </div>
           );
         }

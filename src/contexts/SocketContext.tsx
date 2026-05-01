@@ -292,17 +292,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     };
 
     const handleGroupCallRequest = (data: CallSignalPayload) => {
-      console.log("[SOCKET DEBUG] Group Call Signal Received:", data);
-
       const roomId = String(data?.roomId || "").trim();
-      if (!roomId) {
-        console.warn("[SOCKET DEBUG] Ignored group-call-request because roomId is missing");
-        return;
-      }
+      if (!roomId) return;
 
       const callerId = String(data.callerId || "");
+      // Bỏ qua nếu chính mình là caller
       if (callerId && callerId === resolvedUserId) return;
 
+      // Set incomingCall để hiện chuông + IncomingCallModal (như 1-1)
+      // Khi Decline: chỉ đóng modal local, KHÔNG emit call-rejected
       setIncomingCall({
         ...data,
         roomId,
@@ -310,7 +308,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         receiverId: String(data.receiverId || resolvedUserId),
         isGroupCall: true,
       });
-
     };
 
     const handleCallEnded = (payload: CallSignalPayload) => {

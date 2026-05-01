@@ -48,6 +48,7 @@ import { AiChatMessages, type AiConversationTurn } from "./AiChatMessages";
 import { MessageSearchPanel } from "./MessageSearchPanel";
 import EmojiStickerPicker from "./EmojiStickerPicker";
 import ForwardMessageModal from "./ForwardMessageModal";
+import apiClient from "../../../lib/axios";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -77,6 +78,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     pendingAiPrompt,
     clearPendingAiPrompt,
     setOutgoingCall,
+    setActiveCall,
     friends,
     setSelectedFriend,
     setSelectedGroup,
@@ -747,23 +749,30 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           callerId: currentUserId,
           callerName: currentUserName,
         };
-        console.debug(
-          "[ChatWindow][emit group-call-request] payload:",
-          groupCallPayload,
-        );
+        // Emit socket để backend lưu group_call_started và broadcast banner
         emitCallUser({
           ...groupCallPayload,
           receiverId: String(selectedGroup!.groupId),
           conversationId,
           isGroupCall: true,
         });
-        setOutgoingCall({
-          roomId: safeRoomId,
-          conversationId,
-          receiverId: String(selectedGroup!.groupId),
-          receiverName: groupName || "Nhom",
-          isGroupCall: true,
-        });
+        // Caller join phòng ngay (không cần cần cần chờ ai accept) — lấy token rồi set activeCall
+        try {
+          const response = await apiClient.get<{ appID: number; token: string }>("/api/calls/token", {
+            params: { userID: currentUserId },
+          });
+          setActiveCall({
+            roomId: safeRoomId,
+            token: String(response.data.token),
+            appId: Number(response.data.appID),
+            conversationId,
+            remoteUserId: String(selectedGroup!.groupId),
+            remoteUserName: groupName || "Nhóm",
+            isGroupCall: true,
+          });
+        } catch {
+          addToast("Không thể tạo phòng gọi nhóm", "error", 2500);
+        }
       } else {
         const oneToOnePayload = {
           roomId: safeRoomId,
@@ -786,6 +795,28 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       }
     } catch {
       addToast("Khong the bat dau cuoc goi", "error", 2500);
+    }
+  }
+
+  /** Tham gia phòng gọi nhóm đang diễn ra (từ nút [Tham gia] trong banner) */
+  async function handleJoinGroupCall(roomId: string) {
+    if (!roomId || !currentUserId) return;
+    const conversationId = selectedGroup ? groupConversationId(selectedGroup.groupId) : roomId;
+    try {
+      const response = await apiClient.get<{ appID: number; token: string }>("/api/calls/token", {
+        params: { userID: currentUserId },
+      });
+      setActiveCall({
+        roomId,
+        token: String(response.data.token),
+        appId: Number(response.data.appID),
+        conversationId,
+        remoteUserId: selectedGroup ? String(selectedGroup.groupId) : "",
+        remoteUserName: groupName || "Nhóm",
+        isGroupCall: true,
+      });
+    } catch {
+      addToast("Không thể tham gia cuộc gọi nhóm", "error", 2500);
     }
   }
 
@@ -1193,6 +1224,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           onReplyToMessage={handleReplyToMessage}
           onJumpToMessage={handleJumpToMessage}
           resolveDisplayAvatar={resolveDisplayAvatar}
+          onJoinGroupCall={handleJoinGroupCall}
         />
       )}
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { FileText, Loader2, Reply, Phone, PhoneMissed, Video, VideoOff } from "lucide-react";
+import { FileText, Loader2, Reply, Phone, PhoneMissed, Video, VideoOff, Users, PhoneCall } from "lucide-react";
+
 import AudioMessage from "./AudioMessage";
 import { ReadByAvatars } from "./ReadByAvatars";
 import { ReplyReference } from "./ReplyComponents";
@@ -15,6 +16,41 @@ export function SystemMessageBubble({ msg }: { msg: GroupChatMessage }) {
     <div className="flex justify-center my-2">
       <div className="bg-gray-200/70 text-gray-500 text-xs px-3 py-1 rounded-full">
         {text}
+      </div>
+    </div>
+  );
+}
+
+/** Banner cuộc gọi nhóm đang diễn ra — hiển thị với nút [Tham gia] */
+export function GroupCallStartedBanner({
+  msg,
+  onJoin,
+}: {
+  msg: GroupChatMessage;
+  onJoin?: (roomId: string) => void;
+}) {
+  const callerName = msg.senderDisplayName || "Ai đó";
+  const roomId = (msg as any).callData?.roomId || "";
+
+  return (
+    <div className="flex justify-center my-3">
+      <div className="flex flex-col items-center gap-2 bg-blue-50 border border-blue-200 rounded-2xl px-5 py-3 shadow-sm max-w-xs w-full">
+        <div className="flex items-center gap-2 text-blue-700">
+          <PhoneCall className="w-4 h-4 animate-pulse" />
+          <span className="text-sm font-semibold">{callerName} đang gọi nhóm</span>
+        </div>
+        {onJoin && roomId && (
+          <button
+            onClick={() => onJoin(roomId)}
+            className="mt-1 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 transition-colors"
+          >
+            <Users className="w-3.5 h-3.5" />
+            Tham gia
+          </button>
+        )}
+        <span className="text-[10px] text-gray-400">
+          {new Date(msg.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+        </span>
       </div>
     </div>
   );

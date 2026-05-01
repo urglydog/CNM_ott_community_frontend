@@ -306,8 +306,10 @@ export function useGroupChat(
       ) {
         return;
       }
-      // Bỏ qua tin nhắn của chính mình (đã có optimistic xử lý)
-      if (Number(newMsg.senderId) === Number(user?.id)) return;
+      // Bỏ qua tin nhắn của chính mình, NGOẠI TRỪ call_log và group_call_started (cả 2 bên đều cần thấy)
+      const isCallLog = (newMsg as any).contentType === "call_log" || (newMsg as any).messageType === "call_log";
+      const isGroupCallStarted = (newMsg as any).contentType === "group_call_started" || (newMsg as any).messageType === "group_call_started";
+      if (!isCallLog && !isGroupCallStarted && Number(newMsg.senderId) === Number(user?.id)) return;
 
       // Cập nhật preview để nhóm trồi lên đầu trong ChatListPanel
       setGroupConversationPreview(currentRoomId, {

@@ -64,6 +64,7 @@ interface UseDirectMessageReturn {
   typingUsers: string[];
   onTypingChange: (isTyping: boolean) => void;
   deleteMessage: (messageId: string) => void;
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
 }
 
 const DEBOUNCE_MS_DEFAULT = 100;
@@ -141,6 +142,7 @@ export function useDirectMessage(
     onUserStoppedTyping,
     onMessageRevoked,
     onMessageRead,
+    onLiveLocationStopped,
   } = useSocket();
   const {
     setConversationPreview,
@@ -164,6 +166,7 @@ export function useDirectMessage(
   );
   const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastMarkedIdRef = useRef<string | null>(null);
 
   const currentRoomId =
     friendId != null ? dmConversationId(user?.id ?? 0, friendId) : null;
@@ -351,12 +354,23 @@ export function useDirectMessage(
       setTypingUsers((prev) => prev.filter((n) => n !== userName));
     });
 
+    const unsubLiveLocationStopped = onLiveLocationStopped((payload) => {
+      if (payload.roomId !== currentRoomId) return;
+      const now = new Date(Date.now() - 1000).toISOString();
+      setMessages((prev) => prev.map(m => 
+        (m.contentType === "location" && String(m.senderId) === String(payload.senderId) && (m.locationData as any)?.isLive && (!m.locationData?.liveUntil || new Date(m.locationData.liveUntil).getTime() > Date.now())) 
+          ? { ...m, locationData: { ...m.locationData, liveUntil: now } as any } 
+          : m
+      ));
+    });
+
     return () => {
       unsubReceive();
       unsubRevoked();
       unsubRead();
       unsubTyping();
       unsubStopTyping();
+      unsubLiveLocationStopped();
       emitLeaveRoom(currentRoomId);
     };
   }, [
@@ -368,6 +382,7 @@ export function useDirectMessage(
     onMessageRead,
     onUserTyping,
     onUserStoppedTyping,
+    onLiveLocationStopped,
     user?.id,
     selectedFriend,
     setConversationPreview,
@@ -388,17 +403,22 @@ export function useDirectMessage(
 
   // ─── Auto-mark messages as read ──────────────────────────────────────────
   const markMessagesAsRead = useCallback(() => {
-    if (messages.length === 0) return;
+    if (messages.length === 0 || !currentRoomId) return;
 
-    // Get the last message that is not from the current user
+    // Lấy tin nhắn cuối cùng từ người khác (không phải của mình)
     const lastReceivedMessage = [...messages]
       .reverse()
       .find((m) => !m.isOwn);
 
-    if (lastReceivedMessage && currentRoomId) {
+    if (lastReceivedMessage) {
       const messageId = String(lastReceivedMessage.id || lastReceivedMessage.messageId);
-      console.log(`[Chat] Marking message ${messageId} as read in conversation ${currentRoomId}`);
-      emitMarkRead(currentRoomId, messageId);
+
+      // CHỈ gửi mark_read nếu messageId này khác với lần cuối cùng đã gửi
+      if (lastMarkedIdRef.current !== messageId) {
+        console.log(`[Chat] Marking message ${messageId} as read in conversation ${currentRoomId}`);
+        lastMarkedIdRef.current = messageId;
+        emitMarkRead(currentRoomId, messageId);
+      }
     }
   }, [messages, currentRoomId, emitMarkRead]);
 
@@ -840,6 +860,7 @@ export function useDirectMessage(
     scrollContainerRef,
     typingUsers,
     onTypingChange,
+    setMessages,
     deleteMessage: (messageId: string) => {
       setMessages((prev) =>
         prev.filter((m) => String(m.id) !== String(messageId)),

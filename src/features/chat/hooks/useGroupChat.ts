@@ -123,6 +123,7 @@ export function useGroupChat(
     onUserStoppedTyping,
     onMessageRevoked,
     onMessageRead,
+    onLiveLocationStopped,
   } = useSocket();
 
   const { setGroupConversationPreview } = useChatStore();
@@ -142,6 +143,7 @@ export function useGroupChat(
   );
   const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastMarkedIdRef = useRef<string | null>(null);
 
   const currentRoomId =
     group != null ? groupConversationId(group.groupId) : null;
@@ -361,12 +363,23 @@ export function useGroupChat(
       setTypingUsers((prev) => prev.filter((n) => n !== userName));
     });
 
+    const unsubLiveLocationStopped = onLiveLocationStopped((payload) => {
+      if (payload.roomId !== currentRoomId) return;
+      const now = new Date(Date.now() - 1000).toISOString();
+      setMessages((prev) => prev.map(m => 
+        (m.contentType === "location" && String(m.senderId) === String(payload.senderId) && (m.locationData as any)?.isLive && (!m.locationData?.liveUntil || new Date(m.locationData.liveUntil).getTime() > Date.now())) 
+          ? { ...m, locationData: { ...m.locationData, liveUntil: now } as any } 
+          : m
+      ));
+    });
+
     return () => {
       unsubReceive();
       unsubRevoked();
       unsubRead();
       unsubTyping();
       unsubStopTyping();
+      unsubLiveLocationStopped();
       emitLeaveRoom(currentRoomId);
       // emitLeaveRoom(channelRoomId);
     };
@@ -379,6 +392,7 @@ export function useGroupChat(
     onMessageRead,
     onUserTyping,
     onUserStoppedTyping,
+    onLiveLocationStopped,
     user?.id,
     getSenderInfo,
     setGroupConversationPreview,
@@ -399,19 +413,24 @@ export function useGroupChat(
 
   // ─── Auto-mark messages as read ──────────────────────────────────────────
   const markMessagesAsRead = useCallback(() => {
-    if (messages.length === 0) return;
+    if (messages.length === 0 || !currentRoomId) return;
 
-    // Get the last message that is not from the current user
+    // Lấy tin nhắn cuối cùng từ người khác (không phải của mình)
     const lastReceivedMessage = [...messages]
       .reverse()
       .find((m) => !m.isOwn);
 
-    if (lastReceivedMessage && currentRoomId) {
+    if (lastReceivedMessage) {
       const rawId = lastReceivedMessage.id || lastReceivedMessage.messageId;
       if (!rawId) return;
       const messageId = String(rawId);
-      console.log(`[GroupChat] Marking message ${messageId} as read in conversation ${currentRoomId}`);
-      emitMarkRead(currentRoomId, messageId);
+
+      // CHỈ gửi mark_read nếu messageId này khác với lần cuối cùng đã gửi
+      if (lastMarkedIdRef.current !== messageId) {
+        console.log(`[GroupChat] Marking message ${messageId} as read in conversation ${currentRoomId}`);
+        lastMarkedIdRef.current = messageId;
+        emitMarkRead(currentRoomId, messageId);
+      }
     }
   }, [messages, currentRoomId, emitMarkRead]);
 

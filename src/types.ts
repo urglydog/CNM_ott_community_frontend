@@ -19,6 +19,8 @@ export type MessageItem = {
   contentType: string;
   content: string;
   stickerData?: StickerData;
+  /** Dữ liệu vị trí — chỉ có khi contentType === "location" */
+  locationData?: LocationData | null;
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
   replyTo?: string | number | null;
@@ -57,6 +59,46 @@ export interface StickerData {
   stickerUrl?: string;
   stickerPack?: string;
   stickerName?: string;
+}
+
+/**
+ * Dữ liệu vị trí địa lý cho tin nhắn loại "location".
+ * lat/lng là tọa độ GPS; label là tên địa điểm tuỳ chọn.
+ */
+export interface LocationData {
+  lat: number;
+  lng: number;
+  label?: string | null;
+  /** Nếu true: đây là tin nhắn live location (không phải static) */
+  isLive?: boolean;
+  /** ISO string – thời điểm kết thúc live location */
+  liveUntil?: string | null;
+}
+
+/**
+ * Payload cho sự kiện Live Location gửi qua Socket.io.
+ * Không lưu vào DB — chỉ broadcast realtime trong room.
+ */
+export interface LiveLocationStartedPayload {
+  roomId: string;
+  senderId: string | number;
+  senderDisplayName?: string | null;
+  senderAvatarUrl?: string | null;
+  startedAt: string;
+}
+
+export interface LiveLocationUpdatedPayload {
+  roomId: string;
+  senderId: string | number;
+  lat: number;
+  lng: number;
+  updatedAt: string;
+}
+
+export interface LiveLocationStoppedPayload {
+  roomId: string;
+  senderId: string | number;
+  stoppedAt: string;
 }
 
 export interface ReadReceiptReader {

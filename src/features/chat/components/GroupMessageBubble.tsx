@@ -24,8 +24,8 @@ interface MessageBubbleProps {
   msg: GroupChatMessage;
   authUserId: string | number;
   senderAvatarUrl?: string | null;
-  senderName: string;
-  isOwn: boolean;
+  senderName?: string;
+  isOwn?: boolean;
   onContextMenu?: (
     e: React.MouseEvent,
     msg: GroupChatMessage,
@@ -38,11 +38,13 @@ interface MessageBubbleProps {
 
 function MessageBubbleContent({
   msg,
-  isOwn,
+  isOwn: isOwnProp,
   onContextMenu,
   onReply,
   onJumpToMessage,
 }: MessageBubbleProps & { senderName: string }) {
+  // Normalize isOwn to boolean (prop is optional, default false)
+  const isOwn: boolean = isOwnProp ?? false;
   const handleReplyClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onReply?.(msg);

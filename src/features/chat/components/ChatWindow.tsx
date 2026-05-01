@@ -6,14 +6,17 @@ import {
   AtSign, Gift, Loader2, WifiOff, FileText, Users, RotateCcw, 
   Trash2, Share2, Sparkles, X, Mic, Square, Send, Paintbrush, Pin,
   ChevronUp, ChevronRight, ChevronDown
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Loader2,
+  Smile,
+  Sparkles,
 } from "lucide-react";
 import { useAudioRecorder } from "../hooks/useAudioRecorder";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dmConversationId, useDirectMessage } from "../hooks/useChatHooks";
 import {
   groupConversationId,
   useGroupChat,
-  isSystemMessage,
   type GroupChatMessage,
 } from "../hooks/useGroupChat";
 import { getGroupMembers } from "../api";
@@ -25,11 +28,8 @@ import {
 import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
 import { useGroupsStore } from "../../groups/store/groupsStore";
-import type { AuthUser } from "../../../types";
+import type { AuthUser, StickerData, ReplyToMessage } from "../../../types";
 import { askBot } from "../api";
-import ForwardMessageModal from "./ForwardMessageModal";
-import EmojiStickerPicker from "./EmojiStickerPicker";
-import AudioMessage from "./AudioMessage";
 import CallOverlay from "@/features/chat/components/CallOverlay";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
@@ -41,17 +41,34 @@ import {
 } from "../utils/messageSearch";
 import ChatSettingsSidebar from "./ChatSettingsSidebar";
 import { getChatBackground } from "../../../api/client";
+import { getMessageDomId } from "../utils/messageSearch";
+import { useLiveLocation } from "../../../hooks/useLiveLocation";
+import LocationShareButton from "../../../components/chat/LocationShareButton";
+import LocationMessage from "../../../components/chat/LocationMessage";
+import LiveLocationMap from "../../../components/chat/LiveLocationMap";
+
+// Components
+import { GroupAvatar } from "./Avatar";
+import { ReadByAvatars } from "./ReadByAvatars";
+import { ReplyPreview } from "./ReplyComponents";
+import { MessageContextMenu } from "./MessageContextMenu";
+import { GroupMessageBubble, SystemMessageBubble } from "./GroupMessageBubble";
+import { PrivateMessageBubble } from "./PrivateMessageBubble";
+import { ChatHeader } from "./ChatHeader";
+import { MessageList } from "./MessageList";
+import { ChatToolbar } from "./ChatToolbar";
+import { ChatInput } from "./ChatInput";
+import { AiChatMessages, type AiConversationTurn } from "./AiChatMessages";
+import { MessageSearchPanel } from "./MessageSearchPanel";
+import EmojiStickerPicker from "./EmojiStickerPicker";
+import ForwardMessageModal from "./ForwardMessageModal";
+import apiClient from "../../../lib/axios";
 
 interface ChatWindowProps {
   authUser: AuthUser;
 }
 
-
-interface AiConversationTurn {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
+type SearchScope = "conversation" | "global";
 
 interface MessageSearchRow {
   id: string | number;
@@ -63,8 +80,6 @@ interface MessageSearchRow {
   createdAt: string;
   conversationId: string;
 }
-
-type SearchScope = "conversation" | "global";
 
 const AI_HISTORY_STORAGE_PREFIX = "ott_ai_history_v1";
 
@@ -813,9 +828,13 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     pendingAiPrompt,
     clearPendingAiPrompt,
     setOutgoingCall,
+    setActiveCall,
     friends,
     setSelectedFriend,
     setSelectedGroup,
+    replyingMessage,
+    setReplyingMessage,
+    clearReplyingMessage,
   } = useChatStore();
   const { myGroups } = useGroupsStore();
 
@@ -848,9 +867,11 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     uploadProgress: dmUploadProgress,
     bottomSentinelRef: dmSentinelRef,
     scrollContainerRef: dmScrollRef,
+    handleScroll: dmHandleScroll,
     typingUsers: dmTypingUsers,
     onTypingChange: dmTypingChange,
     deleteMessage: deleteDmMessage,
+    setMessages: setDmMessages,
   } = useDirectMessage(friendId);
 
   // ── Group mode ────────────────────────────────────────────────────────
@@ -872,9 +893,11 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     uploadProgress: groupUploadProgress,
     bottomSentinelRef: groupSentinelRef,
     scrollContainerRef: groupScrollRef,
+    handleScroll: groupHandleScroll,
     typingUsers: groupTypingUsers,
     onTypingChange: groupTypingChange,
     deleteMessage: deleteGroupMessage,
+    setMessages: setGroupMessages,
   } = useGroupChat(selectedGroup ?? null, groupMembers);
 
   // Load group members when selectedGroup changes
@@ -910,12 +933,11 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     emitCallUser,
     socket,
   } = useSocket();
+  const { status, emitCallUser } = useSocket();
   const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
   const [aiQuestion, setAiQuestion] = useState("");
-  const [aiConversation, setAiConversation] = useState<AiConversationTurn[]>(
-    [],
-  );
+  const [aiConversation, setAiConversation] = useState<AiConversationTurn[]>([]);
   const [isAskingAI, setIsAskingAI] = useState(false);
   const [aiError, setAiError] = useState("");
 
@@ -953,8 +975,180 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     return dmConversationId(currentUserId, selectedFriend.friend_id);
   }, [chatMode, currentUserId, selectedFriend?.friend_id, selectedGroup]);
 
-  // ── Emoji / Sticker Picker state ─────────────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // ── Location Share state ─────────────────────────────────────────────────
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false);
+
+  // useLiveLocation: quản lý live location realtime
+  const {
+    isSharing: isLiveSharing,
+    liveLocations,
+    myLocation,
+    startSharing,
+    stopSharing,
+  } = useLiveLocation(activeConversationId);
+
+  /** Gửi vị trí hiện tại (một lần) qua API */
+  async function handleSendCurrentLocation() {
+    setLocationMenuOpen(false);
+    if (!activeConversationId) {
+      addToast("Vui lòng chọn cuộc trò chuyện trước", "error");
+      return;
+    }
+    if (!navigator.geolocation) {
+      addToast("Trình duyệt không hỗ trợ Geolocation", "error");
+      return;
+    }
+    addToast("Đang lấy vị trí...", "info", 2000);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude: lat, longitude: lng } = position.coords;
+        try {
+          const res = await fetch(
+            `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/messages/location`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${authUser.token}`,
+              },
+              body: JSON.stringify({ conversationId: activeConversationId, locationData: { lat, lng } }),
+            },
+          );
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || "Gửi vị trí thất bại");
+          }
+          // Lấy tin nhắn từ response và thêm vào state local của người gửi (bên A)
+          const savedMsg = await res.json();
+          const localMsg = {
+            ...savedMsg,
+            isOwn: true,
+            sendStatus: "sent" as const,
+          };
+          if (chatMode === "GROUP") {
+            setGroupMessages((prev) => {
+              if (prev.some((m) => String(m.id) === String(savedMsg.id))) return prev;
+              return [...prev, localMsg];
+            });
+          } else {
+            setDmMessages((prev) => {
+              if (prev.some((m) => String(m.id) === String(savedMsg.id))) return prev;
+              return [...prev, localMsg];
+            });
+          }
+          addToast("Đã gửi vị trí!", "success", 2000);
+        } catch (err: any) {
+          addToast(err?.message || "Không thể gửi vị trí", "error");
+        }
+      },
+      (err) => {
+        const msgs: Record<number, string> = {
+          1: "Bạn đã từ chối quyền truy cập vị trí",
+          2: "Không xác định được vị trí",
+          3: "Hết thời gian chờ lấy vị trí",
+        };
+        addToast(msgs[err.code] || "Lỗi Geolocation", "error");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
+  }
+
+  /** Bắt đầu / dừng chia sẻ Live Location */
+  async function handleToggleLiveLocation(durationMs?: number) {
+    setLocationMenuOpen(false);
+    if (isLiveSharing || !durationMs) {
+      stopSharing();
+      
+      // Cập nhật local state messages để đổi status thành "đã dừng"
+      const now = new Date(Date.now() - 1000).toISOString(); // Lùi lại 1s để chắc chắn đã hết hạn
+      if (chatMode === "GROUP") {
+        setGroupMessages((prev) => prev.map(m => 
+          (m.contentType === "location" && m.isOwn && (m.locationData as any)?.isLive && (!m.locationData?.liveUntil || new Date(m.locationData.liveUntil).getTime() > Date.now())) 
+            ? { ...m, locationData: { ...m.locationData, liveUntil: now } as any } 
+            : m
+        ));
+      } else {
+        setDmMessages((prev) => prev.map(m => 
+          (m.contentType === "location" && m.isOwn && (m.locationData as any)?.isLive && (!m.locationData?.liveUntil || new Date(m.locationData.liveUntil).getTime() > Date.now())) 
+            ? { ...m, locationData: { ...m.locationData, liveUntil: now } as any } 
+            : m
+        ));
+      }
+      
+      addToast("Đã dừng chia sẻ vị trí trực tiếp", "info", 2000);
+    } else {
+      if (!activeConversationId) {
+        addToast("Vui lòng chọn cuộc trò chuyện trước", "error");
+        return;
+      }
+      if (!navigator.geolocation) {
+        addToast("Trình duyệt không hỗ trợ Geolocation", "error");
+        return;
+      }
+      // Lấy vị trí hiện tại trước, rồi mới bắt đầu share + gửi tin nhắn
+      addToast("Đang lấy vị trí...", "info", 2000);
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude: lat, longitude: lng } = position.coords;
+          // Thời điểm kết thúc theo durationMs
+          const liveUntil = new Date(Date.now() + durationMs).toISOString();
+          try {
+            // Gửi tin nhắn live_location vào chat qua API
+            const res = await fetch(
+              `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/messages/location`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${authUser.token}`,
+                },
+                body: JSON.stringify({
+                  conversationId: activeConversationId,
+                  locationData: { lat, lng, label: "Đang chia sẻ hành trình" },
+                  isLive: true,
+                  liveUntil,
+                }),
+              },
+            );
+            if (res.ok) {
+              const savedMsg = await res.json();
+              const localMsg = {
+                ...savedMsg,
+                isOwn: true,
+                sendStatus: "sent" as const,
+                locationData: { lat, lng, label: "Đang chia sẻ hành trình", isLive: true, liveUntil },
+                senderAvatarUrl: (authUser as any).avatarUrl || null,
+                senderDisplayName: authUser.displayName || authUser.username || null,
+              };
+              if (chatMode === "GROUP") {
+                setGroupMessages((prev) => {
+                  if (prev.some((m) => String(m.id) === String(savedMsg.id))) return prev;
+                  return [...prev, localMsg];
+                });
+              } else {
+                setDmMessages((prev) => {
+                  if (prev.some((m) => String(m.id) === String(savedMsg.id))) return prev;
+                  return [...prev, localMsg];
+                });
+              }
+            }
+          } catch {
+            // Nếu API lỗi, vẫn tiếp tục share qua socket
+          }
+          // Bắt đầu live share qua socket sau khi đã gửi tin nhắn
+          startSharing();
+          addToast("Đang chia sẻ vị trí trực tiếp...", "success", 3000);
+        },
+        () => {
+          addToast("Không thể lấy vị trí. Vui lòng cấp quyền.", "error");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+      );
+    }
+  }
+
 
   // ── Context menu state ──────────────────────────────────────────────────
   const [ctxMenu, setCtxMenu] = useState<{
@@ -993,9 +1187,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }
 
   // ── Revoke handler ──────────────────────────────────────────────────────
-  const [revokingMessageId, setRevokingMessageId] = useState<string | null>(
-    null,
-  );
+  const [revokingMessageId, setRevokingMessageId] = useState<string | null>(null);
 
   async function handleRevokeMessage() {
     if (!ctxMenu) return;
@@ -1017,9 +1209,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }
 
   // ── Delete-for-me handler ───────────────────────────────────────────────
-  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(
-    null,
-  );
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
 
   async function handleDeleteForMe() {
     if (!ctxMenu) return;
@@ -1038,7 +1228,6 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       addToast("Đã ẩn tin nhắn khỏi cuộc trò chuyện này", "success");
       closeCtxMenu();
     } catch (err: unknown) {
-      // Khôi phục lại tin nhắn nếu API thất bại
       addToast(
         err instanceof Error ? err.message : "Không thể ẩn tin nhắn",
         "error",
@@ -1166,10 +1355,40 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const activeSentinelRef =
     chatMode === "GROUP" ? groupSentinelRef : dmSentinelRef;
   const activeScrollRef = chatMode === "GROUP" ? groupScrollRef : dmScrollRef;
+  const activeHandleScroll = chatMode === "GROUP" ? groupHandleScroll : dmHandleScroll;
   const activeTypingUsers =
     chatMode === "GROUP" ? groupTypingUsers : dmTypingUsers;
   const activeTypingChange =
     chatMode === "GROUP" ? groupTypingChange : dmTypingChange;
+
+  // Track conversation ID trước đó để phát hiện khi chuyển conversation
+  const prevConversationIdRef = useRef<string | null>(null);
+
+  // Scroll xuống bottom mỗi khi:
+  // 1. Chuyển sang conversation mới (kể cả quay lại conversation cũ)
+  // 2. Loading hoàn thành (messages đã có trong DOM)
+  // Tính loading state trực tiếp từ các biến đã khai báo (tránh TDZ với activeLoading)
+  useEffect(() => {
+    const currentConvId = activeConversationId;
+    if (!currentConvId) return;
+
+    // Tính loading state inline để tránh dùng activeLoading trước khi khai báo
+    const isLoading = chatMode === "GROUP" ? groupLoading : dmLoading;
+    if (isLoading) return;
+
+    // Cập nhật ref để track conversation hiện tại
+    prevConversationIdRef.current = currentConvId;
+
+    // Dùng double-rAF để đảm bảo React đã render messages vào DOM
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (activeScrollRef.current) {
+          activeScrollRef.current.scrollTop = activeScrollRef.current.scrollHeight;
+        }
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, chatMode, groupLoading, dmLoading]);
 
   const friendName = selectedFriend?.friend_display_name ?? "";
   const groupName = selectedGroup?.name ?? "";
@@ -1265,13 +1484,6 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     selectedFriend?.friend_avatar_url,
     resolvedAvatarUrls,
   ]);
-
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 128)}px`;
-  }, [inputValue]);
 
   async function submitAiQuestion(rawQuestion: string) {
     const trimmed = rawQuestion.trim();
@@ -1403,23 +1615,30 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           callerId: currentUserId,
           callerName: currentUserName,
         };
-        console.debug(
-          "[ChatWindow][emit group-call-request] payload:",
-          groupCallPayload,
-        );
+        // Emit socket để backend lưu group_call_started và broadcast banner
         emitCallUser({
           ...groupCallPayload,
           receiverId: String(selectedGroup!.groupId),
           conversationId,
           isGroupCall: true,
         });
-        setOutgoingCall({
-          roomId: safeRoomId,
-          conversationId,
-          receiverId: String(selectedGroup!.groupId),
-          receiverName: groupName || "Nhom",
-          isGroupCall: true,
-        });
+        // Caller join phòng ngay (không cần cần cần chờ ai accept) — lấy token rồi set activeCall
+        try {
+          const response = await apiClient.get<{ appID: number; token: string }>("/api/calls/token", {
+            params: { userID: currentUserId },
+          });
+          setActiveCall({
+            roomId: safeRoomId,
+            token: String(response.data.token),
+            appId: Number(response.data.appID),
+            conversationId,
+            remoteUserId: String(selectedGroup!.groupId),
+            remoteUserName: groupName || "Nhóm",
+            isGroupCall: true,
+          });
+        } catch {
+          addToast("Không thể tạo phòng gọi nhóm", "error", 2500);
+        }
       } else {
         const oneToOnePayload = {
           roomId: safeRoomId,
@@ -1445,6 +1664,28 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     }
   }
 
+  /** Tham gia phòng gọi nhóm đang diễn ra (từ nút [Tham gia] trong banner) */
+  async function handleJoinGroupCall(roomId: string) {
+    if (!roomId || !currentUserId) return;
+    const conversationId = selectedGroup ? groupConversationId(selectedGroup.groupId) : roomId;
+    try {
+      const response = await apiClient.get<{ appID: number; token: string }>("/api/calls/token", {
+        params: { userID: currentUserId },
+      });
+      setActiveCall({
+        roomId,
+        token: String(response.data.token),
+        appId: Number(response.data.appID),
+        conversationId,
+        remoteUserId: selectedGroup ? String(selectedGroup.groupId) : "",
+        remoteUserName: groupName || "Nhóm",
+        isGroupCall: true,
+      });
+    } catch {
+      addToast("Không thể tham gia cuộc gọi nhóm", "error", 2500);
+    }
+  }
+
   // Khi chuyển đổi giữa nhóm và DM, clear input
   useEffect(() => {
     setInputValue("");
@@ -1452,15 +1693,31 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   const handleSend = useCallback(async () => {
     if (!inputValue.trim()) return;
+
+    if (chatMode === "GROUP" && selectedGroup) {
+      const allowSendLinks = selectedGroup.allowSendLinks || 'ALL';
+      if (allowSendLinks === 'ADMINS_ONLY') {
+        const currentUserRole = groupMembers.find((m) => String(m.userId) === String(currentUserId))?.role;
+        if (currentUserRole === 'MEMBER' || !currentUserRole) {
+          const hasUrl = /https?:\/\/[^\s]+|www\.[^\s]+/i.test(inputValue);
+          if (hasUrl) {
+            addToast("Chỉ Trưởng/Phó nhóm mới được phép gửi liên kết trong nhóm này.", "warning", 3000);
+            return;
+          }
+        }
+      }
+    }
+
     if (chatMode === "GROUP") {
       if (groupSending) return;
-      await sendGroupMessage(inputValue);
+      await sendGroupMessage(inputValue, replyingMessage?.id || null);
     } else {
       if (dmSending) return;
-      await sendDmMessage(inputValue);
+      await sendDmMessage(inputValue, replyingMessage?.id || null);
     }
 
     setInputValue("");
+    clearReplyingMessage();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -1472,6 +1729,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     dmSending,
     sendGroupMessage,
     sendDmMessage,
+    replyingMessage,
+    clearReplyingMessage,
   ]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -1530,6 +1789,42 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       }
     }
   };
+
+  // ── Reply Message Handlers ─────────────────────────────────────────────
+  function handleReplyToMessage(msg: GroupChatMessage) {
+    const replyInfo: ReplyToMessage = {
+      id: msg.id,
+      content: msg.content || "",
+      contentType: msg.contentType,
+      senderId: msg.senderId,
+      senderDisplayName: msg.senderDisplayName || null,
+      senderAvatarUrl: msg.senderAvatarUrl || null,
+      attachments: msg.attachments || null,
+    };
+    setReplyingMessage(replyInfo);
+  }
+
+  function handleJumpToMessage(messageId: string | number) {
+    const domId = getMessageDomId(messageId);
+    const target = document.getElementById(domId);
+    if (!target) {
+      addToast("Tin nhắn gốc không còn trong cuộc trò chuyện này", "info");
+      return;
+    }
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFocusedMessageId(String(messageId));
+    if (focusTimeoutRef.current != null) {
+      window.clearTimeout(focusTimeoutRef.current);
+    }
+    focusTimeoutRef.current = window.setTimeout(() => {
+      setFocusedMessageId(null);
+      focusTimeoutRef.current = null;
+    }, 2000);
+  }
+
+  function handleClearReply() {
+    clearReplyingMessage();
+  }
 
   async function handleAskAI() {
     await submitAiQuestion(aiQuestion);
@@ -1631,7 +1926,6 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   function handleSearchResultClick(item: MessageSearchRow) {
     setIsFocusBlue(false); // Đảm bảo search dùng highlight vàng mặc định
     const targetConversationId = String(item.conversationId || "");
-    if (!targetConversationId) return;
 
     if (targetConversationId === activeConversationId) {
       triggerFocusMessage(item.id);
@@ -1667,55 +1961,12 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     setSearchOpen(false);
   }
 
-  function handleSearchFromDateChange(value: string) {
-    setSearchFromDate(value);
-    if (!value) {
-      setSearchToDate("");
-      return;
-    }
-
-    // Khi user vừa chọn ngày bắt đầu, mặc định ngày kết thúc giống ngày bắt đầu.
-    if (!searchToDate || searchToDate < value) {
-      setSearchToDate(value);
-    }
-  }
-
-  function handleSearchToDateChange(value: string) {
-    if (searchFromDate && value && value < searchFromDate) {
-      setSearchToDate(searchFromDate);
-      return;
-    }
-    setSearchToDate(value);
-  }
-
-  function getSearchResultContext(item: MessageSearchRow) {
-    const senderName = item.senderDisplayName || `Người dùng ${item.senderId}`;
-    const conversationId = String(item.conversationId || "");
-
-    if (conversationId.startsWith("dm:")) {
-      const ids = conversationId.slice(3).split(":");
-      const friendId = ids.find((id) => String(id) !== String(currentUserId));
-      const friend = friends.find(
-        (entry) => String(entry.friend_id) === String(friendId || ""),
-      );
-      const dmName =
-        friend?.friend_display_name ||
-        friend?.friend_username ||
-        friendId ||
-        "cuộc trò chuyện cá nhân";
-      return `Gửi bởi ${senderName} trong cuộc trò chuyện với ${dmName}`;
-    }
-
-    const group = myGroups.find(
-      (entry) => String(entry.groupId) === conversationId,
-    );
-    const groupName =
-      group?.name ||
-      (selectedGroup && String(selectedGroup.groupId) === conversationId
-        ? selectedGroup.name
-        : conversationId);
-
-    return `Gửi bởi ${senderName} trong nhóm ${groupName}`;
+  function handleSearchClearFilters() {
+    setSearchKeyword("");
+    setSearchFromDate("");
+    setSearchToDate("");
+    setSearchResults([]);
+    setSearchError("");
   }
 
   // ── Emoji / Sticker picker handlers ────────────────────────────────────
@@ -2336,9 +2587,76 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             )}
           </div>
         </div>
-      )}
+    <div className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0">
+      <ChatHeader
+        chatMode={chatMode}
+        isAiChatOpen={isAiChatOpen}
+        isConnected={isConnected}
+        selectedFriend={selectedFriend}
+        selectedGroup={selectedGroup}
+        groupMembers={resolvedGroupMembers}
+        groupName={groupName}
+        friendName={friendName}
+        memberCount={memberCount}
+        onStartVideoCall={handleStartVideoCall}
+        onToggleSearch={() => setSearchOpen((prev) => !prev)}
+        activeConversationId={activeConversationId}
+        resolveDisplayAvatar={resolveDisplayAvatar}
+      />
 
-      {isAiChatOpen ? renderAiMessages() : renderMessages()}
+      <MessageSearchPanel
+        isOpen={searchOpen && !isAiChatOpen}
+        searchScope={searchScope}
+        searchKeyword={searchKeyword}
+        searchFromDate={searchFromDate}
+        searchToDate={searchToDate}
+        searchResults={searchResults}
+        searchLoading={searchLoading}
+        searchError={searchError}
+        activeConversationId={activeConversationId}
+        currentUserId={currentUserId}
+        friends={friends}
+        myGroups={myGroups}
+        selectedGroup={selectedGroup}
+        todayDateString={todayDateString}
+        onClose={() => setSearchOpen(false)}
+        onSearch={handleSearchMessages}
+        onScopeChange={setSearchScope}
+        onKeywordChange={setSearchKeyword}
+        onFromDateChange={setSearchFromDate}
+        onToDateChange={setSearchToDate}
+        onClearFilters={handleSearchClearFilters}
+        onResultClick={handleSearchResultClick}
+      />
+
+      {isAiChatOpen ? (
+        <AiChatMessages
+          aiConversation={aiConversation}
+          isAskingAI={isAskingAI}
+          aiError={aiError}
+        />
+      ) : (
+        <MessageList
+          chatMode={chatMode}
+          messages={activeMessages}
+          isLoading={activeLoading}
+          error={activeError}
+          currentUserId={currentUserId}
+          groupName={groupName}
+          friendName={friendName}
+          selectedFriend={selectedFriend}
+          groupMembers={resolvedGroupMembers}
+          focusedMessageId={focusedMessageId}
+          activeScrollRef={activeScrollRef as React.RefObject<HTMLDivElement>}
+          activeSentinelRef={activeSentinelRef as React.RefObject<HTMLDivElement>}
+          onScroll={activeHandleScroll}
+          onMessageContextMenu={handleMessageContextMenu}
+          onReplyToMessage={handleReplyToMessage}
+          onJumpToMessage={handleJumpToMessage}
+          resolveDisplayAvatar={resolveDisplayAvatar}
+          onJoinGroupCall={handleJoinGroupCall}
+        />
+      )}
 
       {/* Typing indicator */}
       {!isAiChatOpen && activeTypingUsers.length > 0 && (
@@ -2368,7 +2686,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         </div>
       )}
 
-      {/* Context menu – right-click: thu hồi / xóa ẩn tin nhắn */}
+      {/* Context menu */}
       {ctxMenu && (
         <MessageContextMenu
           x={ctxMenu.x}
@@ -2443,144 +2761,162 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               onChange={handlePickFile}
             />
 
-            {/* Toolbar + Emoji/Sticker picker */}
-            <div className="relative border-b border-gray-100">
-              <div className="flex items-center gap-4 px-4 py-2.5">
-                <button
-                  type="button"
-                  onClick={() => setPickerOpen((prev) => !prev)}
-                  className={`text-gray-500 hover:text-gray-700 ${pickerOpen ? "text-blue-500" : ""}`}
-                  title="Biểu tượng cảm xúc & Sticker"
-                >
-                  <Smile className="w-5 h-5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={!isConnected || activeSending || activeUploading}
-                  className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Gửi ảnh"
-                >
-                  <Image className="w-5 h-5 cursor-pointer" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={!isConnected || activeSending || activeUploading}
-                  className="text-gray-500 hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Gửi tệp"
-                >
-                  <Paperclip className="w-5 h-5 cursor-pointer" />
-                </button>
-                <LinkIcon className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-                <MapPin className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-                <Contact className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-                <CheckSquare className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-                <Type className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-                <MoreHorizontal className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-                <EmojiStickerPicker
-                  isOpen={pickerOpen}
-                  onClose={() => setPickerOpen(false)}
-                  onEmojiSelect={handleEmojiSelect}
-                  onStickerSelect={handleStickerSelect}
-                />
-              </div>
-            </div>
+            <ChatToolbar
+              isConnected={isConnected}
+              isSending={activeSending}
+              isUploading={activeUploading}
+              isPickerOpen={pickerOpen}
+              onTogglePicker={() => setPickerOpen((prev) => !prev)}
+              onImageClick={() => imageInputRef.current?.click()}
+              onFileClick={() => fileInputRef.current?.click()}
+              onLocationClick={() => setLocationMenuOpen((prev) => !prev)}
+            >
+              <EmojiStickerPicker
+                isOpen={pickerOpen}
+                onClose={() => setPickerOpen(false)}
+                onEmojiSelect={handleEmojiSelect}
+                onStickerSelect={handleStickerSelect}
+              />
 
-            {isRecording || audioBlob ? (
-              <div className="flex items-center px-4 py-3 gap-3 w-full bg-white h-17 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={cancelRecording}
-                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors flex-shrink-0"
-                  title="Hủy"
+              {/* Dropdown menu chọn kiểu chia sẻ vị trí */}
+              {locationMenuOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "calc(100% + 8px)",
+                    left: 120,
+                    background: "linear-gradient(135deg,#1e293b 0%,#0f172a 100%)",
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                    overflow: "hidden",
+                    minWidth: 230,
+                    zIndex: 50,
+                    animation: "fadeInUp 0.15s ease",
+                  }}
                 >
-                  <X className="w-6 h-6" />
-                </button>
+                  <style>{`@keyframes fadeInUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
-                {isRecording && (
+                  {/* Nút đóng */}
                   <button
-                    type="button"
-                    onClick={stopRecording}
-                    className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-colors flex-shrink-0"
-                    title="Dừng"
+                    onClick={() => setLocationMenuOpen(false)}
+                    style={{ position:"absolute", top:8, right:10, background:"none", border:"none", color:"#94a3b8", cursor:"pointer", fontSize:18 }}
+                  >×</button>
+
+                  {/* Option 1: Vị trí hiện tại */}
+                  <button
+                    onClick={handleSendCurrentLocation}
+                    style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(96,165,250,0.12)"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
                   >
-                    <Square className="w-5 h-5" fill="currentColor" />
+                    <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(96,165,250,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>📍</span>
+                    <div>
+                      <div style={{ fontSize:14, fontWeight:600 }}>Vị trí hiện tại</div>
+                      <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>Gửi vị trí một lần</div>
+                    </div>
                   </button>
-                )}
 
-                <div className="flex-1 h-11 bg-blue-50/80 border border-blue-100 rounded-full flex items-center justify-between px-4 overflow-hidden relative">
-                  {isRecording && (
-                    <div className="absolute left-0 top-0 bottom-0 bg-blue-200/50 animate-pulse w-full"></div>
-                  )}
-                  <div className="flex items-center gap-2 z-10 text-blue-500">
-                    <Mic className={`w-4 h-4 ${isRecording ? "animate-pulse text-red-500" : ""}`} />
-                    <span className="text-[15px] font-medium">
-                      {isRecording ? "Đang ghi âm..." : "Đã ghi âm"}
-                    </span>
-                  </div>
-                  <div className="z-10 text-[15px] font-mono text-blue-600 font-semibold">
-                    {Math.floor(recordingTime / 60)}:
-                    {(recordingTime % 60).toString().padStart(2, "0")}
-                  </div>
-                </div>
+                  <div style={{ height:1, background:"rgba(255,255,255,0.06)", margin:"0 12px" }} />
 
-                <button
-                  type="button"
-                  onClick={handleSendAudio}
-                  disabled={!audioBlob || !isConnected || activeSending}
-                  className="w-11 h-11 rounded-full bg-blue-500 text-white flex items-center justify-center hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-sm"
-                  title="Gửi"
-                >
-                  {activeSending ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                  {/* Option 2: Vị trí trực tiếp */}
+                  {isLiveSharing ? (
+                    <button
+                      onClick={() => handleToggleLiveLocation()}
+                      style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(239,68,68,0.12)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                    >
+                      <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(239,68,68,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>
+                        ⏹
+                      </span>
+                      <div>
+                        <div style={{ fontSize:14, fontWeight:600, color: "#f87171" }}>
+                          Dừng chia sẻ
+                        </div>
+                        <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>
+                          Ngừng phát vị trí cho mọi người
+                        </div>
+                      </div>
+                    </button>
                   ) : (
-                    <Send className="w-5 h-5 ml-0.5" />
+                    <>
+                      <button
+                        onClick={() => handleToggleLiveLocation(15 * 60 * 1000)}
+                        style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(74,222,128,0.12)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                      >
+                        <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(74,222,128,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🔴</span>
+                        <div>
+                          <div style={{ fontSize:14, fontWeight:600, color: "#4ade80" }}>Chia sẻ trực tiếp 15 phút</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleToggleLiveLocation(30 * 60 * 1000)}
+                        style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(74,222,128,0.12)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                      >
+                        <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(74,222,128,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🔴</span>
+                        <div>
+                          <div style={{ fontSize:14, fontWeight:600, color: "#4ade80" }}>Chia sẻ trực tiếp 30 phút</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleToggleLiveLocation(60 * 60 * 1000)}
+                        style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(74,222,128,0.12)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                      >
+                        <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(74,222,128,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🔴</span>
+                        <div>
+                          <div style={{ fontSize:14, fontWeight:600, color: "#4ade80" }}>Chia sẻ trực tiếp 1 giờ</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleToggleLiveLocation(8 * 60 * 60 * 1000)}
+                        style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(74,222,128,0.12)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                      >
+                        <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(74,222,128,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🔴</span>
+                        <div>
+                          <div style={{ fontSize:14, fontWeight:600, color: "#4ade80" }}>Chia sẻ trực tiếp 8 giờ</div>
+                        </div>
+                      </button>
+                    </>
                   )}
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-end px-4 py-3 gap-2">
-                <textarea
-                  ref={textareaRef}
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  onFocus={() => activeTypingChange(true)}
-                  onBlur={() => activeTypingChange(false)}
-                  placeholder={placeHolder}
-                  disabled={!isConnected || activeSending}
-                  className="flex-1 resize-none h-11 max-h-32 focus:outline-none text-[15px] pt-2.5 bg-gray-50 rounded-lg px-3 border border-gray-200 focus:ring-1 focus:ring-blue-400 focus:border-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  rows={1}
-                />
-                <div className="flex items-center gap-3 pb-1">
-                  <AtSign className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
-                  <Gift className="w-5 h-5 text-gray-400 cursor-pointer hover:text-gray-600" />
-                  <button
-                    type="button"
-                    onClick={startRecording}
-                    disabled={!isConnected || activeSending}
-                    className="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors text-gray-400 hover:text-blue-500 hover:bg-blue-50"
-                    title="Ghi âm"
-                  >
-                    <Mic className="w-5 h-5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSend}
-                    disabled={!inputValue.trim() || !isConnected || activeSending}
-                    className="w-9 h-9 rounded-md text-blue-500 flex items-center justify-center cursor-pointer hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
-                    title="Gửi tin nhắn (Enter)"
-                  >
-                    {activeSending ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <ThumbsUp className="w-5 h-5" fill="currentColor" />
-                    )}
-                  </button>
                 </div>
-              </div>
+              )}
+            </ChatToolbar>
+
+            {replyingMessage && (
+              <ReplyPreview
+                replyingMessage={replyingMessage}
+                onClear={handleClearReply}
+                onJumpToMessage={handleJumpToMessage}
+              />
             )}
+
+            <ChatInput
+              inputValue={inputValue}
+              isConnected={isConnected}
+              isSending={activeSending}
+              isRecording={isRecording}
+              audioBlob={audioBlob}
+              recordingTime={recordingTime}
+              placeholder={placeHolder}
+              onInputChange={setInputValue}
+              onKeyDown={handleKeyDown}
+              onSend={handleSend}
+              onStartRecording={startRecording}
+              onStopRecording={stopRecording}
+              onCancelRecording={cancelRecording}
+              onSendAudio={handleSendAudio}
+              onTypingChange={activeTypingChange}
+              textareaRef={textareaRef}
+            />
           </>
         )}
       </div>

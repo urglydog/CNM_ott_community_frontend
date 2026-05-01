@@ -4,16 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSocket } from "../../../contexts/SocketContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useChatStore } from "../store/chatStore";
-import { getDirectMessages, sendDirectFileMessage } from "../api";
+import { getDirectMessages, sendDirectFileMessage, getReadStatusForMessages } from "../api";
 import { getPresignedUploadUrl } from "../../../api/client";
 import { generateVideoThumbnail, handleUploadToS3 } from "../utils/videoUpload";
-import type { DirectMessageItem, StickerData } from "../../../types";
+import type { DirectMessageItem, StickerData, ReadReceiptReader } from "../../../types";
 
-export type MessageSendStatus = "sending" | "sent" | "failed" | "received";
+export type MessageSendStatus = "sending" | "sent" | "delivered" | "received" | "read" | "failed";
 
 export interface ChatMessage extends DirectMessageItem {
   sendStatus?: MessageSendStatus;
   isOwn?: boolean;
+  /** Danh sách người đã đọc tin nhắn (chỉ dùng cho tin nhắn của chính mình trong nhóm) */
+  readBy?: ReadReceiptReader[];
 }
 
 export type DmActivityPayload = {
@@ -50,7 +52,7 @@ interface UseDirectMessageReturn {
   isLoadingHistory: boolean;
   historyError: string | null;
   currentRoomId: string | null;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, replyTo?: string | number | null) => Promise<void>;
   sendFileMessage: (file: File) => Promise<void>;
   sendStickerMessage: (stickerData: StickerData) => Promise<void>;
   sendEmojiMessage: (emoji: string) => Promise<void>;
@@ -59,9 +61,11 @@ interface UseDirectMessageReturn {
   uploadProgress: number;
   bottomSentinelRef: React.RefObject<HTMLDivElement | null>;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  handleScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   typingUsers: string[];
   onTypingChange: (isTyping: boolean) => void;
   deleteMessage: (messageId: string) => void;
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
 }
 
 const DEBOUNCE_MS_DEFAULT = 100;
@@ -133,10 +137,13 @@ export function useDirectMessage(
     emitSendMessage,
     emitTypingStart,
     emitTypingStop,
+    emitMarkRead,
     onReceiveMessage,
     onUserTyping,
     onUserStoppedTyping,
     onMessageRevoked,
+    onMessageRead,
+    onLiveLocationStopped,
   } = useSocket();
   const {
     setConversationPreview,
@@ -153,6 +160,17 @@ export function useDirectMessage(
   const [uploadProgress, setUploadProgress] = useState(0);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
 
+  // Track page visibility to prevent marking read when tab is hidden
+  const [isPageVisible, setIsPageVisible] = useState(true);
+  // Track previous message count to detect NEW messages vs history load
+  const prevMessageCountRef = useRef(0);
+  // Prevent duplicate mark_read for the same message within a time window
+  const lastMarkedReadRef = useRef<{ messageId: string; timestamp: number } | null>(null);
+  // Debounce timer for mark_read emissions
+  const markReadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track if this hook's conversation is currently active (for view mode, not selected state)
+  const isHookActiveRef = useRef(false);
+
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRoomIdRef = useRef<string | null>(null);
   const scrollDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(
@@ -160,18 +178,43 @@ export function useDirectMessage(
   );
   const bottomSentinelRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastMarkedIdRef = useRef<string | null>(null);
 
   const currentRoomId =
     friendId != null ? dmConversationId(user?.id ?? 0, friendId) : null;
 
-  // Load lịch sử tin nhắn DM
+  // ── Track page visibility ────────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      setIsPageVisible(document.visibilityState === "visible");
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  // ── Load lịch sử tin nhắn DM ───────────────────────────────────────────
+  // Track if initial history load is complete
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
   useEffect(() => {
     if (!friendId) {
       setMessages([]);
       setHistoryError(null);
+      setHistoryLoaded(false);
       prevRoomIdRef.current = null;
+      // Reset message count khi không có conversation
+      prevMessageCountRef.current = 0;
       return;
     }
+
+    // Reset message count khi chuyển sang conversation mới
+    // Đảm bảo mark_read được trigger khi history load xong
+    prevMessageCountRef.current = 0;
 
     const roomId = dmConversationId(user?.id ?? 0, friendId);
 
@@ -180,11 +223,45 @@ export function useDirectMessage(
       setHistoryError(null);
       try {
         const list = await getDirectMessages(roomId);
-        const enriched: ChatMessage[] = list.map((msg) => ({
-          ...msg,
-          isOwn: Number(msg.senderId) === Number(user?.id),
-        }));
+
+        // Get message IDs that are from the current user (for read status check)
+        const myMessageIds = list
+          .filter((m) => Number(m.senderId) === Number(user?.id))
+          .map((m) => String(m.id || m.messageId));
+
+        // Fetch read status for all messages from current user
+        let readStatuses: Record<string, { isRead: boolean; readers: ReadReceiptReader[] }> = {};
+        try {
+          if (myMessageIds.length > 0 && user?.id) {
+            const readStatusResult = await getReadStatusForMessages(roomId, myMessageIds);
+            readStatuses = readStatusResult.statuses || {};
+          }
+        } catch (readErr) {
+          console.warn("[Chat] Could not fetch read statuses:", readErr);
+        }
+
+        const enriched: ChatMessage[] = list.map((msg) => {
+          const msgId = String(msg.id || msg.messageId || "");
+          const isMyMessage = Number(msg.senderId) === Number(user?.id);
+          const readStatus = readStatuses[msgId];
+
+          // Determine initial status based on read receipt
+          let sendStatus: MessageSendStatus = "sent";
+          if (isMyMessage && readStatus?.isRead) {
+            sendStatus = "read";
+          }
+
+          return {
+            ...msg,
+            isOwn: Number(msg.senderId) === Number(user?.id),
+            sendStatus,
+            // Include readers info only for own messages
+            ...(isMyMessage && readStatus?.readers ? { readBy: readStatus.readers } : {}),
+          };
+        });
         setMessages(enriched);
+        // Mark history as loaded so scroll effect can trigger
+        setHistoryLoaded(true);
       } catch (err: unknown) {
         setHistoryError(
           err instanceof Error
@@ -192,6 +269,7 @@ export function useDirectMessage(
             : "Không tải được lịch sử tin nhắn",
         );
         setMessages([]);
+        setHistoryLoaded(true);
       } finally {
         setIsLoadingHistory(false);
       }
@@ -213,7 +291,9 @@ export function useDirectMessage(
     emitJoinRoom(currentRoomId);
 
     const unsubReceive = onReceiveMessage((newMsg) => {
-      if (Number(newMsg.senderId) === Number(user?.id)) return;
+      // Chặn tin nhắn của chính mình, NGOẠI TRỪ call_log (cả 2 bên đều cần thấy)
+      const isCallLog = (newMsg as any).contentType === "call_log" || (newMsg as any).messageType === "call_log";
+      if (!isCallLog && Number(newMsg.senderId) === Number(user?.id)) return;
       if (!isSameDmConversation(newMsg.conversationId, currentRoomId)) return;
 
       // Cập nhật preview trong store
@@ -266,6 +346,40 @@ export function useDirectMessage(
       );
     });
 
+    // Listen for read receipt events
+    const unsubRead = onMessageRead(({ conversationId, messageId, readerId, readerName, readerAvatar, readAt }) => {
+      if (conversationId !== currentRoomId) return;
+
+      setMessages((prev) =>
+        prev.map((m) => {
+          // Only update messages sent by the current user
+          if (Number(m.senderId) !== Number(user?.id)) return m;
+          // Only update the specific message
+          if (String(m.id || m.messageId) !== String(messageId)) return m;
+
+          // Add reader to readBy array
+          const newReader: ReadReceiptReader = {
+            userId: readerId,
+            readerName,
+            readerAvatar: readerAvatar ?? null,
+            readAt,
+          };
+
+          const existingReaders = m.readBy || [];
+          // Avoid duplicates
+          if (existingReaders.some(r => r.userId === readerId)) {
+            return { ...m, sendStatus: "read" as const };
+          }
+
+          return {
+            ...m,
+            sendStatus: "read" as const,
+            readBy: [...existingReaders, newReader],
+          };
+        }),
+      );
+    });
+
     const unsubTyping = onUserTyping(({ userId, userName }) => {
       setTypingUsers((prev) =>
         prev.includes(userName) ? prev : [...prev, userName],
@@ -281,11 +395,23 @@ export function useDirectMessage(
       setTypingUsers((prev) => prev.filter((n) => n !== userName));
     });
 
+    const unsubLiveLocationStopped = onLiveLocationStopped((payload) => {
+      if (payload.roomId !== currentRoomId) return;
+      const now = new Date(Date.now() - 1000).toISOString();
+      setMessages((prev) => prev.map(m => 
+        (m.contentType === "location" && String(m.senderId) === String(payload.senderId) && (m.locationData as any)?.isLive && (!m.locationData?.liveUntil || new Date(m.locationData.liveUntil).getTime() > Date.now())) 
+          ? { ...m, locationData: { ...m.locationData, liveUntil: now } as any } 
+          : m
+      ));
+    });
+
     return () => {
       unsubReceive();
       unsubRevoked();
+      unsubRead();
       unsubTyping();
       unsubStopTyping();
+      unsubLiveLocationStopped();
       emitLeaveRoom(currentRoomId);
     };
   }, [
@@ -294,8 +420,10 @@ export function useDirectMessage(
     emitLeaveRoom,
     onReceiveMessage,
     onMessageRevoked,
+    onMessageRead,
     onUserTyping,
     onUserStoppedTyping,
+    onLiveLocationStopped,
     user?.id,
     selectedFriend,
     setConversationPreview,
@@ -314,28 +442,174 @@ export function useDirectMessage(
     [currentRoomId, emitTypingStart, emitTypingStop],
   );
 
-  // Auto-scroll khi có tin nhắn mới
-  useEffect(() => {
-    if (messages.length === 0) return;
-
-    if (scrollDebounceTimer.current) {
-      clearTimeout(scrollDebounceTimer.current);
+  // ─── Auto-mark messages as read ──────────────────────────────────────────
+  /**
+   * Mark messages as read ONLY when:
+   * 1. The page is visible (not minimized/in background tab)
+   * 2. The chat is the currently active conversation in the store
+   * 3. A NEW message was received (not during history load)
+   * 4. The message hasn't been marked as read recently (duplicate prevention)
+   */
+  const markMessagesAsRead = useCallback(() => {
+    // CRITICAL: Only mark as read if the page is visible
+    if (!isPageVisible) {
+      console.log("[Chat] Skipping mark_as_read: page is hidden");
+      return;
     }
 
-    scrollDebounceTimer.current = setTimeout(() => {
-      bottomSentinelRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, scrollDebounceMs);
+    // CRITICAL: Only mark as read for the currently active conversation
+    // This prevents stale hooks from marking read for closed chat windows
+    // Use getState() to get the LATEST state, not a stale closure
+    const store = useChatStore.getState();
+    const isCurrentlySelected =
+      store.chatMode === "PRIVATE" &&
+      store.selectedFriend?.friend_id === friendId;
 
+    if (!isCurrentlySelected) {
+      console.log("[Chat] Skipping mark_as_read: not the selected conversation", {
+        chatMode: store.chatMode,
+        selectedFriendId: store.selectedFriend?.friend_id,
+        thisFriendId: friendId
+      });
+      return;
+    }
+
+    if (messages.length === 0) return;
+
+    // Lấy tin nhắn cuối cùng từ người khác (không phải của mình)
+    const lastReceivedMessage = [...messages]
+      .reverse()
+      .find((m) => !m.isOwn);
+
+    if (lastReceivedMessage && currentRoomId) {
+      const rawId = lastReceivedMessage.id || lastReceivedMessage.messageId;
+      if (!rawId) return;
+      const messageId = String(rawId);
+
+      // Prevent duplicate mark_read for the same message within 3 seconds
+      const now = Date.now();
+      const THREE_SECONDS = 3000;
+      if (
+        lastMarkedReadRef.current &&
+        lastMarkedReadRef.current.messageId === messageId &&
+        now - lastMarkedReadRef.current.timestamp < THREE_SECONDS
+      ) {
+        console.log(`[Chat] Skipping duplicate mark_as_read for message ${messageId}`);
+        return;
+      }
+
+      // Record this mark_read attempt
+      lastMarkedReadRef.current = { messageId, timestamp: now };
+
+      console.log(`[Chat] Marking message ${messageId} as read in conversation ${currentRoomId}`);
+
+      // Debounce the actual emission to prevent rapid fire
+      if (markReadDebounceRef.current) {
+        clearTimeout(markReadDebounceRef.current);
+      }
+      markReadDebounceRef.current = setTimeout(() => {
+        // Double-check active status before emitting (prevents race conditions)
+        const currentStore = useChatStore.getState();
+        const stillActive =
+          currentStore.chatMode === "PRIVATE" &&
+          currentStore.selectedFriend?.friend_id === friendId;
+
+        if (!stillActive) {
+          console.log("[Chat] Cancelling mark_read: conversation no longer active");
+          return;
+        }
+
+        emitMarkRead(currentRoomId, messageId);
+      }, 100); // 100ms debounce
+    }
+  }, [messages, currentRoomId, emitMarkRead, isPageVisible, friendId]);
+
+  // Auto-mark as read khi:
+  // 1. History vừa load xong (vào conversation có tin nhắn cũ chưa đọc)
+  // 2. Có tin nhắn MỚI đến
+  useEffect(() => {
+    // Skip nếu đang loading
+    if (isLoadingHistory) return;
+
+    // Skip nếu không có tin nhắn
+    if (messages.length === 0) return;
+
+    // Detect NEW message (count tăng so với lần trước)
+    const isNewMessage = messages.length > prevMessageCountRef.current;
+
+    // Detect history vừa load xong: prevCount là 0 (vừa reset) và có messages
+    const isHistoryJustLoaded = prevMessageCountRef.current === 0 && messages.length > 0;
+
+    // Cập nhật ref
+    prevMessageCountRef.current = messages.length;
+
+    // Trigger mark_as_read khi có tin nhắn mới HOẶC khi vừa load history xong
+    if (isNewMessage || isHistoryJustLoaded) {
+      markMessagesAsRead();
+    }
+
+    // Cleanup
     return () => {
-      if (scrollDebounceTimer.current) {
-        clearTimeout(scrollDebounceTimer.current);
+      if (markReadDebounceRef.current) {
+        clearTimeout(markReadDebounceRef.current);
+        markReadDebounceRef.current = null;
       }
     };
-  }, [messages, scrollDebounceMs]);
+  }, [messages.length, isLoadingHistory, markMessagesAsRead]);
+
+  // Cleanup on unmount - clear all pending timers
+  useEffect(() => {
+    return () => {
+      if (markReadDebounceRef.current) {
+        clearTimeout(markReadDebounceRef.current);
+        markReadDebounceRef.current = null;
+      }
+      lastMarkedReadRef.current = null;
+    };
+  }, []);
+
+  // ── Auto-scroll khi có tin nhắn mới ────────────────────────────────────
+  // Ref để track conversation ID đã mount
+  const mountedConversationRef = useRef<string | null>(null);
+
+  // Update ref khi user scroll (placeholder - có thể dùng sau)
+  const handleScroll = useCallback(() => {
+    // Logic scroll chính nằm trong ChatWindow
+  }, []);
+
+  // Force scroll xuống bottom khi:
+  // 1. Lần đầu mount conversation
+  // 2. Có tin nhắn mới
+  useEffect(() => {
+    if (!friendId) return;
+
+    const currentConvId = friendId;
+
+    // Cập nhật ref
+    mountedConversationRef.current = currentConvId;
+
+    // Scroll xuống bottom khi có tin nhắn - dùng double-rAF để đảm bảo DOM đã render
+    if (messages.length > 0) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+          }
+        });
+      });
+    }
+  }, [friendId, messages.length]);
+
+  // Cleanup khi unmount
+  useEffect(() => {
+    return () => {
+      mountedConversationRef.current = null;
+    };
+  }, []);
 
   // Gửi tin nhắn DM
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, replyTo?: string | number | null) => {
       if (!currentRoomId || !content.trim()) return;
 
       const tempId = `temp-${Date.now()}`;
@@ -348,6 +622,7 @@ export function useDirectMessage(
         createdAt: new Date().toISOString(),
         isOwn: true,
         sendStatus: "sending",
+        replyTo: replyTo || null,
       };
 
       setMessages((prev) => [...prev, optimisticMsg]);
@@ -359,6 +634,8 @@ export function useDirectMessage(
           content.trim(),
           "text",
           null,
+          undefined,
+          replyTo || null,
         );
 
         if (result.ok && result.message) {
@@ -742,6 +1019,8 @@ export function useDirectMessage(
     scrollContainerRef,
     typingUsers,
     onTypingChange,
+    setMessages,
+    handleScroll,
     deleteMessage: (messageId: string) => {
       setMessages((prev) =>
         prev.filter((m) => String(m.id) !== String(messageId)),

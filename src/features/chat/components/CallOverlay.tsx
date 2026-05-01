@@ -128,6 +128,15 @@ export default function CallOverlay() {
 
   const handleDeclineIncomingCall = useCallback(() => {
     if (!incomingCall) return;
+
+    if (incomingCall.isGroupCall) {
+      // Group call: chỉ đóng modal/chuông của mình, KHÔNG emit call-rejected
+      // Nếu emit → backend nhận "call-reject" → clearActiveCall → văng toàn bộ
+      clearCallState();
+      return;
+    }
+
+    // 1-1 call: emit call-rejected bình thường
     const conversationId = incomingCall.conversationId || incomingCall.roomId;
     emitCallDeclined({
       ...incomingCall,
@@ -137,10 +146,20 @@ export default function CallOverlay() {
       callerId: String(incomingCall.callerId || ""),
       from: resolvedUserId,
     });
-  }, [emitCallDeclined, incomingCall, resolvedUserId]);
+  }, [clearCallState, emitCallDeclined, incomingCall, resolvedUserId]);
 
   const handleHangUp = useCallback(() => {
     if (!activeCall) return;
+
+    if (activeCall.isGroupCall) {
+      // Group call: chỉ đóng UI của bản thân, KHÔNG emit end-call
+      // Phòng ZegoCloud vẫn sống cho người khác. Webhook room_close sẽ lưu call log
+      // khi người cuối cùng rời phòng.
+      scheduleCleanup();
+      return;
+    }
+
+    // 1-1 call: emit end-call bình thường
     emitEndCall({
       conversationId: activeCall.conversationId,
       roomId: activeCall.roomId,
@@ -149,7 +168,7 @@ export default function CallOverlay() {
       receiverId: activeCall.remoteUserId,
       to: activeCall.remoteUserId,
       from: resolvedUserId,
-      isGroupCall: activeCall.isGroupCall,
+      isGroupCall: false,
     });
     scheduleCleanup();
   }, [activeCall, emitEndCall, resolvedUserId, resolvedUserName, scheduleCleanup]);

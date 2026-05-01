@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useRef } from "react";
+import React, { useCallback, useRef, useEffect } from "react";
 
 export default function ZegoBaseRoom({
   roomId,
@@ -12,10 +12,16 @@ export default function ZegoBaseRoom({
   onLeave,
 }: any) {
   const isJoined = useRef(false);
+  const zpRef = useRef<any>(null);
+  const hasLeft = useRef(false);
 
   const myMeeting = useCallback(
     (element: HTMLDivElement | null) => {
-      if (!element || isJoined.current) return;
+      if (!element) {
+        return;
+      }
+      
+      if (isJoined.current) return;
       isJoined.current = true;
 
       void (async () => {
@@ -33,12 +39,15 @@ export default function ZegoBaseRoom({
           );
 
           const zp = ZegoUIKitPrebuilt.create(kitToken);
+          zpRef.current = zp;
 
           zp.joinRoom({
             container: element,
             scenario: { mode: scenarioMode },
             showPreJoinView: false,
+            showLeavingView: false,
             onLeaveRoom: () => {
+              hasLeft.current = true;
               if (typeof onLeave === "function") {
                 onLeave();
               }

@@ -10,10 +10,18 @@ import React, {
 } from "react";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "./AuthContext";
-import type { MessageItem, StickerData } from "../types";
+import type { MessageItem, StickerData, LiveLocationStartedPayload, LiveLocationUpdatedPayload, LiveLocationStoppedPayload } from "../types";
+
+// Payload khi tin nhắn live location được cập nhật (isLive=false) từ DB
+export interface LiveLocationMessageStoppedPayload {
+  conversationId: string;
+  messageId: string;
+  locationData: import("../types").LocationData;
+}
 import apiClient from "../lib/axios";
 import { useToast } from "./ToastContext";
 import { useChatStore } from "../features/chat/store/chatStore";
+import { useGroupsStore } from "../features/groups/store/groupsStore";
 
 const WS_URL =
   process.env.NEXT_PUBLIC_WS_URL ||
@@ -58,6 +66,15 @@ export interface MessageForwardedPayload {
   };
 }
 
+export interface ReadReceiptPayload {
+  conversationId: string;
+  messageId: string;
+  readerId: string;
+  readerName: string;
+  readerAvatar: string | null;
+  readAt: string;
+}
+
 interface SocketContextValue {
   socket: Socket | null;
   status: SocketStatus;
@@ -70,7 +87,8 @@ interface SocketContextValue {
     content: string,
     contentType?: string,
     attachments?: object | null,
-    stickerData?: StickerData
+    stickerData?: StickerData,
+    replyTo?: string | number | null
   ) => Promise<{ ok: boolean; message?: MessageItem; error?: string }>;
   emitTypingStart: (roomId: string) => void;
   emitTypingStop: (roomId: string) => void;
@@ -79,6 +97,11 @@ interface SocketContextValue {
   emitCallDeclined: (payload: CallSignalPayload) => void;
   emitCallCancel: (payload: CallSignalPayload) => void;
   emitEndCall: (payload: CallSignalPayload) => void;
+  emitMarkRead: (conversationId: string, messageId: string) => void;
+  // Live Location emit helpers
+  emitStartLiveLocation: (roomId: string) => void;
+  emitUpdateLiveLocation: (roomId: string, lat: number, lng: number) => void;
+  emitStopLiveLocation: (roomId: string) => void;
   // Event listeners
   onReceiveMessage: (
     handler: (message: MessageItem) => void
@@ -102,6 +125,13 @@ interface SocketContextValue {
   onEndCall: (handler: (data: CallSignalPayload) => void) => () => void;
   onMessageRevoked: (handler: (data: MessageRevokedPayload) => void) => () => void;
   onMessageForwarded: (handler: (data: MessageForwardedPayload) => void) => () => void;
+  onMessageRead: (handler: (data: ReadReceiptPayload) => void) => () => void;
+  // Live Location event listeners
+  onLiveLocationStarted: (handler: (data: LiveLocationStartedPayload) => void) => () => void;
+  onLiveLocationUpdated: (handler: (data: LiveLocationUpdatedPayload) => void) => () => void;
+  onLiveLocationStopped: (handler: (data: LiveLocationStoppedPayload) => void) => () => void;
+  /** Cập nhật tin nhắn trong messages list khi server xác nhận dừng live location */
+  onLiveLocationMessageStopped: (handler: (data: LiveLocationMessageStoppedPayload) => void) => () => void;
 }
 
 
@@ -120,6 +150,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     setIsCallEnding,
     clearCallState,
   } = useChatStore();
+  const { addGroup, removeGroup } = useGroupsStore();
   const resolvedUserId = String(
     (user as any)?.id ?? (user as any)?._id ?? (user as any)?.userId ?? "",
   ).trim();
@@ -261,17 +292,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     };
 
     const handleGroupCallRequest = (data: CallSignalPayload) => {
-      console.log("[SOCKET DEBUG] Group Call Signal Received:", data);
-
       const roomId = String(data?.roomId || "").trim();
-      if (!roomId) {
-        console.warn("[SOCKET DEBUG] Ignored group-call-request because roomId is missing");
-        return;
-      }
+      if (!roomId) return;
 
       const callerId = String(data.callerId || "");
+      // Bỏ qua nếu chính mình là caller
       if (callerId && callerId === resolvedUserId) return;
 
+      // Set incomingCall để hiện chuông + IncomingCallModal (như 1-1)
+      // Khi Decline: chỉ đóng modal local, KHÔNG emit call-rejected
       setIncomingCall({
         ...data,
         roomId,
@@ -279,7 +308,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         receiverId: String(data.receiverId || resolvedUserId),
         isGroupCall: true,
       });
-
     };
 
     const handleCallEnded = (payload: CallSignalPayload) => {
@@ -307,6 +335,35 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socket.on("call-canceled", handleCallEnded);
     socket.on("message:revoked", handleMessageRevoked);
 
+    const handleNewConversation = (data: any) => {
+      if (data?.conversationData) {
+        addGroup(data.conversationData);
+      }
+    };
+    const handleYouWereRemoved = (data: any) => {
+      if (data?.groupId) {
+        removeGroup(data.groupId);
+        const chatState = useChatStore.getState();
+        if (chatState.selectedGroup && String(chatState.selectedGroup.groupId) === String(data.groupId)) {
+          chatState.setSelectedGroup(null);
+        }
+        addToast("Bạn đã bị xóa khỏi nhóm", "info", 3000);
+      }
+    };
+    const handleGroupDeleted = (data: any) => {
+      if (data?.groupId) {
+        removeGroup(data.groupId);
+        const chatState = useChatStore.getState();
+        if (chatState.selectedGroup && String(chatState.selectedGroup.groupId) === String(data.groupId)) {
+          chatState.setSelectedGroup(null);
+        }
+        addToast("Nhóm đã bị giải tán", "info", 3000);
+      }
+    };
+    socket.on("chat:new_conversation", handleNewConversation);
+    socket.on("group:you_were_removed", handleYouWereRemoved);
+    socket.on("group:deleted", handleGroupDeleted);
+
     return () => {
       socket.off("incoming-call", handleIncomingCall);
       socket.off("call-request", handleIncomingCall);
@@ -317,17 +374,24 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off("call-rejected", handleCallEnded);
       socket.off("call-canceled", handleCallEnded);
       socket.off("message:revoked", handleMessageRevoked);
+      socket.off("chat:new_conversation", handleNewConversation);
+      socket.off("group:you_were_removed", handleYouWereRemoved);
+      socket.off("group:deleted", handleGroupDeleted);
     };
-  }, [addToast, activeCall, incomingCall, outgoingCall, resolvedUserId, scheduleCleanup, setActiveCall, setIncomingCall, setOutgoingCall, setIsCallEnding]);
+  }, [addToast, activeCall, incomingCall, outgoingCall, resolvedUserId, scheduleCleanup, setActiveCall, setIncomingCall, setOutgoingCall, setIsCallEnding, addGroup, removeGroup]);
 
   // ── Emit helpers ────────────────────────────────────────────────────────────
 
   const emitJoinRoom = useCallback((roomId: string) => {
-    socketRef.current?.emit("join_room", { roomId });
+    socketRef.current?.emit("join_room", { roomId }, (response?: any) => {
+      if (response && response.error) {
+        console.warn(`Lỗi khi join room ${roomId}:`, response.error);
+      }
+    });
   }, []);
 
   const emitLeaveRoom = useCallback((roomId: string) => {
-    socketRef.current?.emit("leave_room", { roomId });
+    socketRef.current?.emit("leave_room", { roomId }, (response?: any) => {});
   }, []);
 
   const emitSendMessage = useCallback(
@@ -336,7 +400,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       content: string,
       contentType = "text",
       attachments: object | null = null,
-      stickerData?: StickerData
+      stickerData?: StickerData,
+      replyTo?: string | number | null
     ): Promise<{ ok: boolean; message?: MessageItem; error?: string }> => {
       return new Promise((resolve) => {
         if (!socketRef.current) {
@@ -345,7 +410,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         }
         socketRef.current.emit(
           "send_message",
-          { roomId, content, contentType, attachments, stickerData },
+          { roomId, content, contentType, attachments, stickerData, replyTo },
           (response: { ok: boolean; message?: MessageItem; error?: string }) => {
             resolve(response);
           }
@@ -391,6 +456,36 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   const emitEndCall = useCallback((payload: CallSignalPayload) => {
     socketRef.current?.emit("end-call", payload);
+  }, []);
+
+  const emitMarkRead = useCallback((conversationId: string, messageId: string) => {
+    socketRef.current?.emit("mark_read", { conversationId, messageId });
+  }, []);
+
+  // ── Live Location emit helpers ──────────────────────────────────────────────
+
+  /**
+   * Emit start_live_location: thông báo người dùng bắt đầu chia sẻ vị trí trực tiếp.
+   * Backend sẽ broadcast live_location_started đến các thành viên khác trong room.
+   */
+  const emitStartLiveLocation = useCallback((roomId: string) => {
+    socketRef.current?.emit("start_live_location", { roomId });
+  }, []);
+
+  /**
+   * Emit update_live_location: gửi tọa độ mới mỗi khi navigator.geolocation.watchPosition
+   * trả về vị trí cập nhật. Backend broadcast live_location_updated đến room.
+   */
+  const emitUpdateLiveLocation = useCallback((roomId: string, lat: number, lng: number) => {
+    socketRef.current?.emit("update_live_location", { roomId, lat, lng });
+  }, []);
+
+  /**
+   * Emit stop_live_location: thông báo dừng chia sẻ.
+   * Nên gọi khi clearWatch() hoặc khi component unmount.
+   */
+  const emitStopLiveLocation = useCallback((roomId: string) => {
+    socketRef.current?.emit("stop_live_location", { roomId });
   }, []);
 
   // UI handlers are implemented in CallOverlay.
@@ -581,6 +676,90 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const onMessageRead = useCallback(
+    (handler: (data: ReadReceiptPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+
+      const listener = (data: ReadReceiptPayload) => handler(data);
+      socket.on("message_read", listener);
+
+      return () => {
+        socket.off("message_read", listener);
+      };
+    },
+    []
+  );
+
+  // ── Live Location event listener helpers ───────────────────────────────────
+
+  /**
+   * Lắng nghe sự kiện live_location_started:
+   * được emit khi người khác trong room bắt đầu chia sẻ vị trí.
+   */
+  const onLiveLocationStarted = useCallback(
+    (handler: (data: LiveLocationStartedPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+      const listener = (data: LiveLocationStartedPayload) => handler(data);
+      socket.on("live_location_started", listener);
+      return () => socket.off("live_location_started", listener);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socketInstance]
+  );
+
+  /**
+   * Lắng nghe sự kiện live_location_updated:
+   * được emit mỗi khi tọa độ người chia sẻ thay đổi.
+   * Dùng để cập nhật Marker trên bản đồ.
+   */
+  const onLiveLocationUpdated = useCallback(
+    (handler: (data: LiveLocationUpdatedPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+      const listener = (data: LiveLocationUpdatedPayload) => handler(data);
+      socket.on("live_location_updated", listener);
+      return () => socket.off("live_location_updated", listener);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socketInstance]
+  );
+
+  /**
+   * Lắng nghe sự kiện live_location_stopped:
+   * được emit khi người chia sẻ dừng (clearWatch / unmount / stop button).
+   */
+  const onLiveLocationStopped = useCallback(
+    (handler: (data: LiveLocationStoppedPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+      const listener = (data: LiveLocationStoppedPayload) => handler(data);
+      socket.on("live_location_stopped", listener);
+      return () => socket.off("live_location_stopped", listener);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socketInstance]
+  );
+
+  /**
+   * Lắng nghe `live_location_message_stopped`:
+   * Backend broadcast sau khi API PATCH dừng phiên live location,
+   * mang locationData đã được cập nhật (isLive=false, liveUntil=timestamp).
+   * Dùng để cập nhật message bubble mà không cần refresh.
+   */
+  const onLiveLocationMessageStopped = useCallback(
+    (handler: (data: LiveLocationMessageStoppedPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+      const listener = (data: LiveLocationMessageStoppedPayload) => handler(data);
+      socket.on("live_location_message_stopped", listener);
+      return () => socket.off("live_location_message_stopped", listener);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socketInstance]
+  );
+
   return (
     <SocketContext.Provider
       value={{
@@ -597,6 +776,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         emitCallDeclined,
         emitCallCancel,
         emitEndCall,
+        emitMarkRead,
+        emitStartLiveLocation,
+        emitUpdateLiveLocation,
+        emitStopLiveLocation,
         onReceiveMessage,
         onRoomJoined,
         onUserJoined,
@@ -609,7 +792,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         onEndCall,
         onMessageRevoked,
         onMessageForwarded,
-
+        onMessageRead,
+        onLiveLocationStarted,
+        onLiveLocationUpdated,
+        onLiveLocationStopped,
+        onLiveLocationMessageStopped,
       }}
     >
       {children}

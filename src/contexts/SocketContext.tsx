@@ -10,7 +10,14 @@ import React, {
 } from "react";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "./AuthContext";
-import type { MessageItem, StickerData } from "../types";
+import type { MessageItem, StickerData, LiveLocationStartedPayload, LiveLocationUpdatedPayload, LiveLocationStoppedPayload } from "../types";
+
+// Payload khi tin nhắn live location được cập nhật (isLive=false) từ DB
+export interface LiveLocationMessageStoppedPayload {
+  conversationId: string;
+  messageId: string;
+  locationData: import("../types").LocationData;
+}
 import apiClient from "../lib/axios";
 import { useToast } from "./ToastContext";
 import { useChatStore } from "../features/chat/store/chatStore";
@@ -91,6 +98,10 @@ interface SocketContextValue {
   emitCallCancel: (payload: CallSignalPayload) => void;
   emitEndCall: (payload: CallSignalPayload) => void;
   emitMarkRead: (conversationId: string, messageId: string) => void;
+  // Live Location emit helpers
+  emitStartLiveLocation: (roomId: string) => void;
+  emitUpdateLiveLocation: (roomId: string, lat: number, lng: number) => void;
+  emitStopLiveLocation: (roomId: string) => void;
   // Event listeners
   onReceiveMessage: (
     handler: (message: MessageItem) => void
@@ -115,6 +126,12 @@ interface SocketContextValue {
   onMessageRevoked: (handler: (data: MessageRevokedPayload) => void) => () => void;
   onMessageForwarded: (handler: (data: MessageForwardedPayload) => void) => () => void;
   onMessageRead: (handler: (data: ReadReceiptPayload) => void) => () => void;
+  // Live Location event listeners
+  onLiveLocationStarted: (handler: (data: LiveLocationStartedPayload) => void) => () => void;
+  onLiveLocationUpdated: (handler: (data: LiveLocationUpdatedPayload) => void) => () => void;
+  onLiveLocationStopped: (handler: (data: LiveLocationStoppedPayload) => void) => () => void;
+  /** Cập nhật tin nhắn trong messages list khi server xác nhận dừng live location */
+  onLiveLocationMessageStopped: (handler: (data: LiveLocationMessageStoppedPayload) => void) => () => void;
 }
 
 
@@ -448,6 +465,32 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socketRef.current?.emit("mark_read", { conversationId, messageId });
   }, []);
 
+  // ── Live Location emit helpers ──────────────────────────────────────────────
+
+  /**
+   * Emit start_live_location: thông báo người dùng bắt đầu chia sẻ vị trí trực tiếp.
+   * Backend sẽ broadcast live_location_started đến các thành viên khác trong room.
+   */
+  const emitStartLiveLocation = useCallback((roomId: string) => {
+    socketRef.current?.emit("start_live_location", { roomId });
+  }, []);
+
+  /**
+   * Emit update_live_location: gửi tọa độ mới mỗi khi navigator.geolocation.watchPosition
+   * trả về vị trí cập nhật. Backend broadcast live_location_updated đến room.
+   */
+  const emitUpdateLiveLocation = useCallback((roomId: string, lat: number, lng: number) => {
+    socketRef.current?.emit("update_live_location", { roomId, lat, lng });
+  }, []);
+
+  /**
+   * Emit stop_live_location: thông báo dừng chia sẻ.
+   * Nên gọi khi clearWatch() hoặc khi component unmount.
+   */
+  const emitStopLiveLocation = useCallback((roomId: string) => {
+    socketRef.current?.emit("stop_live_location", { roomId });
+  }, []);
+
   // UI handlers are implemented in CallOverlay.
 
   // ── Event listener helpers (trả về hàm hủy đăng ký) ───────────────────────
@@ -651,6 +694,75 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  // ── Live Location event listener helpers ───────────────────────────────────
+
+  /**
+   * Lắng nghe sự kiện live_location_started:
+   * được emit khi người khác trong room bắt đầu chia sẻ vị trí.
+   */
+  const onLiveLocationStarted = useCallback(
+    (handler: (data: LiveLocationStartedPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+      const listener = (data: LiveLocationStartedPayload) => handler(data);
+      socket.on("live_location_started", listener);
+      return () => socket.off("live_location_started", listener);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socketInstance]
+  );
+
+  /**
+   * Lắng nghe sự kiện live_location_updated:
+   * được emit mỗi khi tọa độ người chia sẻ thay đổi.
+   * Dùng để cập nhật Marker trên bản đồ.
+   */
+  const onLiveLocationUpdated = useCallback(
+    (handler: (data: LiveLocationUpdatedPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+      const listener = (data: LiveLocationUpdatedPayload) => handler(data);
+      socket.on("live_location_updated", listener);
+      return () => socket.off("live_location_updated", listener);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socketInstance]
+  );
+
+  /**
+   * Lắng nghe sự kiện live_location_stopped:
+   * được emit khi người chia sẻ dừng (clearWatch / unmount / stop button).
+   */
+  const onLiveLocationStopped = useCallback(
+    (handler: (data: LiveLocationStoppedPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+      const listener = (data: LiveLocationStoppedPayload) => handler(data);
+      socket.on("live_location_stopped", listener);
+      return () => socket.off("live_location_stopped", listener);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socketInstance]
+  );
+
+  /**
+   * Lắng nghe `live_location_message_stopped`:
+   * Backend broadcast sau khi API PATCH dừng phiên live location,
+   * mang locationData đã được cập nhật (isLive=false, liveUntil=timestamp).
+   * Dùng để cập nhật message bubble mà không cần refresh.
+   */
+  const onLiveLocationMessageStopped = useCallback(
+    (handler: (data: LiveLocationMessageStoppedPayload) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+      const listener = (data: LiveLocationMessageStoppedPayload) => handler(data);
+      socket.on("live_location_message_stopped", listener);
+      return () => socket.off("live_location_message_stopped", listener);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [socketInstance]
+  );
+
   return (
     <SocketContext.Provider
       value={{
@@ -668,6 +780,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         emitCallCancel,
         emitEndCall,
         emitMarkRead,
+        emitStartLiveLocation,
+        emitUpdateLiveLocation,
+        emitStopLiveLocation,
         onReceiveMessage,
         onRoomJoined,
         onUserJoined,
@@ -681,7 +796,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         onMessageRevoked,
         onMessageForwarded,
         onMessageRead,
-
+        onLiveLocationStarted,
+        onLiveLocationUpdated,
+        onLiveLocationStopped,
+        onLiveLocationMessageStopped,
       }}
     >
       {children}

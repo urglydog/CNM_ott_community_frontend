@@ -6,6 +6,7 @@ import { ReadByAvatars } from "./ReadByAvatars";
 import { ReplyReference } from "./ReplyComponents";
 import type { GroupChatMessage } from "../hooks/useGroupChat";
 import { formatTime, isPureEmoji } from "../utils/messageUtils";
+import LocationMessage from "../../../components/chat/LocationMessage";
 
 interface PrivateMessageBubbleProps {
   msg: GroupChatMessage;
@@ -220,6 +221,20 @@ export function PrivateMessageBubble({
         ) : msg.contentType === "voice" ? (
           <div className="py-1">
             <AudioMessage audioUrl={msg.attachments?.[0]?.url || msg.content} isOwn={isOwn} />
+          </div>
+        ) : msg.contentType === "location" && msg.locationData ? (
+          /* Tin nhắn vị trí — hiển thị bản đồ tĩnh Google Maps Static API */
+          <div className="-mx-3 -my-2">
+            <LocationMessage
+              locationData={msg.locationData}
+              isOwn={isOwn}
+              isLive={msg.locationData.isLive === true}
+              liveUntil={msg.locationData.liveUntil || null}
+              senderAvatarUrl={msg.senderAvatarUrl || null}
+              senderDisplayName={msg.senderDisplayName || null}
+              mapWidth={240}
+              mapHeight={150}
+            />
           </div>
         ) : (
           <div

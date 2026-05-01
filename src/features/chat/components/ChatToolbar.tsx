@@ -10,6 +10,8 @@ interface ChatToolbarProps {
   onTogglePicker: () => void;
   onImageClick: () => void;
   onFileClick: () => void;
+  /** Callback khi nhấn nút Chia sẻ vị trí */
+  onLocationClick?: () => void;
   children?: React.ReactNode;
 }
 
@@ -21,6 +23,7 @@ export function ChatToolbar({
   onTogglePicker,
   onImageClick,
   onFileClick,
+  onLocationClick,
   children,
 }: ChatToolbarProps) {
   return (
@@ -53,7 +56,15 @@ export function ChatToolbar({
           <Paperclip className="w-5 h-5 cursor-pointer" />
         </button>
         <LinkIcon className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-        <MapPin className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+        <button
+          type="button"
+          onClick={onLocationClick}
+          disabled={!isConnected}
+          className="text-gray-500 hover:text-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          title="Chia sẻ vị trí"
+        >
+          <MapPin className="w-5 h-5" />
+        </button>
         <Contact className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
         <CheckSquare className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
         <Type className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />

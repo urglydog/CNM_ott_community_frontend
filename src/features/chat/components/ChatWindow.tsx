@@ -28,6 +28,10 @@ import CallOverlay from "@/features/chat/components/CallOverlay";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
 import { getMessageDomId } from "../utils/messageSearch";
+import { useLiveLocation } from "../../../hooks/useLiveLocation";
+import LocationShareButton from "../../../components/chat/LocationShareButton";
+import LocationMessage from "../../../components/chat/LocationMessage";
+import LiveLocationMap from "../../../components/chat/LiveLocationMap";
 
 // Components
 import { GroupAvatar } from "./Avatar";
@@ -115,6 +119,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     typingUsers: dmTypingUsers,
     onTypingChange: dmTypingChange,
     deleteMessage: deleteDmMessage,
+    setMessages: setDmMessages,
   } = useDirectMessage(friendId);
 
   // ── Group mode ────────────────────────────────────────────────────────
@@ -140,6 +145,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     typingUsers: groupTypingUsers,
     onTypingChange: groupTypingChange,
     deleteMessage: deleteGroupMessage,
+    setMessages: setGroupMessages,
   } = useGroupChat(selectedGroup ?? null, groupMembers);
 
   // Load group members when selectedGroup changes
@@ -210,8 +216,180 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     return dmConversationId(currentUserId, selectedFriend.friend_id);
   }, [chatMode, currentUserId, selectedFriend?.friend_id, selectedGroup]);
 
-  // ── Emoji / Sticker Picker state ─────────────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // ── Location Share state ─────────────────────────────────────────────────
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false);
+
+  // useLiveLocation: quản lý live location realtime
+  const {
+    isSharing: isLiveSharing,
+    liveLocations,
+    myLocation,
+    startSharing,
+    stopSharing,
+  } = useLiveLocation(activeConversationId);
+
+  /** Gửi vị trí hiện tại (một lần) qua API */
+  async function handleSendCurrentLocation() {
+    setLocationMenuOpen(false);
+    if (!activeConversationId) {
+      addToast("Vui lòng chọn cuộc trò chuyện trước", "error");
+      return;
+    }
+    if (!navigator.geolocation) {
+      addToast("Trình duyệt không hỗ trợ Geolocation", "error");
+      return;
+    }
+    addToast("Đang lấy vị trí...", "info", 2000);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude: lat, longitude: lng } = position.coords;
+        try {
+          const res = await fetch(
+            `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/messages/location`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${authUser.token}`,
+              },
+              body: JSON.stringify({ conversationId: activeConversationId, locationData: { lat, lng } }),
+            },
+          );
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || "Gửi vị trí thất bại");
+          }
+          // Lấy tin nhắn từ response và thêm vào state local của người gửi (bên A)
+          const savedMsg = await res.json();
+          const localMsg = {
+            ...savedMsg,
+            isOwn: true,
+            sendStatus: "sent" as const,
+          };
+          if (chatMode === "GROUP") {
+            setGroupMessages((prev) => {
+              if (prev.some((m) => String(m.id) === String(savedMsg.id))) return prev;
+              return [...prev, localMsg];
+            });
+          } else {
+            setDmMessages((prev) => {
+              if (prev.some((m) => String(m.id) === String(savedMsg.id))) return prev;
+              return [...prev, localMsg];
+            });
+          }
+          addToast("Đã gửi vị trí!", "success", 2000);
+        } catch (err: any) {
+          addToast(err?.message || "Không thể gửi vị trí", "error");
+        }
+      },
+      (err) => {
+        const msgs: Record<number, string> = {
+          1: "Bạn đã từ chối quyền truy cập vị trí",
+          2: "Không xác định được vị trí",
+          3: "Hết thời gian chờ lấy vị trí",
+        };
+        addToast(msgs[err.code] || "Lỗi Geolocation", "error");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
+  }
+
+  /** Bắt đầu / dừng chia sẻ Live Location */
+  async function handleToggleLiveLocation(durationMs?: number) {
+    setLocationMenuOpen(false);
+    if (isLiveSharing || !durationMs) {
+      stopSharing();
+      
+      // Cập nhật local state messages để đổi status thành "đã dừng"
+      const now = new Date(Date.now() - 1000).toISOString(); // Lùi lại 1s để chắc chắn đã hết hạn
+      if (chatMode === "GROUP") {
+        setGroupMessages((prev) => prev.map(m => 
+          (m.contentType === "location" && m.isOwn && (m.locationData as any)?.isLive && (!m.locationData?.liveUntil || new Date(m.locationData.liveUntil).getTime() > Date.now())) 
+            ? { ...m, locationData: { ...m.locationData, liveUntil: now } as any } 
+            : m
+        ));
+      } else {
+        setDmMessages((prev) => prev.map(m => 
+          (m.contentType === "location" && m.isOwn && (m.locationData as any)?.isLive && (!m.locationData?.liveUntil || new Date(m.locationData.liveUntil).getTime() > Date.now())) 
+            ? { ...m, locationData: { ...m.locationData, liveUntil: now } as any } 
+            : m
+        ));
+      }
+      
+      addToast("Đã dừng chia sẻ vị trí trực tiếp", "info", 2000);
+    } else {
+      if (!activeConversationId) {
+        addToast("Vui lòng chọn cuộc trò chuyện trước", "error");
+        return;
+      }
+      if (!navigator.geolocation) {
+        addToast("Trình duyệt không hỗ trợ Geolocation", "error");
+        return;
+      }
+      // Lấy vị trí hiện tại trước, rồi mới bắt đầu share + gửi tin nhắn
+      addToast("Đang lấy vị trí...", "info", 2000);
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude: lat, longitude: lng } = position.coords;
+          // Thời điểm kết thúc theo durationMs
+          const liveUntil = new Date(Date.now() + durationMs).toISOString();
+          try {
+            // Gửi tin nhắn live_location vào chat qua API
+            const res = await fetch(
+              `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/messages/location`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${authUser.token}`,
+                },
+                body: JSON.stringify({
+                  conversationId: activeConversationId,
+                  locationData: { lat, lng, label: "Đang chia sẻ hành trình" },
+                  isLive: true,
+                  liveUntil,
+                }),
+              },
+            );
+            if (res.ok) {
+              const savedMsg = await res.json();
+              const localMsg = {
+                ...savedMsg,
+                isOwn: true,
+                sendStatus: "sent" as const,
+                locationData: { lat, lng, label: "Đang chia sẻ hành trình", isLive: true, liveUntil },
+                senderAvatarUrl: (authUser as any).avatarUrl || null,
+                senderDisplayName: authUser.displayName || authUser.username || null,
+              };
+              if (chatMode === "GROUP") {
+                setGroupMessages((prev) => {
+                  if (prev.some((m) => String(m.id) === String(savedMsg.id))) return prev;
+                  return [...prev, localMsg];
+                });
+              } else {
+                setDmMessages((prev) => {
+                  if (prev.some((m) => String(m.id) === String(savedMsg.id))) return prev;
+                  return [...prev, localMsg];
+                });
+              }
+            }
+          } catch {
+            // Nếu API lỗi, vẫn tiếp tục share qua socket
+          }
+          // Bắt đầu live share qua socket sau khi đã gửi tin nhắn
+          startSharing();
+          addToast("Đang chia sẻ vị trí trực tiếp...", "success", 3000);
+        },
+        () => {
+          addToast("Không thể lấy vị trí. Vui lòng cấp quyền.", "error");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+      );
+    }
+  }
+
 
   // ── Context menu state ──────────────────────────────────────────────────
   const [ctxMenu, setCtxMenu] = useState<{
@@ -1113,6 +1291,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               onTogglePicker={() => setPickerOpen((prev) => !prev)}
               onImageClick={() => imageInputRef.current?.click()}
               onFileClick={() => fileInputRef.current?.click()}
+              onLocationClick={() => setLocationMenuOpen((prev) => !prev)}
             >
               <EmojiStickerPicker
                 isOpen={pickerOpen}
@@ -1120,6 +1299,118 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                 onEmojiSelect={handleEmojiSelect}
                 onStickerSelect={handleStickerSelect}
               />
+
+              {/* Dropdown menu chọn kiểu chia sẻ vị trí */}
+              {locationMenuOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "calc(100% + 8px)",
+                    left: 120,
+                    background: "linear-gradient(135deg,#1e293b 0%,#0f172a 100%)",
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                    overflow: "hidden",
+                    minWidth: 230,
+                    zIndex: 50,
+                    animation: "fadeInUp 0.15s ease",
+                  }}
+                >
+                  <style>{`@keyframes fadeInUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
+
+                  {/* Nút đóng */}
+                  <button
+                    onClick={() => setLocationMenuOpen(false)}
+                    style={{ position:"absolute", top:8, right:10, background:"none", border:"none", color:"#94a3b8", cursor:"pointer", fontSize:18 }}
+                  >×</button>
+
+                  {/* Option 1: Vị trí hiện tại */}
+                  <button
+                    onClick={handleSendCurrentLocation}
+                    style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(96,165,250,0.12)"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                  >
+                    <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(96,165,250,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>📍</span>
+                    <div>
+                      <div style={{ fontSize:14, fontWeight:600 }}>Vị trí hiện tại</div>
+                      <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>Gửi vị trí một lần</div>
+                    </div>
+                  </button>
+
+                  <div style={{ height:1, background:"rgba(255,255,255,0.06)", margin:"0 12px" }} />
+
+                  {/* Option 2: Vị trí trực tiếp */}
+                  {isLiveSharing ? (
+                    <button
+                      onClick={() => handleToggleLiveLocation()}
+                      style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(239,68,68,0.12)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                    >
+                      <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(239,68,68,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>
+                        ⏹
+                      </span>
+                      <div>
+                        <div style={{ fontSize:14, fontWeight:600, color: "#f87171" }}>
+                          Dừng chia sẻ
+                        </div>
+                        <div style={{ fontSize:11, color:"#64748b", marginTop:2 }}>
+                          Ngừng phát vị trí cho mọi người
+                        </div>
+                      </div>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => handleToggleLiveLocation(15 * 60 * 1000)}
+                        style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(74,222,128,0.12)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                      >
+                        <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(74,222,128,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🔴</span>
+                        <div>
+                          <div style={{ fontSize:14, fontWeight:600, color: "#4ade80" }}>Chia sẻ trực tiếp 15 phút</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleToggleLiveLocation(30 * 60 * 1000)}
+                        style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(74,222,128,0.12)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                      >
+                        <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(74,222,128,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🔴</span>
+                        <div>
+                          <div style={{ fontSize:14, fontWeight:600, color: "#4ade80" }}>Chia sẻ trực tiếp 30 phút</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleToggleLiveLocation(60 * 60 * 1000)}
+                        style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(74,222,128,0.12)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                      >
+                        <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(74,222,128,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🔴</span>
+                        <div>
+                          <div style={{ fontSize:14, fontWeight:600, color: "#4ade80" }}>Chia sẻ trực tiếp 1 giờ</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleToggleLiveLocation(8 * 60 * 60 * 1000)}
+                        style={{ display:"flex", alignItems:"center", gap:12, width:"100%", padding:"12px 16px", border:"none", background:"transparent", color:"#e2e8f0", cursor:"pointer", textAlign:"left" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background="rgba(74,222,128,0.12)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background="transparent"; }}
+                      >
+                        <span style={{ width:36, height:36, borderRadius:"50%", background:"rgba(74,222,128,0.15)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>🔴</span>
+                        <div>
+                          <div style={{ fontSize:14, fontWeight:600, color: "#4ade80" }}>Chia sẻ trực tiếp 8 giờ</div>
+                        </div>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </ChatToolbar>
 
             {replyingMessage && (

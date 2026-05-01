@@ -24,6 +24,8 @@ export interface CreateGroupPayload {
   name: string;
   description?: string;
   type?: string;
+  allowSendLinks?: string;
+  spamFilterLevel?: number;
 }
 
 export interface JoinGroupPayload {
@@ -217,7 +219,7 @@ export async function handleJoinRequest(
 
 export async function updateGroupSettings(
   groupId: string | number,
-  settings: { isApprovalRequired?: boolean }
+  settings: { isApprovalRequired?: boolean; allowSendLinks?: string; spamFilterLevel?: number }
 ): Promise<{ message: string }> {
   const response = await apiClient.patch(
     `/api/groups/${groupId}/settings`,

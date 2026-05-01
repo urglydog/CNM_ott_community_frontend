@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Loader2, Reply } from "lucide-react";
+import { FileText, Loader2, Reply, Phone, PhoneMissed, Video, VideoOff } from "lucide-react";
 import AudioMessage from "./AudioMessage";
 import { ReadByAvatars } from "./ReadByAvatars";
 import { ReplyReference } from "./ReplyComponents";
@@ -236,6 +236,46 @@ export function PrivateMessageBubble({
               mapHeight={150}
             />
           </div>
+        ) : (msg.contentType === "call_log" || (msg as any).messageType === "call_log") && (msg as any).callData ? (
+          (() => {
+            const callData = (msg as any).callData;
+            const callType = callData?.callType || "video";
+            const status = callData?.status || "missed";
+            const duration = callData?.duration || 0;
+
+            const isVideo = callType === "video";
+            const isMissed = status === "missed" || status === "rejected";
+
+            let icon = isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />;
+            if (isMissed) {
+              icon = isVideo ? <VideoOff className="w-5 h-5" /> : <PhoneMissed className="w-5 h-5" />;
+            }
+
+            let statusText = isVideo ? "Cuộc gọi video" : "Cuộc gọi thoại";
+            if (isMissed) {
+              statusText = isVideo ? "Cuộc gọi video nhỡ" : "Cuộc gọi thoại nhỡ";
+            }
+
+            const formatDuration = (secs: number) => {
+              const m = Math.floor(secs / 60);
+              const s = secs % 60;
+              return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            };
+
+            return (
+              <div className="flex items-center gap-3 pr-4 py-1 w-52">
+                <div className={`flex items-center justify-center w-10 h-10 rounded-full shrink-0 ${isMissed ? "bg-red-100 text-red-500" : (isOwn ? "bg-blue-100/50 text-blue-600" : "bg-gray-100 text-gray-600")}`}>
+                  {icon}
+                </div>
+                <div className="flex flex-col">
+                  <span className={`font-semibold text-[15px] ${isMissed ? "text-red-500" : (isOwn ? "text-gray-900" : "text-gray-800")}`}>{statusText}</span>
+                  <span className={`text-xs mt-0.5 ${isOwn ? "text-gray-600" : "text-gray-500"}`}>
+                    {duration > 0 ? formatDuration(duration) : "Không bắt máy"}
+                  </span>
+                </div>
+              </div>
+            );
+          })()
         ) : (
           <div
             className={`whitespace-pre-wrap wrap-break-word ${pureEmoji ? "text-3xl leading-none" : ""}`}

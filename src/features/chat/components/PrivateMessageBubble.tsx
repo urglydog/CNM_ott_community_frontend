@@ -53,7 +53,7 @@ export function PrivateMessageBubble({
   if (msg.contentType === "sticker" && msg.stickerData?.stickerUrl) {
     return (
       <div
-        className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-3`}
+        className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-0`}
         data-message-id={String(msg.id)}
       >
         {/* Reply Reference shown above sticker (outside bubble since stickers have no bubble) */}
@@ -122,7 +122,7 @@ export function PrivateMessageBubble({
 
   return (
     <div
-      className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-3`}
+      className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-0`}
       data-message-id={String(msg.id)}
     >
       {/* Main bubble — w-fit so it hugs content, max-w-[70%] to cap width */}
@@ -133,7 +133,7 @@ export function PrivateMessageBubble({
           } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""} ${
             String(msg.id) === focusedMessageId
               ? isFocusBlue 
-                ? "ring-4 ring-blue-400/50 bg-blue-50/50 shadow-blue-100" 
+                ? "ring-2 ring-blue-500 animate-pulse-blue shadow-lg z-10 scale-[1.02] transition-transform" 
                 : "ring-2 ring-yellow-400 bg-yellow-50/30"
               : ""
           }`}

@@ -130,11 +130,13 @@ function MessageBubbleContent({
           : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
         } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""} ${
           String(msg.id) === focusedMessageId
+
             ? isFocusBlue 
-              ? "ring-4 ring-blue-400/50 bg-blue-50/50 shadow-blue-100" 
+              ? "ring-2 ring-blue-500 animate-pulse-blue shadow-lg z-10 scale-[1.02] transition-transform" 
               : "ring-2 ring-yellow-400 bg-yellow-50/30"
             : ""
         }`}
+
 
       onContextMenu={(e) => {
         if (msg.contentType === "revoked") return;
@@ -311,7 +313,7 @@ export function GroupMessageBubble({
   if (msg.contentType === "sticker" && msg.stickerData?.stickerUrl) {
     return (
       <div
-        className={`flex items-start gap-2 mb-3 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
+        className={`flex items-start gap-2 mb-0 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
         data-message-id={String(msg.id)}
       >
         {!isOwn && (
@@ -394,7 +396,7 @@ export function GroupMessageBubble({
 
   return (
     <div
-      className={`flex items-start gap-2 mb-3 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
+      className={`flex items-start gap-2 mb-0 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
       data-message-id={String(msg.id)}
     >
       {/* Avatar người gửi — chỉ hiện nếu không phải mình */}

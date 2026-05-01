@@ -69,12 +69,15 @@ interface ChatSettingsSidebarProps {
   authUser: AuthUser;
   onSearchMessages?: () => void;
   onBackgroundChange?: (bgUrl: string | null) => void;
+  resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
 }
+
 
 // ── Main Component ──────────────────────────────────────────────────────
 export default function ChatSettingsSidebar({
-  isOpen, onClose, selectedFriend, authUser, onSearchMessages, onBackgroundChange,
+  isOpen, onClose, selectedFriend, authUser, onSearchMessages, onBackgroundChange, resolveDisplayAvatar,
 }: ChatSettingsSidebarProps) {
+
   const router = useRouter();
   const { addToast } = useToast();
   const socketCtx = useSocket();
@@ -229,6 +232,8 @@ export default function ChatSettingsSidebar({
         await emitSendMessage(roomId, "Hình nền đã được thay đổi", "system");
       }
 
+
+
       // Phát sự kiện socket riêng để bên kia cập nhật background ngay lập tức mà không cần load lại
       if (bothSides) {
         socket?.emit("chat_background_updated", {
@@ -344,11 +349,17 @@ export default function ChatSettingsSidebar({
           <div className="bg-white px-4 py-8 flex flex-col items-center border-b border-gray-200">
             <div className="w-20 h-20 rounded-full bg-blue-500 flex items-center justify-center text-white text-3xl font-bold mb-4 overflow-hidden shadow-sm">
               {avatarUrl ? (
-                <img src={avatarUrl} alt={friendName} className="w-full h-full object-cover" />
+                <img 
+                  src={resolveDisplayAvatar ? resolveDisplayAvatar(avatarUrl) || avatarUrl : avatarUrl} 
+                  alt={friendName} 
+                  className="w-full h-full object-cover" 
+                />
               ) : (
                 (originalName || friendName).charAt(0).toUpperCase()
               )}
             </div>
+
+
             <h3 className="text-xl font-bold text-gray-900 mb-0.5">{friendName}</h3>
             {(selectedFriend as any).nickname && (
               <p className="text-sm text-gray-400 mb-0.5">Tên gốc: {originalName}</p>

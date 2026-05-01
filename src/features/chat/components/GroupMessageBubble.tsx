@@ -50,10 +50,6 @@ function MessageBubbleContent({
     onReply?.(msg);
   };
 
-  const handleJumpClick = () => {
-    onJumpToMessage?.(msg.id);
-  };
-
   // ── Sticker: hiển thị hình ảnh lớn không có bubble ────────────────────
   if (msg.contentType === "sticker" && msg.stickerData?.stickerUrl) {
     return (
@@ -86,8 +82,8 @@ function MessageBubbleContent({
 
   return (
     <div
-      className={`relative group px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
-          ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
+      className={`relative group w-fit max-w-full flex flex-col px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
+          ? "bg-blue-200 text-gray-900 border-blue-200 rounded-br-sm"
           : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
         } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""}`}
       onContextMenu={(e) => {
@@ -99,11 +95,21 @@ function MessageBubbleContent({
       <button
         type="button"
         onClick={handleReplyClick}
-        className={`absolute -top-3 left-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full shadow-md hover:bg-gray-100 ${isOwn ? "bg-blue-500 text-white hover:bg-blue-600" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+        className={`absolute -top-3 left-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full shadow-md hover:bg-gray-100 ${isOwn ? "bg-blue-200 text-gray-700 hover:bg-blue-300" : "bg-white text-gray-500 hover:bg-gray-50"}`}
         title="Trả lời"
       >
         <Reply className="w-3.5 h-3.5" />
       </button>
+
+      {/* ── Reply Reference — nested inside bubble at the top ── */}
+      {msg.replyToMessage && (
+        <ReplyReference
+          replyToMessage={msg.replyToMessage}
+          onJumpToMessage={onJumpToMessage}
+          isOwn={isOwn}
+        />
+      )}
+
       {/* File/Image attachments */}
       {msg.contentType !== "voice" && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
         <div className="mb-2 space-y-2">
@@ -180,7 +186,7 @@ function MessageBubbleContent({
 
       {/* Thời gian + trạng thái gửi */}
       <div
-        className={`mt-1 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+        className={`mt-1 text-[10px] flex items-center gap-1 ${isOwn ? "text-gray-500 justify-end" : "text-gray-400"
           }`}
       >
         {formatTime(msg.createdAt)}
@@ -229,13 +235,23 @@ export function GroupMessageBubble({
               {senderName}
             </span>
           )}
-          {/* Reply Reference */}
+          {/* Reply Reference above sticker (stickers have no bubble to nest inside) */}
           {msg.replyToMessage && (
-            <ReplyReference
-              replyToMessage={msg.replyToMessage}
-              onJumpToMessage={onJumpToMessage}
-              isOwn={isOwn}
-            />
+            <div
+              className={`w-fit max-w-[260px] mb-1 px-2 py-1.5 rounded-r-md border-l-4 cursor-pointer transition-opacity hover:opacity-75 ${
+                isOwn
+                  ? "bg-blue-100/60 border-blue-400"
+                  : "bg-gray-100 border-blue-500"
+              }`}
+              onClick={() => onJumpToMessage?.(msg.replyToMessage!.id)}
+            >
+              <p className={`text-sm font-semibold truncate ${isOwn ? "text-blue-700" : "text-blue-600"}`}>
+                {msg.replyToMessage.senderDisplayName || "Người dùng"}
+              </p>
+              <p className="text-sm opacity-80 line-clamp-1 text-gray-600">
+                {msg.replyToMessage.content || "[Ảnh/Tệp]"}
+              </p>
+            </div>
           )}
           <div
             className="relative group"
@@ -261,7 +277,7 @@ export function GroupMessageBubble({
               <Reply className="w-3.5 h-3.5 text-gray-500" />
             </button>
             <div
-              className={`mt-0.5 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+              className={`mt-0.5 text-[10px] flex items-center gap-1 ${isOwn ? "text-gray-500 justify-end" : "text-gray-400"
                 }`}
             >
               {formatTime(msg.createdAt)}
@@ -298,6 +314,7 @@ export function GroupMessageBubble({
         />
       )}
 
+      {/* Wrapper capping width at 68% of chat window */}
       <div
         className={`flex flex-col ${isOwn ? "items-end" : "items-start"} max-w-[68%] ${isPureEmoji(msg.content ?? "") ? "max-w-max" : ""}`}
       >
@@ -308,15 +325,7 @@ export function GroupMessageBubble({
           </span>
         )}
 
-        {/* Reply Reference */}
-        {msg.replyToMessage && (
-          <ReplyReference
-            replyToMessage={msg.replyToMessage}
-            onJumpToMessage={onJumpToMessage}
-            isOwn={isOwn}
-          />
-        )}
-
+        {/* MessageBubbleContent already has ReplyReference nested inside */}
         <MessageBubbleContent
           msg={msg}
           authUserId={authUserId}

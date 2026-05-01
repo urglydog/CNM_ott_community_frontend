@@ -9,6 +9,8 @@ export type Group = {
   createdAt?: string;
   avatarUrl?: string | null;
   isApprovalRequired?: boolean;
+  allowSendLinks?: 'ALL' | 'ADMINS_ONLY';
+  spamFilterLevel?: number;
 };
 
 export type GroupRole = 'OWNER' | 'DEPUTY' | 'MEMBER';

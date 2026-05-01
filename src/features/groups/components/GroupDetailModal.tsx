@@ -64,6 +64,8 @@ export default function GroupDetailModal({
   const currentUserId = String(user?.id || user?.userId || "");
   const currentUserRole = members.find((m) => String(m.userId) === currentUserId)?.role;
   const needsApproval = selectedGroup?.isApprovalRequired ?? group.isApprovalRequired ?? false;
+  const allowSendLinks = selectedGroup?.allowSendLinks ?? group.allowSendLinks ?? 'ALL';
+  const spamFilterLevel = selectedGroup?.spamFilterLevel ?? group.spamFilterLevel ?? 1;
 
   useEffect(() => {
     setIsLoadingMembers(true);
@@ -269,6 +271,40 @@ export default function GroupDetailModal({
         if (activeTab === "requests") setActiveTab("members");
       }
       addToast("Đã cập nhật cài đặt nhóm", "success");
+    } catch (err: any) {
+      addToast("Lỗi cập nhật cài đặt: " + err.message, "error");
+    } finally {
+      setIsUpdatingSettings(false);
+    }
+  };
+
+  const handleToggleAllowSendLinks = async () => {
+    const nextValue = allowSendLinks === 'ALL' ? 'ADMINS_ONLY' : 'ALL';
+    try {
+      setIsUpdatingSettings(true);
+      await updateGroupSettings(group.groupId, { allowSendLinks: nextValue });
+      updateGroup(group.groupId, { allowSendLinks: nextValue });
+      if (selectedGroup) {
+        setSelectedGroup({ ...selectedGroup, allowSendLinks: nextValue });
+      }
+      addToast("Đã cập nhật cài đặt nhóm", "success");
+    } catch (err: any) {
+      addToast("Lỗi cập nhật cài đặt: " + err.message, "error");
+    } finally {
+      setIsUpdatingSettings(false);
+    }
+  };
+
+  const handleUpdateSpamFilter = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextValue = Number(e.target.value);
+    try {
+      setIsUpdatingSettings(true);
+      await updateGroupSettings(group.groupId, { spamFilterLevel: nextValue });
+      updateGroup(group.groupId, { spamFilterLevel: nextValue });
+      if (selectedGroup) {
+        setSelectedGroup({ ...selectedGroup, spamFilterLevel: nextValue });
+      }
+      addToast("Đã cập nhật mức độ lọc Spam", "success");
     } catch (err: any) {
       addToast("Lỗi cập nhật cài đặt: " + err.message, "error");
     } finally {
@@ -506,6 +542,47 @@ export default function GroupDetailModal({
                     className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${needsApproval ? 'translate-x-5' : 'translate-x-1'}`}
                   />
                 </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-gray-500" />
+                  <div>
+                    <div className="text-[13px] font-medium text-gray-800">Chặn thành viên gửi liên kết (Link)</div>
+                    <div className="text-[12px] text-gray-500">Chỉ cho phép Trưởng/Phó nhóm gửi link</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleAllowSendLinks}
+                  disabled={isUpdatingSettings}
+                  aria-pressed={allowSendLinks === 'ADMINS_ONLY'}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${allowSendLinks === 'ADMINS_ONLY' ? 'bg-[#005ae0]' : 'bg-gray-200'} ${isUpdatingSettings ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${allowSendLinks === 'ADMINS_ONLY' ? 'translate-x-5' : 'translate-x-1'}`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-gray-500" />
+                  <div>
+                    <div className="text-[13px] font-medium text-gray-800">Mức độ lọc Spam</div>
+                    <div className="text-[12px] text-gray-500">Chọn mức độ kiểm duyệt nội dung tin nhắn</div>
+                  </div>
+                </div>
+                <select
+                  value={spamFilterLevel}
+                  onChange={handleUpdateSpamFilter}
+                  disabled={isUpdatingSettings}
+                  className="text-[13px] bg-gray-50 border border-gray-200 rounded-md px-2 py-1 outline-none focus:border-[#005ae0]"
+                >
+                  <option value={0}>Tắt (Không lọc)</option>
+                  <option value={1}>Vừa (Tiêu chuẩn)</option>
+                  <option value={2}>Gắt gao (Chặn mạnh)</option>
+                </select>
               </div>
             </div>
           )}

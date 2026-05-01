@@ -796,6 +796,21 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   const handleSend = useCallback(async () => {
     if (!inputValue.trim()) return;
+
+    if (chatMode === "GROUP" && selectedGroup) {
+      const allowSendLinks = selectedGroup.allowSendLinks || 'ALL';
+      if (allowSendLinks === 'ADMINS_ONLY') {
+        const currentUserRole = groupMembers.find((m) => String(m.userId) === String(currentUserId))?.role;
+        if (currentUserRole === 'MEMBER' || !currentUserRole) {
+          const hasUrl = /https?:\/\/[^\s]+|www\.[^\s]+/i.test(inputValue);
+          if (hasUrl) {
+            addToast("Chỉ Trưởng/Phó nhóm mới được phép gửi liên kết trong nhóm này.", "warning", 3000);
+            return;
+          }
+        }
+      }
+    }
+
     if (chatMode === "GROUP") {
       if (groupSending) return;
       await sendGroupMessage(inputValue, replyingMessage?.id || null);

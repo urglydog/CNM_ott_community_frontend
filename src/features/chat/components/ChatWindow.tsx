@@ -115,6 +115,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     uploadProgress: dmUploadProgress,
     bottomSentinelRef: dmSentinelRef,
     scrollContainerRef: dmScrollRef,
+    handleScroll: dmHandleScroll,
     typingUsers: dmTypingUsers,
     onTypingChange: dmTypingChange,
     deleteMessage: deleteDmMessage,
@@ -140,6 +141,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     uploadProgress: groupUploadProgress,
     bottomSentinelRef: groupSentinelRef,
     scrollContainerRef: groupScrollRef,
+    handleScroll: groupHandleScroll,
     typingUsers: groupTypingUsers,
     onTypingChange: groupTypingChange,
     deleteMessage: deleteGroupMessage,
@@ -485,10 +487,40 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const activeSentinelRef =
     chatMode === "GROUP" ? groupSentinelRef : dmSentinelRef;
   const activeScrollRef = chatMode === "GROUP" ? groupScrollRef : dmScrollRef;
+  const activeHandleScroll = chatMode === "GROUP" ? groupHandleScroll : dmHandleScroll;
   const activeTypingUsers =
     chatMode === "GROUP" ? groupTypingUsers : dmTypingUsers;
   const activeTypingChange =
     chatMode === "GROUP" ? groupTypingChange : dmTypingChange;
+
+  // Track conversation ID trước đó để phát hiện khi chuyển conversation
+  const prevConversationIdRef = useRef<string | null>(null);
+
+  // Scroll xuống bottom mỗi khi:
+  // 1. Chuyển sang conversation mới (kể cả quay lại conversation cũ)
+  // 2. Loading hoàn thành (messages đã có trong DOM)
+  // Tính loading state trực tiếp từ các biến đã khai báo (tránh TDZ với activeLoading)
+  useEffect(() => {
+    const currentConvId = activeConversationId;
+    if (!currentConvId) return;
+
+    // Tính loading state inline để tránh dùng activeLoading trước khi khai báo
+    const isLoading = chatMode === "GROUP" ? groupLoading : dmLoading;
+    if (isLoading) return;
+
+    // Cập nhật ref để track conversation hiện tại
+    prevConversationIdRef.current = currentConvId;
+
+    // Dùng double-rAF để đảm bảo React đã render messages vào DOM
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (activeScrollRef.current) {
+          activeScrollRef.current.scrollTop = activeScrollRef.current.scrollHeight;
+        }
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, chatMode, groupLoading, dmLoading]);
 
   const friendName = selectedFriend?.friend_display_name ?? "";
   const groupName = selectedGroup?.name ?? "";
@@ -1141,6 +1173,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           focusedMessageId={focusedMessageId}
           activeScrollRef={activeScrollRef as React.RefObject<HTMLDivElement>}
           activeSentinelRef={activeSentinelRef as React.RefObject<HTMLDivElement>}
+          onScroll={activeHandleScroll}
           onMessageContextMenu={handleMessageContextMenu}
           onReplyToMessage={handleReplyToMessage}
           onJumpToMessage={handleJumpToMessage}

@@ -50,13 +50,22 @@ export function PrivateMessageBubble({
         className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-3`}
         data-message-id={String(msg.id)}
       >
-        {/* Reply Reference */}
+        {/* Reply Reference shown above sticker (outside bubble since stickers have no bubble) */}
         {msg.replyToMessage && (
-          <ReplyReference
-            replyToMessage={msg.replyToMessage}
-            onJumpToMessage={onJumpToMessage || handleJumpClick}
-            isOwn={isOwn}
-          />
+          <div className={`w-fit max-w-[70%] mb-1 px-2 py-1.5 rounded-xl border-l-4 cursor-pointer transition-opacity hover:opacity-75 ${
+            isOwn
+              ? "bg-blue-100/60 border-blue-400"
+              : "bg-gray-100 border-blue-500"
+          }`}
+            onClick={() => onJumpToMessage?.(msg.replyToMessage!.id)}
+          >
+            <p className={`text-sm font-semibold truncate ${isOwn ? "text-blue-700" : "text-blue-600"}`}>
+              {msg.replyToMessage.senderDisplayName || "Người dùng"}
+            </p>
+            <p className="text-sm opacity-80 line-clamp-1 text-gray-600">
+              {msg.replyToMessage.content || "[Ảnh/Tệp]"}
+            </p>
+          </div>
         )}
         <div
           className="relative group"
@@ -81,7 +90,7 @@ export function PrivateMessageBubble({
             <Reply className="w-3.5 h-3.5 text-gray-500" />
           </button>
           <div
-            className={`mt-0.5 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+            className={`mt-0.5 text-[10px] flex items-center gap-1 ${isOwn ? "text-gray-500 justify-end" : "text-gray-400"
               }`}
           >
             {formatTime(msg.createdAt)}
@@ -110,17 +119,10 @@ export function PrivateMessageBubble({
       className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-3`}
       data-message-id={String(msg.id)}
     >
-      {/* Reply Reference */}
-      {msg.replyToMessage && (
-        <ReplyReference
-          replyToMessage={msg.replyToMessage}
-          onJumpToMessage={onJumpToMessage || handleJumpClick}
-          isOwn={isOwn}
-        />
-      )}
+      {/* Main bubble — w-fit so it hugs content, max-w-[70%] to cap width */}
       <div
-        className={`relative group max-w-[70%] px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
-            ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
+        className={`relative group w-fit max-w-[70%] flex flex-col px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
+            ? "bg-blue-200 text-gray-900 border-blue-200 rounded-br-sm"
             : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
           } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""}`}
         onContextMenu={(e) => {
@@ -128,15 +130,24 @@ export function PrivateMessageBubble({
           onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
         }}
       >
-        {/* Reply button */}
+        {/* Reply button (shows on hover) */}
         <button
           type="button"
           onClick={handleReplyClick}
-          className={`absolute -top-3 left-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full shadow-md hover:bg-gray-100 ${isOwn ? "bg-blue-500 text-white hover:bg-blue-600" : "bg-white text-gray-500 hover:bg-gray-50"}`}
+          className={`absolute -top-3 left-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full shadow-md ${isOwn ? "bg-blue-200 text-gray-700 hover:bg-blue-300" : "bg-white text-gray-500 hover:bg-gray-50"}`}
           title="Trả lời"
         >
           <Reply className="w-3.5 h-3.5" />
         </button>
+
+        {/* ── Reply Reference — nested inside bubble at the top ── */}
+        {msg.replyToMessage && (
+          <ReplyReference
+            replyToMessage={msg.replyToMessage}
+            onJumpToMessage={onJumpToMessage || handleJumpClick}
+            isOwn={isOwn}
+          />
+        )}
 
         {!isOwn && (
           <div
@@ -234,7 +245,7 @@ export function PrivateMessageBubble({
         )}
 
         <div
-          className={`mt-1 text-[10px] flex items-center gap-1 ${isOwn ? "text-blue-200 justify-end" : "text-gray-400"
+          className={`mt-1 text-[10px] flex items-center gap-1 ${isOwn ? "text-gray-500 justify-end" : "text-gray-400"
             }`}
         >
           {formatTime(msg.createdAt)}

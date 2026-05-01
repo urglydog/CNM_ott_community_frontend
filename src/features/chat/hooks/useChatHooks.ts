@@ -9,7 +9,7 @@ import { getPresignedUploadUrl } from "../../../api/client";
 import { generateVideoThumbnail, handleUploadToS3 } from "../utils/videoUpload";
 import type { DirectMessageItem, StickerData, ReadReceiptReader } from "../../../types";
 
-export type MessageSendStatus = "sending" | "sent" | "delivered" | "read" | "failed";
+export type MessageSendStatus = "sending" | "sent" | "delivered" | "received" | "read" | "failed";
 
 export interface ChatMessage extends DirectMessageItem {
   sendStatus?: MessageSendStatus;
@@ -61,6 +61,7 @@ interface UseDirectMessageReturn {
   uploadProgress: number;
   bottomSentinelRef: React.RefObject<HTMLDivElement | null>;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  handleScroll: (e: React.UIEvent<HTMLDivElement>) => void;
   typingUsers: string[];
   onTypingChange: (isTyping: boolean) => void;
   deleteMessage: (messageId: string) => void;
@@ -159,6 +160,17 @@ export function useDirectMessage(
   const [uploadProgress, setUploadProgress] = useState(0);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
 
+  // Track page visibility to prevent marking read when tab is hidden
+  const [isPageVisible, setIsPageVisible] = useState(true);
+  // Track previous message count to detect NEW messages vs history load
+  const prevMessageCountRef = useRef(0);
+  // Prevent duplicate mark_read for the same message within a time window
+  const lastMarkedReadRef = useRef<{ messageId: string; timestamp: number } | null>(null);
+  // Debounce timer for mark_read emissions
+  const markReadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track if this hook's conversation is currently active (for view mode, not selected state)
+  const isHookActiveRef = useRef(false);
+
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevRoomIdRef = useRef<string | null>(null);
   const scrollDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(
@@ -171,14 +183,38 @@ export function useDirectMessage(
   const currentRoomId =
     friendId != null ? dmConversationId(user?.id ?? 0, friendId) : null;
 
-  // Load lịch sử tin nhắn DM
+  // ── Track page visibility ────────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      setIsPageVisible(document.visibilityState === "visible");
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  // ── Load lịch sử tin nhắn DM ───────────────────────────────────────────
+  // Track if initial history load is complete
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
   useEffect(() => {
     if (!friendId) {
       setMessages([]);
       setHistoryError(null);
+      setHistoryLoaded(false);
       prevRoomIdRef.current = null;
+      // Reset message count khi không có conversation
+      prevMessageCountRef.current = 0;
       return;
     }
+
+    // Reset message count khi chuyển sang conversation mới
+    // Đảm bảo mark_read được trigger khi history load xong
+    prevMessageCountRef.current = 0;
 
     const roomId = dmConversationId(user?.id ?? 0, friendId);
 
@@ -224,6 +260,8 @@ export function useDirectMessage(
           };
         });
         setMessages(enriched);
+        // Mark history as loaded so scroll effect can trigger
+        setHistoryLoaded(true);
       } catch (err: unknown) {
         setHistoryError(
           err instanceof Error
@@ -231,6 +269,7 @@ export function useDirectMessage(
             : "Không tải được lịch sử tin nhắn",
         );
         setMessages([]);
+        setHistoryLoaded(true);
       } finally {
         setIsLoadingHistory(false);
       }
@@ -402,51 +441,169 @@ export function useDirectMessage(
   );
 
   // ─── Auto-mark messages as read ──────────────────────────────────────────
+  /**
+   * Mark messages as read ONLY when:
+   * 1. The page is visible (not minimized/in background tab)
+   * 2. The chat is the currently active conversation in the store
+   * 3. A NEW message was received (not during history load)
+   * 4. The message hasn't been marked as read recently (duplicate prevention)
+   */
   const markMessagesAsRead = useCallback(() => {
-    if (messages.length === 0 || !currentRoomId) return;
+    // CRITICAL: Only mark as read if the page is visible
+    if (!isPageVisible) {
+      console.log("[Chat] Skipping mark_as_read: page is hidden");
+      return;
+    }
+
+    // CRITICAL: Only mark as read for the currently active conversation
+    // This prevents stale hooks from marking read for closed chat windows
+    // Use getState() to get the LATEST state, not a stale closure
+    const store = useChatStore.getState();
+    const isCurrentlySelected =
+      store.chatMode === "PRIVATE" &&
+      store.selectedFriend?.friend_id === friendId;
+
+    if (!isCurrentlySelected) {
+      console.log("[Chat] Skipping mark_as_read: not the selected conversation", {
+        chatMode: store.chatMode,
+        selectedFriendId: store.selectedFriend?.friend_id,
+        thisFriendId: friendId
+      });
+      return;
+    }
+
+    if (messages.length === 0) return;
 
     // Lấy tin nhắn cuối cùng từ người khác (không phải của mình)
     const lastReceivedMessage = [...messages]
       .reverse()
       .find((m) => !m.isOwn);
 
-    if (lastReceivedMessage) {
-      const messageId = String(lastReceivedMessage.id || lastReceivedMessage.messageId);
+    if (lastReceivedMessage && currentRoomId) {
+      const rawId = lastReceivedMessage.id || lastReceivedMessage.messageId;
+      if (!rawId) return;
+      const messageId = String(rawId);
 
-      // CHỈ gửi mark_read nếu messageId này khác với lần cuối cùng đã gửi
-      if (lastMarkedIdRef.current !== messageId) {
-        console.log(`[Chat] Marking message ${messageId} as read in conversation ${currentRoomId}`);
-        lastMarkedIdRef.current = messageId;
-        emitMarkRead(currentRoomId, messageId);
+      // Prevent duplicate mark_read for the same message within 3 seconds
+      const now = Date.now();
+      const THREE_SECONDS = 3000;
+      if (
+        lastMarkedReadRef.current &&
+        lastMarkedReadRef.current.messageId === messageId &&
+        now - lastMarkedReadRef.current.timestamp < THREE_SECONDS
+      ) {
+        console.log(`[Chat] Skipping duplicate mark_as_read for message ${messageId}`);
+        return;
       }
-    }
-  }, [messages, currentRoomId, emitMarkRead]);
 
-  // Auto-mark as read when receiving a new message
-  useEffect(() => {
-    if (messages.length > 0) {
-      markMessagesAsRead();
-    }
-  }, [messages.length, markMessagesAsRead]);
+      // Record this mark_read attempt
+      lastMarkedReadRef.current = { messageId, timestamp: now };
 
-  // Auto-scroll khi có tin nhắn mới
+      console.log(`[Chat] Marking message ${messageId} as read in conversation ${currentRoomId}`);
+
+      // Debounce the actual emission to prevent rapid fire
+      if (markReadDebounceRef.current) {
+        clearTimeout(markReadDebounceRef.current);
+      }
+      markReadDebounceRef.current = setTimeout(() => {
+        // Double-check active status before emitting (prevents race conditions)
+        const currentStore = useChatStore.getState();
+        const stillActive =
+          currentStore.chatMode === "PRIVATE" &&
+          currentStore.selectedFriend?.friend_id === friendId;
+
+        if (!stillActive) {
+          console.log("[Chat] Cancelling mark_read: conversation no longer active");
+          return;
+        }
+
+        emitMarkRead(currentRoomId, messageId);
+      }, 100); // 100ms debounce
+    }
+  }, [messages, currentRoomId, emitMarkRead, isPageVisible, friendId]);
+
+  // Auto-mark as read khi:
+  // 1. History vừa load xong (vào conversation có tin nhắn cũ chưa đọc)
+  // 2. Có tin nhắn MỚI đến
   useEffect(() => {
+    // Skip nếu đang loading
+    if (isLoadingHistory) return;
+
+    // Skip nếu không có tin nhắn
     if (messages.length === 0) return;
 
-    if (scrollDebounceTimer.current) {
-      clearTimeout(scrollDebounceTimer.current);
+    // Detect NEW message (count tăng so với lần trước)
+    const isNewMessage = messages.length > prevMessageCountRef.current;
+
+    // Detect history vừa load xong: prevCount là 0 (vừa reset) và có messages
+    const isHistoryJustLoaded = prevMessageCountRef.current === 0 && messages.length > 0;
+
+    // Cập nhật ref
+    prevMessageCountRef.current = messages.length;
+
+    // Trigger mark_as_read khi có tin nhắn mới HOẶC khi vừa load history xong
+    if (isNewMessage || isHistoryJustLoaded) {
+      markMessagesAsRead();
     }
 
-    scrollDebounceTimer.current = setTimeout(() => {
-      bottomSentinelRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, scrollDebounceMs);
-
+    // Cleanup
     return () => {
-      if (scrollDebounceTimer.current) {
-        clearTimeout(scrollDebounceTimer.current);
+      if (markReadDebounceRef.current) {
+        clearTimeout(markReadDebounceRef.current);
+        markReadDebounceRef.current = null;
       }
     };
-  }, [messages, scrollDebounceMs]);
+  }, [messages.length, isLoadingHistory, markMessagesAsRead]);
+
+  // Cleanup on unmount - clear all pending timers
+  useEffect(() => {
+    return () => {
+      if (markReadDebounceRef.current) {
+        clearTimeout(markReadDebounceRef.current);
+        markReadDebounceRef.current = null;
+      }
+      lastMarkedReadRef.current = null;
+    };
+  }, []);
+
+  // ── Auto-scroll khi có tin nhắn mới ────────────────────────────────────
+  // Ref để track conversation ID đã mount
+  const mountedConversationRef = useRef<string | null>(null);
+
+  // Update ref khi user scroll (placeholder - có thể dùng sau)
+  const handleScroll = useCallback(() => {
+    // Logic scroll chính nằm trong ChatWindow
+  }, []);
+
+  // Force scroll xuống bottom khi:
+  // 1. Lần đầu mount conversation
+  // 2. Có tin nhắn mới
+  useEffect(() => {
+    if (!friendId) return;
+
+    const currentConvId = friendId;
+
+    // Cập nhật ref
+    mountedConversationRef.current = currentConvId;
+
+    // Scroll xuống bottom khi có tin nhắn - dùng double-rAF để đảm bảo DOM đã render
+    if (messages.length > 0) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+          }
+        });
+      });
+    }
+  }, [friendId, messages.length]);
+
+  // Cleanup khi unmount
+  useEffect(() => {
+    return () => {
+      mountedConversationRef.current = null;
+    };
+  }, []);
 
   // Gửi tin nhắn DM
   const sendMessage = useCallback(
@@ -861,6 +1018,7 @@ export function useDirectMessage(
     typingUsers,
     onTypingChange,
     setMessages,
+    handleScroll,
     deleteMessage: (messageId: string) => {
       setMessages((prev) =>
         prev.filter((m) => String(m.id) !== String(messageId)),

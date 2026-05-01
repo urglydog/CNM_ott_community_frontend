@@ -34,7 +34,9 @@ interface MessageListProps {
   onJumpToMessage?: (messageId: string | number) => void;
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
   onJoinGroupCall?: (roomId: string) => void;
+  isFocusBlue?: boolean;
 }
+
 
 export function MessageList({
   chatMode,
@@ -55,7 +57,9 @@ export function MessageList({
   onJumpToMessage,
   resolveDisplayAvatar,
   onJoinGroupCall,
+  isFocusBlue,
 }: MessageListProps) {
+
   const isSystemMessage = (msg: GroupChatMessage) => msg.contentType === "system";
   const isGroupCallStarted = (msg: GroupChatMessage) =>
     (msg as any).contentType === "group_call_started" ||
@@ -97,8 +101,11 @@ export function MessageList({
       {messages.map((msg) => {
         const wrapperClass =
           focusedMessageId != null && String(msg.id) === focusedMessageId
-            ? "rounded-xl bg-yellow-100/70 ring-1 ring-yellow-300 transition-all"
+            ? isFocusBlue
+              ? "rounded-xl bg-blue-50/20 ring-1 ring-blue-200/50 transition-all"
+              : "rounded-xl bg-yellow-100/70 ring-1 ring-yellow-300 transition-all"
             : "";
+
 
         // System message
         if (isSystemMessage(msg)) {
@@ -128,6 +135,8 @@ export function MessageList({
                 onContextMenu={onMessageContextMenu}
                 onReply={onReplyToMessage}
                 onJumpToMessage={onJumpToMessage}
+                focusedMessageId={focusedMessageId}
+                isFocusBlue={isFocusBlue}
               />
             </div>
           );
@@ -143,7 +152,10 @@ export function MessageList({
               onContextMenu={onMessageContextMenu}
               onReply={onReplyToMessage}
               onJumpToMessage={onJumpToMessage}
+              focusedMessageId={focusedMessageId}
+              isFocusBlue={isFocusBlue}
             />
+
           </div>
         );
       })}

@@ -70,7 +70,10 @@ interface MessageBubbleProps {
   ) => void;
   onReply?: (msg: GroupChatMessage) => void;
   onJumpToMessage?: (messageId: string | number) => void;
+  focusedMessageId?: string | null;
+  isFocusBlue?: boolean;
 }
+
 
 function MessageBubbleContent({
   msg,
@@ -78,7 +81,11 @@ function MessageBubbleContent({
   onContextMenu,
   onReply,
   onJumpToMessage,
+  focusedMessageId,
+  isFocusBlue,
 }: MessageBubbleProps & { senderName: string }) {
+
+
   // Normalize isOwn to boolean (prop is optional, default false)
   const isOwn: boolean = isOwnProp ?? false;
   const handleReplyClick = (e: React.MouseEvent) => {
@@ -121,7 +128,14 @@ function MessageBubbleContent({
       className={`relative group w-fit max-w-full flex flex-col px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
           ? "bg-blue-200 text-gray-900 border-blue-200 rounded-br-sm"
           : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""}`}
+        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""} ${
+          String(msg.id) === focusedMessageId
+            ? isFocusBlue 
+              ? "ring-4 ring-blue-400/50 bg-blue-50/50 shadow-blue-100" 
+              : "ring-2 ring-yellow-400 bg-yellow-50/30"
+            : ""
+        }`}
+
       onContextMenu={(e) => {
         if (msg.contentType === "revoked") return;
         onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
@@ -287,6 +301,8 @@ export function GroupMessageBubble({
   onContextMenu,
   onReply,
   onJumpToMessage,
+  focusedMessageId,
+  isFocusBlue,
 }: MessageBubbleProps) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
   const senderName = msg.senderDisplayName || (isOwn ? "Bạn" : "Người dùng");
@@ -411,7 +427,10 @@ export function GroupMessageBubble({
           onContextMenu={onContextMenu}
           onReply={onReply}
           onJumpToMessage={onJumpToMessage}
+          focusedMessageId={focusedMessageId}
+          isFocusBlue={isFocusBlue}
         />
+
         {/* Reader avatars for own messages */}
         {isOwn && msg.readBy && msg.readBy.length > 0 && (
           <ReadByAvatars readers={msg.readBy} maxShow={3} size={16} />

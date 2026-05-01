@@ -21,7 +21,10 @@ interface PrivateMessageBubbleProps {
   ) => void;
   onReply?: (msg: GroupChatMessage) => void;
   onJumpToMessage?: (messageId: string | number) => void;
+  focusedMessageId?: string | null;
+  isFocusBlue?: boolean;
 }
+
 
 /** Bubble tin nhắn 1:1 (Private DM) */
 export function PrivateMessageBubble({
@@ -31,7 +34,10 @@ export function PrivateMessageBubble({
   onContextMenu,
   onReply,
   onJumpToMessage,
+  focusedMessageId,
+  isFocusBlue,
 }: PrivateMessageBubbleProps) {
+
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
 
   const handleReplyClick = (e: React.MouseEvent) => {
@@ -124,7 +130,14 @@ export function PrivateMessageBubble({
         className={`relative group w-fit max-w-[70%] flex flex-col px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
             ? "bg-blue-200 text-gray-900 border-blue-200 rounded-br-sm"
             : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""}`}
+          } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""} ${
+            String(msg.id) === focusedMessageId
+              ? isFocusBlue 
+                ? "ring-4 ring-blue-400/50 bg-blue-50/50 shadow-blue-100" 
+                : "ring-2 ring-yellow-400 bg-yellow-50/30"
+              : ""
+          }`}
+
         onContextMenu={(e) => {
           if (msg.contentType === "revoked") return;
           onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);

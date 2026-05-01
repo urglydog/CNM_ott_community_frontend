@@ -49,6 +49,10 @@ import { MessageSearchPanel } from "./MessageSearchPanel";
 import EmojiStickerPicker from "./EmojiStickerPicker";
 import ForwardMessageModal from "./ForwardMessageModal";
 import apiClient from "../../../lib/axios";
+import { PinnedHeader } from "./PinnedHeader";
+import ChatSettingsSidebar from "./ChatSettingsSidebar";
+import { usePinnedMessages } from "../hooks/usePinnedMessages";
+import { useChatBackground } from "../hooks/useChatBackground";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -195,8 +199,11 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
+  const [isFocusBlue, setIsFocusBlue] = useState(false);
   const [pendingFocusMessageId, setPendingFocusMessageId] = useState<string | null>(null);
   const focusTimeoutRef = useRef<number | null>(null);
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const todayDateString = useMemo(() => {
     const now = new Date();
@@ -217,6 +224,22 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     if (!selectedFriend?.friend_id) return null;
     return dmConversationId(currentUserId, selectedFriend.friend_id);
   }, [chatMode, currentUserId, selectedFriend?.friend_id, selectedGroup]);
+
+  // ── Pinned messages state & logic ───────────────────────────────────────
+  const initialPinned = useMemo(() => {
+    if (chatMode === "GROUP") return selectedGroup?.pinnedMessages || [];
+    return (selectedFriend as any)?.pinnedMessages || [];
+  }, [chatMode, selectedGroup?.pinnedMessages, selectedFriend]);
+
+  const {
+    pinnedMessages,
+    handlePinMessage,
+    handleUnpinMessage,
+  } = usePinnedMessages(activeConversationId, initialPinned);
+
+  // ── Chat background state & logic ───────────────────────────────────────
+  const { chatBgUrl, setChatBgUrl } = useChatBackground(selectedFriend?.friendshipId ?? null);
+
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -1029,9 +1052,21 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     }
     focusTimeoutRef.current = window.setTimeout(() => {
       setFocusedMessageId(null);
+      setIsFocusBlue(false);
       focusTimeoutRef.current = null;
     }, 1800);
   }
+
+  const canUnpin = useCallback((pin: any) => {
+    if (!pin.pinnedBy) return true;
+    if (String(pin.pinnedBy) === currentUserId) return true;
+    if (chatMode === "GROUP") {
+      const me = groupMembers.find((m) => String(m.userId) === currentUserId);
+      if (me?.role === "OWNER" || me?.role === "DEPUTY") return true;
+    }
+    return false;
+  }, [currentUserId, chatMode, groupMembers]);
+
 
   useEffect(() => {
     return () => {
@@ -1157,7 +1192,16 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }
 
   return (
-    <div className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0">
+    <div 
+      className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0"
+      style={chatBgUrl ? {
+        backgroundImage: `url(${chatBgUrl})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      } : undefined}
+    >
+      {chatBgUrl && <div className="absolute inset-0 bg-black/10 z-0 pointer-events-none" />}
       <ChatHeader
         chatMode={chatMode}
         isAiChatOpen={isAiChatOpen}
@@ -1170,9 +1214,21 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         memberCount={memberCount}
         onStartVideoCall={handleStartVideoCall}
         onToggleSearch={() => setSearchOpen((prev) => !prev)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
         activeConversationId={activeConversationId}
         resolveDisplayAvatar={resolveDisplayAvatar}
       />
+
+      <PinnedHeader 
+        pinnedMessages={pinnedMessages}
+        onFocusMessage={(id) => {
+          setPendingFocusMessageId(String(id));
+          setIsFocusBlue(true);
+        }}
+        onUnpinMessage={handleUnpinMessage}
+        canUnpin={canUnpin}
+      />
+
 
       <MessageSearchPanel
         isOpen={searchOpen && !isAiChatOpen}
@@ -1225,7 +1281,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           onJumpToMessage={handleJumpToMessage}
           resolveDisplayAvatar={resolveDisplayAvatar}
           onJoinGroupCall={handleJoinGroupCall}
+          isFocusBlue={isFocusBlue}
         />
+
       )}
 
       {/* Typing indicator */}
@@ -1268,10 +1326,21 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           onForward={() =>
             handleForwardMessage(ctxMenu.msg, ctxMenu.conversationId)
           }
+          onPin={() => handlePinMessage(ctxMenu.msg, currentUserId)}
           isDeleting={deletingMessageId === String(ctxMenu.msg.id)}
           onClose={closeCtxMenu}
         />
       )}
+
+      <ChatSettingsSidebar 
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        selectedFriend={selectedFriend}
+        authUser={authUser}
+        onSearchMessages={() => setSearchOpen(true)}
+        onBackgroundChange={(url) => setChatBgUrl(url)}
+      />
+
 
       {forwardModal && (
         <ForwardMessageModal

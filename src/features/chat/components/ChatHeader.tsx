@@ -19,9 +19,11 @@ interface ChatHeaderProps {
   memberCount?: number;
   onStartVideoCall?: () => void;
   onToggleSearch?: () => void;
+  onOpenSettings?: () => void;
   activeConversationId?: string | null;
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
 }
+
 
 export function ChatHeader({
   chatMode,
@@ -35,8 +37,10 @@ export function ChatHeader({
   memberCount = 0,
   onStartVideoCall,
   onToggleSearch,
+  onOpenSettings,
   activeConversationId,
   resolveDisplayAvatar,
+
 }: ChatHeaderProps) {
   if (isAiChatOpen) {
     return (
@@ -145,10 +149,12 @@ export function ChatHeader({
         <button
           type="button"
           className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
-          title="Khác"
+          title="Tuỳ chọn"
+          onClick={onOpenSettings}
         >
           <MoreHorizontal className="w-5 h-5" />
         </button>
+
       </div>
     </div>
   );

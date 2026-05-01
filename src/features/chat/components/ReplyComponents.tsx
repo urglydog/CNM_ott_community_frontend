@@ -59,17 +59,21 @@ export function ReplyReference({
     <button
       type="button"
       onClick={() => onJumpToMessage?.(replyToMessage.id)}
-      className={`w-full text-left mb-1.5 px-2.5 py-1.5 rounded-lg border-l-[3px] transition-all hover:opacity-80 ${
+      className={`block w-full text-left mb-1.5 px-2.5 py-1.5 rounded-r-md border-l-4 cursor-pointer transition-opacity hover:opacity-75 ${
         isOwn
-          ? "bg-[#B2EBF2]/50 border-[#0A5FBA]"
-          : "bg-[#F5F5F5] border-[#0A5FBA]"
+          ? "bg-blue-300/50 border-blue-500"
+          : "bg-black/8 border-blue-500"
       }`}
       title="Nhấn để xem tin nhắn gốc"
     >
-      <p className={`text-xs font-semibold truncate ${isOwn ? "text-[#0A5FBA]" : "text-[#0A5FBA]"}`}>
+      <p className={`text-sm font-semibold truncate ${
+        isOwn ? "text-blue-700" : "text-blue-600"
+      }`}>
         {replyToMessage.senderDisplayName || "Người dùng"}
       </p>
-      <p className={`text-xs truncate mt-0.5 ${isOwn ? "text-[#00695C]/80" : "text-gray-600"}`}>
+      <p className={`text-sm line-clamp-1 mt-0.5 opacity-80 ${
+        isOwn ? "text-gray-700" : "text-gray-600"
+      }`}>
         {getReplyContent(replyToMessage)}
       </p>
     </button>

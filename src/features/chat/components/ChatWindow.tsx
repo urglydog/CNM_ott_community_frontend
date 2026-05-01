@@ -4,7 +4,8 @@ import {
   MoreHorizontal, Phone, Search, ThumbsUp, Video, Smile, Image, 
   Paperclip, Link as LinkIcon, MapPin, Contact, CheckSquare, Type, 
   AtSign, Gift, Loader2, WifiOff, FileText, Users, RotateCcw, 
-  Trash2, Share2, Sparkles, X, Mic, Square, Send 
+  Trash2, Share2, Sparkles, X, Mic, Square, Send, Paintbrush, Pin,
+  ChevronUp, ChevronRight, ChevronDown
 } from "lucide-react";
 import { useAudioRecorder } from "../hooks/useAudioRecorder";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -38,6 +39,8 @@ import {
   getMessageDomId,
   highlightKeyword,
 } from "../utils/messageSearch";
+import ChatSettingsSidebar from "./ChatSettingsSidebar";
+import { getChatBackground } from "../../../api/client";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -71,10 +74,26 @@ function getAvatarInitial(name: string): string {
 
 function formatTime(isoString: string) {
   try {
-    return new Date(isoString).toLocaleString("vi-VN", {
+    const d = new Date(isoString);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const timeStr = d.toLocaleTimeString("vi-VN", {
       hour: "2-digit",
       minute: "2-digit",
+      hour12: false
     });
+    
+    if (isToday) return `${timeStr} Hôm nay`;
+    
+    const yesterday = new Date();
+    yesterday.setDate(now.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return `${timeStr} Hôm qua`;
+    
+    return `${timeStr} ${d.toLocaleDateString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
+    })}`;
   } catch {
     return "";
   }
@@ -206,11 +225,31 @@ function SenderAvatar({
 }
 
 /** Tin nhắn hệ thống (hiển thị giữa màn hình) */
-function SystemMessageBubble({ content }: { content: string }) {
+function SystemMessageBubble({ content, createdAt, onAction }: { content: string, createdAt?: string, onAction?: () => void }) {
+  const isBgChange = content.includes("hình nền");
+  
   return (
-    <div className="flex justify-center my-2">
-      <div className="bg-gray-200/70 text-gray-500 text-xs px-3 py-1 rounded-full">
-        {content}
+    <div className="flex flex-col items-center my-6">
+      {createdAt && (
+        <div className="bg-black/10 backdrop-blur-sm text-white/90 text-[10px] px-2 py-0.5 rounded-md mb-3 font-medium">
+          {formatTime(createdAt)}
+        </div>
+      )}
+      <div className="bg-white text-gray-700 text-[13.5px] px-6 py-2.5 rounded-full flex items-center gap-2.5 shadow-md border border-gray-100 hover:shadow-lg transition-all group active:scale-95">
+        {isBgChange && (
+          <div className="w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center">
+            <Paintbrush className="w-3.5 h-3.5 text-blue-500" />
+          </div>
+        )}
+        <span className="font-semibold tracking-tight">{content}</span>
+        {isBgChange && (
+          <button 
+            onClick={onAction}
+            className="ml-1 text-blue-600 font-bold hover:underline cursor-pointer border-l border-gray-200 pl-2 py-0.5"
+          >
+            Thay đổi
+          </button>
+        )}
       </div>
     </div>
   );
@@ -611,6 +650,7 @@ interface MessageContextMenuProps {
   onRevoke: () => void;
   onDeleteForMe: () => void;
   onForward: () => void;
+  onPin?: () => void;
   isDeleting: boolean;
   onClose: () => void;
 }
@@ -623,6 +663,7 @@ function MessageContextMenu({
   onRevoke,
   onDeleteForMe,
   onForward,
+  onPin,
   isDeleting,
   onClose,
 }: MessageContextMenuProps) {
@@ -705,6 +746,21 @@ function MessageContextMenu({
           <span className="text-sm font-medium text-red-600">Thu hồi</span>
         </button>
       )}
+
+      {/* Nút Ghim tin nhắn */}
+      <button
+        type="button"
+        onClick={() => {
+          onPin?.();
+          onClose();
+        }}
+        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-left hover:bg-blue-50 transition-colors text-blue-600 group"
+      >
+        <span className="w-6 h-6 rounded-full bg-blue-50 group-hover:bg-blue-100 flex items-center justify-center transition-colors">
+          <Pin className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
+        </span>
+        <span className="text-sm font-medium text-blue-600">Ghim tin nhắn</span>
+      </button>
 
       {/* Nút Chuyển tiếp — hiện cho MỌI tin nhắn (kể cả đã thu hồi trên Zalo UX) */}
       <button
@@ -852,6 +908,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const {
     status,
     emitCallUser,
+    socket,
   } = useSocket();
   const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
@@ -871,7 +928,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
+  const [isFocusBlue, setIsFocusBlue] = useState(false);
   const [pendingFocusMessageId, setPendingFocusMessageId] = useState<string | null>(null);
+  const [isPinnedExpanded, setIsPinnedExpanded] = useState(false);
   const focusTimeoutRef = useRef<number | null>(null);
 
   const todayDateString = useMemo(() => {
@@ -993,6 +1052,115 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     closeCtxMenu();
     setForwardModal({ message: msg, sourceConversationId: conversationId });
   }
+
+  // ── Settings sidebar state ──────────────────────────────────────────────
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // ── Chat background state ──────────────────────────────────────────────
+  const [chatBgUrl, setChatBgUrl] = useState<string | null>(null);
+
+  // ── Pinned messages state ──────────────────────────────────────────────
+  const [pinnedMessages, setPinnedMessages] = useState<any[]>([]);
+
+  // Load pinned messages when conversation changes
+  useEffect(() => {
+    if (chatMode === "GROUP") {
+      setPinnedMessages(selectedGroup?.pinnedMessages || []);
+    } else {
+      setPinnedMessages(selectedFriend?.pinnedMessages || []);
+    }
+  }, [chatMode, selectedGroup?.pinnedMessages, selectedFriend?.pinnedMessages]);
+
+  // Listen for pinned messages updates
+  useEffect(() => {
+    if (!socket || !activeConversationId) return;
+
+    const handlePinnedUpdate = (data: { roomId: string; pinnedMessages: any[] }) => {
+      if (String(data.roomId) === String(activeConversationId)) {
+        setPinnedMessages(data.pinnedMessages);
+      }
+    };
+
+    socket.on("message_pinned_updated", handlePinnedUpdate);
+    return () => {
+      socket.off("message_pinned_updated", handlePinnedUpdate);
+    };
+  }, [socket, activeConversationId]);
+
+  async function handlePinMessage(msg: GroupChatMessage) {
+    if (!socket || !activeConversationId) return;
+    
+    // Tạo snapshot của tin nhắn để ghim
+    const pinData = {
+      id: msg.id,
+      content: msg.content,
+      contentType: msg.contentType,
+      senderId: msg.senderId,
+      senderName: msg.senderDisplayName || (Number(msg.senderId) === Number(currentUserId) ? "Bạn" : "Người dùng"),
+      createdAt: msg.createdAt,
+    };
+
+    socket.emit("pin_message", { roomId: activeConversationId, message: pinData }, (res: any) => {
+      if (res.ok) {
+        addToast("Đã ghim tin nhắn", "success");
+      } else {
+        addToast(res.error || "Không thể ghim tin nhắn", "error");
+      }
+    });
+    closeCtxMenu();
+  }
+
+  async function handleUnpinMessage(messageId: string | number) {
+    if (!socket || !activeConversationId) return;
+    
+    socket.emit("unpin_message", { roomId: activeConversationId, messageId: String(messageId) }, (res: any) => {
+      if (res.ok) {
+        addToast("Đã bỏ ghim tin nhắn", "success");
+      } else {
+        addToast(res.error || "Không thể bỏ ghim tin nhắn", "error");
+      }
+    });
+  }
+
+  const canUnpin = useCallback((pin: any) => {
+    // Nếu tin nhắn cũ chưa có pinnedBy, cho phép gỡ (Zalo UX fallback)
+    if (!pin.pinnedBy) return true;
+    // Nếu mình là người ghim, cho phép gỡ
+    if (String(pin.pinnedBy) === currentUserId) return true;
+    // Nếu là nhóm và mình là OWNER/DEPUTY, cho phép gỡ mọi ghim
+    if (chatMode === "GROUP") {
+      const me = groupMembers.find((m) => String(m.userId) === currentUserId);
+      if (me?.role === "OWNER" || me?.role === "DEPUTY") return true;
+    }
+    return false;
+  }, [currentUserId, chatMode, groupMembers]);
+
+  // Load background when selectedFriend changes
+  useEffect(() => {
+    if (!selectedFriend?.friendshipId) {
+      setChatBgUrl(null);
+      return;
+    }
+    getChatBackground(selectedFriend.friendshipId)
+      .then(res => setChatBgUrl(res.chatBgUrl))
+      .catch(() => setChatBgUrl(null));
+  }, [selectedFriend?.friendshipId]);
+
+  // Listen for real-time background updates via socket
+  useEffect(() => {
+    if (!socket || !selectedFriend?.friendshipId) return;
+
+    const handleBgUpdate = (data: { friendshipId: string; bgUrl: string | null }) => {
+      if (String(data.friendshipId) === String(selectedFriend.friendshipId)) {
+        setChatBgUrl(data.bgUrl);
+      }
+    };
+
+    socket.on("chat_background_updated", handleBgUpdate);
+    return () => {
+      socket.off("chat_background_updated", handleBgUpdate);
+    };
+  }, [socket, selectedFriend?.friendshipId]);
 
   // Lấy ref đúng dựa trên mode
   const activeSentinelRef =
@@ -1432,6 +1600,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     }
     focusTimeoutRef.current = window.setTimeout(() => {
       setFocusedMessageId(null);
+      setIsFocusBlue(false);
       focusTimeoutRef.current = null;
     }, 1800);
   }
@@ -1460,6 +1629,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   ]);
 
   function handleSearchResultClick(item: MessageSearchRow) {
+    setIsFocusBlue(false); // Đảm bảo search dùng highlight vàng mặc định
     const targetConversationId = String(item.conversationId || "");
     if (!targetConversationId) return;
 
@@ -1589,7 +1759,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   function renderHeader() {
     if (isAiChatOpen) {
       return (
-        <div className="h-17 bg-white border-b border-gray-200 flex items-center justify-between px-4 shrink-0">
+        <div className="h-17 bg-white/80 backdrop-blur-md border-b border-gray-200 flex items-center justify-between px-4 shrink-0 z-20">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-linear-to-br from-cyan-500 via-blue-500 to-indigo-500 text-white flex items-center justify-center shadow-sm">
               <Sparkles className="w-6 h-6" />
@@ -1608,7 +1778,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     const isGroup = chatMode === "GROUP";
 
     return (
-      <div className="h-17 bg-white border-b border-gray-200 flex items-center justify-between px-4 shrink-0">
+      <div className={`h-17 ${chatBgUrl ? 'bg-white/70' : 'bg-white'} backdrop-blur-md border-b border-gray-200/50 flex items-center justify-between px-4 shrink-0 z-20 transition-colors`}>
         <div className="flex items-center gap-3">
           {/* Avatar */}
           {isGroup ? (
@@ -1694,7 +1864,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           <button
             type="button"
             className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
-            title="Khác"
+            title="Tuỳ chọn"
+            onClick={() => setIsSettingsOpen(true)}
           >
             <MoreHorizontal className="w-5 h-5" />
           </button>
@@ -1708,7 +1879,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     return (
       <div
         ref={activeScrollRef as React.RefObject<HTMLDivElement>}
-        className="flex-1 overflow-y-auto p-4 flex flex-col"
+        className="flex-1 overflow-y-auto p-4 flex flex-col bg-transparent"
       >
         {activeLoading && (
           <div className="flex items-center justify-center py-8 text-gray-400 text-sm gap-2">
@@ -1738,16 +1909,24 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         )}
 
         {activeMessages.map((msg) => {
-          const wrapperClass =
-            focusedMessageId != null && String(msg.id) === focusedMessageId
-              ? "rounded-xl bg-yellow-100/70 ring-1 ring-yellow-300 transition-all"
-              : "";
+          const isFocused = focusedMessageId != null && String(msg.id) === focusedMessageId;
+          const wrapperClass = isFocused
+            ? isFocusBlue 
+               ? "rounded-xl bg-blue-100/70 ring-1 ring-blue-300 transition-all"
+               : "rounded-xl bg-yellow-100/70 ring-1 ring-yellow-300 transition-all"
+            : "";
 
-          // System message
-          if (isSystemMessage(msg)) {
+          // System message (using heuristic for legacy messages)
+          const isSystem = isSystemMessage(msg) || msg.content === "Hình nền đã được thay đổi";
+          
+          if (isSystem) {
             return (
-              <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
-                <SystemMessageBubble content={msg.content} />
+              <div key={msg.id} id={getMessageDomId(msg.id)} className={`w-full flex justify-center ${wrapperClass}`}>
+                <SystemMessageBubble 
+                  content={msg.content} 
+                  createdAt={msg.createdAt}
+                  onAction={msg.content.includes("hình nền") ? () => setIsSettingsOpen(true) : undefined}
+                />
               </div>
             );
           }
@@ -1829,6 +2008,148 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     );
   }
 
+  function renderPinnedHeader() {
+    if (!pinnedMessages || pinnedMessages.length === 0) return null;
+
+    const isMulti = pinnedMessages.length > 1;
+
+    if (!isPinnedExpanded) {
+      const mainPin = pinnedMessages[0];
+      return (
+        <div className="bg-white/95 backdrop-blur-md border-b border-gray-200 px-4 py-2 flex items-center gap-3 relative z-20 shadow-sm animate-in slide-in-from-top duration-300 group">
+          <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+            <Pin className="w-4 h-4 text-blue-500 fill-blue-500" />
+          </div>
+          
+          <div 
+            className="flex-1 min-w-0 cursor-pointer py-0.5"
+            onClick={() => {
+              setPendingFocusMessageId(String(mainPin.id));
+              setIsFocusBlue(true);
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Tin nhắn được ghim</span>
+              {isMulti && (
+                <div 
+                  className="flex items-center gap-0.5 bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-bold cursor-pointer hover:bg-blue-200 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsPinnedExpanded(true);
+                  }}
+                >
+                  <span className="text-[9px]">+{pinnedMessages.length - 1} ghim khác</span>
+                  <ChevronDown className="w-2.5 h-2.5" />
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5">
+               <span className="text-xs font-semibold text-gray-900 truncate max-w-[120px]">{mainPin.senderName}:</span>
+               <p className="text-xs text-gray-600 truncate">{mainPin.content || "[Tin nhắn tệp/sticker]"}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {isMulti && (
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsPinnedExpanded(true);
+                }}
+                className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"
+                title="Xem danh sách"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+            )}
+            {/* Chỉ hiện nút gỡ ghim nếu mình có quyền */}
+            {canUnpin(mainPin) && (
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleUnpinMessage(mainPin.id);
+                }}
+                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                title="Bỏ ghim"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // --- Expanded State (Danh sách ghim) ---
+    return (
+      <div className="bg-white/98 backdrop-blur-lg border-b border-gray-200 relative z-30 shadow-xl animate-in slide-in-from-top duration-300">
+        {/* Header của danh sách ghim */}
+        <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <span className="text-xs font-bold text-gray-700">Danh sách ghim ({pinnedMessages.length})</span>
+          <button 
+            onClick={() => setIsPinnedExpanded(false)}
+            className="flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-blue-600 transition-colors"
+          >
+            Thu gọn
+            <ChevronUp className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* List items */}
+        <div className="max-h-[300px] overflow-y-auto scrollbar-thin">
+          {pinnedMessages.map((pin, index) => (
+            <div 
+              key={`${pin.id}-${index}`}
+              className="flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50/40 transition-colors border-b border-gray-50 last:border-none group"
+            >
+              <div className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+                <Pin className="w-3.5 h-3.5 text-blue-400 fill-blue-400" />
+              </div>
+              
+              <div 
+                className="flex-1 min-w-0 cursor-pointer"
+                onClick={() => {
+                  setPendingFocusMessageId(String(pin.id));
+                  setIsFocusBlue(true);
+                  setIsPinnedExpanded(false); // Thu gọn khi click vào tin nhắn
+                }}
+              >
+                <p className="text-[11px] font-bold text-blue-600 mb-0.5 uppercase tracking-tight">Tin nhắn</p>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-gray-800 truncate max-w-[150px]">{pin.senderName}:</span>
+                  <p className="text-xs text-gray-600 truncate">{pin.content || "[Tin nhắn tệp/sticker]"}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {canUnpin(pin) && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleUnpinMessage(pin.id);
+                    }}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                    title="Bỏ ghim"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        {/* Footer optionally */}
+        <div className="px-4 py-2 bg-gray-50/30 flex justify-center border-t border-gray-100">
+          <button className="text-[11px] font-bold text-gray-400 hover:text-blue-500 transition-colors flex items-center gap-1">
+             Xem tất cả ở bảng tin nhóm
+             <ChevronRight className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Empty state ────────────────────────────────────────────────────
   if (!selectedFriend && !selectedGroup && !isAiChatOpen) {
     return (
@@ -1848,8 +2169,25 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }
 
   return (
-    <div className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0">
-      {renderHeader()}
+    <div 
+      className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0 overflow-hidden"
+      style={chatBgUrl ? {
+        backgroundImage: `url(${chatBgUrl})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      } : undefined}
+    >
+      {chatBgUrl && <div className="absolute inset-0 bg-black/10 z-0 pointer-events-none" />}
+      <div 
+        className="flex-1 flex flex-col relative z-10 overflow-hidden"
+        onClick={() => {
+          if (isPinnedExpanded) setIsPinnedExpanded(false);
+          if (ctxMenu) closeCtxMenu();
+        }}
+      >
+        {renderHeader()}
+        {renderPinnedHeader()}
 
       {searchOpen && !isAiChatOpen && (
         <div className="absolute right-4 top-20 z-20 w-[min(92vw,720px)] rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden">
@@ -2042,6 +2380,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           onForward={() =>
             handleForwardMessage(ctxMenu.msg, ctxMenu.conversationId)
           }
+          onPin={() => handlePinMessage(ctxMenu.msg)}
           isDeleting={deletingMessageId === String(ctxMenu.msg.id)}
           onClose={closeCtxMenu}
         />
@@ -2245,8 +2584,19 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           </>
         )}
       </div>
+    </div>
 
-      <CallOverlay />
+    <CallOverlay />
+
+      {/* Settings Sidebar */}
+      <ChatSettingsSidebar
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        selectedFriend={selectedFriend}
+        authUser={authUser}
+        onSearchMessages={() => setSearchOpen(true)}
+        onBackgroundChange={(bgUrl) => setChatBgUrl(bgUrl)}
+      />
     </div>
   );
 }

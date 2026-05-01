@@ -121,8 +121,10 @@ export interface FriendItem {
   status: "accepted";
   updated_at: string;
   friend_display_name: string;
+  friend_original_name?: string;
   friend_username: string;
   friend_avatar_url: string | null;
+  nickname?: string | null;
 }
 
 export interface FriendsListResponse {

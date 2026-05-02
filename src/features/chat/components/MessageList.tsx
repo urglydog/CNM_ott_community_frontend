@@ -33,7 +33,7 @@ interface MessageListProps {
   onReplyToMessage?: (msg: GroupChatMessage) => void;
   onJumpToMessage?: (messageId: string | number) => void;
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
-  onJoinGroupCall?: (roomId: string) => void;
+  onJoinGroupCall?: (roomId: string, callType?: string) => void;
   isFocusBlue?: boolean;
 }
 
@@ -61,9 +61,14 @@ export function MessageList({
 }: MessageListProps) {
 
   const isSystemMessage = (msg: GroupChatMessage) => msg.contentType === "system";
-  const isGroupCallStarted = (msg: GroupChatMessage) =>
-    (msg as any).contentType === "group_call_started" ||
-    (msg as any).messageType === "group_call_started";
+  const isGroupCallStarted = (msg: GroupChatMessage) => {
+    // Case 1: socket emit đặt đúng contentType (realtime)
+    if ((msg as any).contentType === "group_call_started" || (msg as any).messageType === "group_call_started") return true;
+    // Case 2: load từ DB — lưu dưới dạng call_log nhưng callData.status === 'started'
+    const callData = (msg as any).callData;
+    if ((msg.contentType === "call_log" || (msg as any).messageType === "call_log") && callData?.status === "started") return true;
+    return false;
+  };
 
   return (
     <div
@@ -134,6 +139,7 @@ export function MessageList({
                 msg={msg}
                 authUserId={currentUserId}
                 senderAvatarUrl={resolveDisplayAvatar?.(msg.senderAvatarUrl)}
+                groupMembers={groupMembers}
                 onContextMenu={onMessageContextMenu}
                 onReply={onReplyToMessage}
                 onJumpToMessage={onJumpToMessage}

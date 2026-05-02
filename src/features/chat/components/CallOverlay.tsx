@@ -30,7 +30,7 @@ export default function CallOverlay() {
     clearCallState,
   } = useChatStore();
   const { addToast } = useToast();
-  const { emitCallAccepted, emitCallDeclined, emitEndCall, emitCallCancel } = useSocket();
+  const { emitCallAccepted, emitCallDeclined, emitEndCall, emitCallCancel, emitJoinGroupCall, emitLeaveGroupCall } = useSocket();
 
   const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ringtoneRef = useRef<HTMLAudioElement | null>(null);
@@ -118,8 +118,13 @@ export default function CallOverlay() {
           remoteUserId: String(incomingCall.callerId),
           remoteUserName: incomingCall.callerName,
           isGroupCall: incomingCall.isGroupCall,
+          callType: incomingCall.callType || "video",
         });
         setIncomingCall(null);
+        // Báo backend member vào phòng nhóm
+        if (incomingCall.isGroupCall) {
+          emitJoinGroupCall(roomId, resolvedUserId);
+        }
       })
       .catch(() => {
         addToast("Khong the tao phong cuoc goi", "error", 3000);
@@ -152,9 +157,8 @@ export default function CallOverlay() {
     if (!activeCall) return;
 
     if (activeCall.isGroupCall) {
-      // Group call: chỉ đóng UI của bản thân, KHÔNG emit end-call
-      // Phòng ZegoCloud vẫn sống cho người khác. Webhook room_close sẽ lưu call log
-      // khi người cuối cùng rời phòng.
+      // Group call: cúp máy → báo backend member rời phòng
+      emitLeaveGroupCall(activeCall.roomId, resolvedUserId);
       scheduleCleanup();
       return;
     }
@@ -195,9 +199,23 @@ export default function CallOverlay() {
       userId: resolvedUserId,
       userName: resolvedUserName,
       appId: activeCall.appId,
+      callType: activeCall.callType || "video",
       onLeave: handleHangUp,
     };
   }, [activeCall, handleHangUp, resolvedUserId, resolvedUserName]);
+
+  const zegoRoomModal = useMemo(() => {
+    if (!activeCall || !callRoomProps) return null;
+    return (
+      <div className="pointer-events-auto">
+        {activeCall.isGroupCall ? (
+          <VideoCallGroup {...callRoomProps} />
+        ) : (
+          <VideoCall1vs1 {...callRoomProps} />
+        )}
+      </div>
+    );
+  }, [activeCall?.roomId, activeCall?.callType, callRoomProps]);
 
   if (!incomingCall && !activeCall && !outgoingCall) return null;
 
@@ -235,15 +253,7 @@ export default function CallOverlay() {
         </div>
       )}
 
-      {activeCall && callRoomProps && (
-        <div className="pointer-events-auto">
-          {activeCall.isGroupCall ? (
-            <VideoCallGroup {...callRoomProps} />
-          ) : (
-            <VideoCall1vs1 {...callRoomProps} />
-          )}
-        </div>
-      )}
+      {zegoRoomModal}
       {isCallEnding && (
         <div className="absolute inset-0 z-9999 flex flex-col items-center justify-center bg-gray-900 text-white animate-in fade-in duration-200">
           <div className="w-24 h-24 mb-4 rounded-full bg-gray-800 flex items-center justify-center">

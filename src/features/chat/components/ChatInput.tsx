@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Mic, Send, Square, X } from "lucide-react";
+import { useChatStore } from "../store/chatStore";
 
 interface ChatInputProps {
   inputValue: string;
@@ -11,6 +12,8 @@ interface ChatInputProps {
   audioBlob: Blob | null;
   recordingTime: number;
   placeholder: string;
+  mentionUsers?: any[];
+  authUserId?: string | number | null;
   onInputChange: (value: string) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
@@ -30,6 +33,8 @@ export function ChatInput({
   audioBlob,
   recordingTime,
   placeholder,
+  mentionUsers = [],
+  authUserId,
   onInputChange,
   onKeyDown,
   onSend,
@@ -40,6 +45,10 @@ export function ChatInput({
   onTypingChange,
   textareaRef,
 }: ChatInputProps) {
+  const [mentionFilter, setMentionFilter] = useState("");
+  const [showMentionMenu, setShowMentionMenu] = useState(false);
+  const friends = useChatStore((state) => state.friends || []);
+
   // Auto-resize textarea
   useEffect(() => {
     const ta = textareaRef?.current;
@@ -47,6 +56,58 @@ export function ChatInput({
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 128)}px`;
   }, [inputValue, textareaRef]);
+
+  const getDisplayIdentifier = (userId: any) => {
+    if (userId === "all") return "Tất cả mọi người";
+    const friend = friends.find((f) => String(f.friend_id || f.id || f.userId) === String(userId));
+    if (friend?.nickname) {
+      return friend.nickname;
+    }
+    const groupMember = mentionUsers.find((m) => String(m.userId) === String(userId));
+    return groupMember?.displayName || groupMember?.username || groupMember?.userId || "Thành viên";
+  };
+
+  const filteredMembers = mentionUsers
+    .filter((u) => String(u.userId) !== String(authUserId))
+    .filter((u) => {
+      const friend = friends.find((f) => String(f.friend_id || f.id || f.userId) === String(u.userId));
+      const nickname = friend?.nickname ? String(friend.nickname).toLowerCase() : "";
+      const displayName = String(u.displayName || u.username || u.userId || "").toLowerCase();
+      
+      const query = mentionFilter.toLowerCase();
+      return nickname.includes(query) || displayName.includes(query);
+    });
+
+  const allOption = { userId: "all", displayName: "Tất cả mọi người" };
+  const query = mentionFilter.toLowerCase();
+  const includesAll = "tất cả mọi người".includes(query) || "all".includes(query);
+
+  const dropdownItems = includesAll ? [allOption, ...filteredMembers] : filteredMembers;
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    onInputChange(val);
+
+    const lastAtIndex = val.lastIndexOf("@");
+    if (lastAtIndex !== -1 && lastAtIndex >= val.lastIndexOf(" ")) {
+      const query = val.substring(lastAtIndex + 1).split(/\s/)[0];
+      setMentionFilter(query);
+      setShowMentionMenu(true);
+    } else {
+      setShowMentionMenu(false);
+    }
+  };
+
+  const handleSelectMention = (member: any) => {
+    const name = getDisplayIdentifier(member.userId);
+    const lastAtIndex = inputValue.lastIndexOf("@");
+    if (lastAtIndex !== -1 && lastAtIndex >= inputValue.lastIndexOf(" ")) {
+      const beforeAt = inputValue.substring(0, lastAtIndex);
+      const newVal = `${beforeAt}@${name} `;
+      onInputChange(newVal);
+    }
+    setShowMentionMenu(false);
+  };
 
   if (isRecording || audioBlob) {
     return (
@@ -124,13 +185,51 @@ export function ChatInput({
 
       {/* Center: textarea input */}
       <div className="flex-1 relative">
+        {showMentionMenu && dropdownItems.length > 0 && (
+          <div className="absolute bottom-full left-0 mb-2 w-64 max-h-48 bg-white border border-gray-200 rounded-lg shadow-xl overflow-y-auto z-50">
+            <div className="p-2 text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-100">
+              Nhắc tên thành viên
+            </div>
+            {dropdownItems.map((member) => {
+              const displayName = getDisplayIdentifier(member.userId);
+              return (
+                <button
+                  key={member.userId}
+                  type="button"
+                  onClick={() => handleSelectMention(member)}
+                  className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-blue-50 transition-colors text-sm"
+                >
+                  {member.avatarUrl ? (
+                    <img
+                      src={member.avatarUrl}
+                      alt={displayName}
+                      className="w-6 h-6 rounded-full object-cover shrink-0"
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-600 shrink-0 text-xs">
+                      {String(displayName || "U").charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <span className="font-medium text-gray-700 truncate">
+                    {displayName}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <textarea
           ref={textareaRef}
           value={inputValue}
-          onChange={(e) => onInputChange(e.target.value)}
+          onChange={handleInputChange}
           onKeyDown={onKeyDown}
           onFocus={() => onTypingChange(true)}
-          onBlur={() => onTypingChange(false)}
+          onBlur={() => {
+            // Delay closing mention menu to allow clicks on dropdown
+            setTimeout(() => setShowMentionMenu(false), 200);
+            onTypingChange(false);
+          }}
           placeholder={placeholder}
           disabled={!isConnected || isSending}
           className="w-full resize-none min-h-[44px] max-h-32 focus:outline-none text-[15px] py-2.5 bg-gray-50 rounded-full px-4 pr-12 border border-gray-200 focus:ring-2 focus:ring-blue-400 focus:border-blue-400 focus:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-all placeholder:text-gray-400"

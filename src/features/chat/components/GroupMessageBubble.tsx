@@ -8,6 +8,7 @@ import { ReplyReference } from "./ReplyComponents";
 import { SenderAvatar } from "./Avatar";
 import type { GroupChatMessage } from "../hooks/useGroupChat";
 import { formatTime, isPureEmoji } from "../utils/messageUtils";
+import { useChatStore } from "../store/chatStore";
 
 /** Tin nhắn hệ thống (hiển thị giữa màn hình) */
 export function SystemMessageBubble({ msg }: { msg: GroupChatMessage }) {
@@ -27,30 +28,37 @@ export function GroupCallStartedBanner({
   onJoin,
 }: {
   msg: GroupChatMessage;
-  onJoin?: (roomId: string) => void;
+  onJoin?: (roomId: string, callType?: string) => void;
 }) {
   const callerName = msg.senderDisplayName || "Ai đó";
-  const roomId = (msg as any).callData?.roomId || "";
+  // roomId: ưu tiên callData.roomId (từ DB), fallback msg.roomId (từ socket)
+  const roomId = (msg as any).callData?.roomId || (msg as any).roomId || "";
+  const callType = (msg as any).callData?.callType || "video";
 
   return (
     <div className="flex justify-center my-3">
-      <div className="flex flex-col items-center gap-2 bg-blue-50 border border-blue-200 rounded-2xl px-5 py-3 shadow-sm max-w-xs w-full">
+      <div className="flex items-center justify-between gap-3 bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3 shadow-sm w-full max-w-sm">
         <div className="flex items-center gap-2 text-blue-700">
-          <PhoneCall className="w-4 h-4 animate-pulse" />
-          <span className="text-sm font-semibold">{callerName} đang gọi nhóm</span>
+          <PhoneCall className="w-4 h-4 animate-pulse shrink-0" />
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold leading-tight">
+              {callerName} đang gọi nhóm {callType === "audio" ? "thoại" : "video"}
+            </span>
+            <span className="text-[10px] text-gray-400">
+              {new Date(msg.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          </div>
         </div>
-        {onJoin && roomId && (
+        {onJoin && (
           <button
-            onClick={() => onJoin(roomId)}
-            className="mt-1 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 transition-colors"
+            onClick={() => onJoin(roomId, callType)}
+            disabled={!roomId}
+            className="shrink-0 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold rounded-full flex items-center gap-1.5 transition-colors"
           >
             <Users className="w-3.5 h-3.5" />
             Tham gia
           </button>
         )}
-        <span className="text-[10px] text-gray-400">
-          {new Date(msg.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
-        </span>
       </div>
     </div>
   );
@@ -75,19 +83,77 @@ interface MessageBubbleProps {
 }
 
 
+const renderMentionContent = (content: string, groupMembers: any[] = [], friends: any[] = []) => {
+  if (!content) return content;
+
+  const regex = /<@([^>]+)>/g;
+  const parts: (string | JSX.Element)[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(content.substring(lastIndex, match.index));
+    }
+
+    const userId = match[1];
+    if (userId === "all") {
+      parts.push(
+        <span
+          key={`mention-all-${match.index}`}
+          className="bg-orange-100 text-orange-600 font-bold px-1.5 py-0.5 rounded hover:underline cursor-pointer"
+        >
+          @Tất cả
+        </span>
+      );
+    } else {
+      const friend = friends.find((f) => String(f.friend_id || f.id || f.userId) === String(userId));
+      const groupMember = groupMembers.find((m) => String(m.userId) === String(userId));
+
+      let mentionName = "@Người dùng";
+      if (friend?.nickname) {
+        mentionName = `@${friend.nickname}`;
+      } else if (friend?.friend_displayName || friend?.displayName) {
+        mentionName = `@${friend.friend_displayName || friend.displayName}`;
+      } else if (groupMember?.displayName || groupMember?.username) {
+        mentionName = `@${groupMember.displayName || groupMember.username}`;
+      }
+
+      parts.push(
+        <span
+          key={`mention-${userId}-${match.index}`}
+          className="text-blue-500 font-bold hover:underline cursor-pointer"
+        >
+          {mentionName}
+        </span>
+      );
+    }
+
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < content.length) {
+    parts.push(content.substring(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : content;
+};
+
 function MessageBubbleContent({
   msg,
   isOwn: isOwnProp,
+  groupMembers = [],
+  authUserId,
   onContextMenu,
   onReply,
   onJumpToMessage,
   focusedMessageId,
   isFocusBlue,
-}: MessageBubbleProps & { senderName: string }) {
-
-
-  // Normalize isOwn to boolean (prop is optional, default false)
+}: MessageBubbleProps & { senderName: string; groupMembers?: any[]; authUserId: string | number }) {
   const isOwn: boolean = isOwnProp ?? false;
+  const friends = useChatStore((state) => state.friends || []);
+  const isMentioned = Array.isArray(msg.mentions) && (msg.mentions.map(String).includes(String(authUserId)) || msg.mentions.includes("all"));
+
   const handleReplyClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onReply?.(msg);
@@ -125,17 +191,19 @@ function MessageBubbleContent({
 
   return (
     <div
-      className={`relative group w-fit max-w-full flex flex-col px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
+      className={`relative group w-fit max-w-full flex flex-col px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${
+        isMentioned
+          ? "bg-yellow-100 border-yellow-500 border-l-4 text-gray-900"
+          : isOwn
           ? "bg-blue-200 text-gray-900 border-blue-200 rounded-br-sm"
           : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
-        } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""} ${
-          String(msg.id) === focusedMessageId
-
-            ? isFocusBlue 
-              ? "ring-2 ring-blue-500 animate-pulse-blue shadow-lg z-10 scale-[1.02] transition-transform" 
-              : "ring-2 ring-yellow-400 bg-yellow-50/30"
-            : ""
-        }`}
+      } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""} ${
+        String(msg.id) === focusedMessageId
+          ? isFocusBlue 
+            ? "ring-2 ring-blue-500 animate-pulse-blue shadow-lg z-10 scale-[1.02] transition-transform" 
+            : "ring-2 ring-yellow-400 bg-yellow-50/30"
+          : ""
+      }`}
 
 
       onContextMenu={(e) => {
@@ -272,7 +340,7 @@ function MessageBubbleContent({
         <div
           className={`whitespace-pre-wrap wrap-break-word ${pureEmoji ? "text-3xl leading-none" : ""}`}
         >
-          {msg.content || "[Không có nội dung]"}
+          {msg.content ? renderMentionContent(msg.content, groupMembers, friends) : "[Không có nội dung]"}
         </div>
       )}
 
@@ -300,12 +368,13 @@ export function GroupMessageBubble({
   msg,
   authUserId,
   senderAvatarUrl,
+  groupMembers = [],
   onContextMenu,
   onReply,
   onJumpToMessage,
   focusedMessageId,
   isFocusBlue,
-}: MessageBubbleProps) {
+}: MessageBubbleProps & { groupMembers?: any[] }) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
   const senderName = msg.senderDisplayName || (isOwn ? "Bạn" : "Người dùng");
 
@@ -426,6 +495,7 @@ export function GroupMessageBubble({
           senderAvatarUrl={senderAvatarUrl}
           senderName={senderName}
           isOwn={isOwn}
+          groupMembers={groupMembers}
           onContextMenu={onContextMenu}
           onReply={onReply}
           onJumpToMessage={onJumpToMessage}

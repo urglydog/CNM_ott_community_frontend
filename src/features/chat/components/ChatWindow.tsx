@@ -182,7 +182,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       .catch(() => setGroupMembers([]));
   }, [selectedGroup]);
 
-  const { status, emitCallUser } = useSocket();
+  const { status, emitCallUser, emitJoinGroupCall } = useSocket();
+
   const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
   const [aiQuestion, setAiQuestion] = useState("");
@@ -734,7 +735,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     }
   }, [aiConversation, currentUserId, aiHistoryStorageKey]);
 
-  async function handleStartVideoCall() {
+  async function handleStartCall(callType: "video" | "audio" = "video") {
     const isGroupCall = chatMode === "GROUP";
     const hasTarget = isGroupCall
       ? selectedGroup != null
@@ -771,6 +772,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           roomId: safeRoomId,
           callerId: currentUserId,
           callerName: currentUserName,
+          callType,
         };
         // Emit socket để backend lưu group_call_started và broadcast banner
         emitCallUser({
@@ -778,6 +780,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           receiverId: String(selectedGroup!.groupId),
           conversationId,
           isGroupCall: true,
+          callType,
         });
         // Caller join phòng ngay (không cần cần cần chờ ai accept) — lấy token rồi set activeCall
         try {
@@ -792,7 +795,12 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             remoteUserId: String(selectedGroup!.groupId),
             remoteUserName: groupName || "Nhóm",
             isGroupCall: true,
+            callType,
           });
+          // Báo backend caller (member đầu tiên) vào phòng
+          // Lưu ý: backend đã tính caller trong membersCount=1 khi group-call-request
+          // Nếu gọi thêm ở đây sẽ thành 2 — chỉ emit nếu cần override startedAt
+          // emitJoinGroupCall(safeRoomId, currentUserId);
         } catch {
           addToast("Không thể tạo phòng gọi nhóm", "error", 2500);
         }
@@ -805,6 +813,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           to: directFriendId,
           conversationId,
           isGroupCall: false,
+          callType,
         };
         console.debug("[ChatWindow][emit call-user] payload:", oneToOnePayload);
         emitCallUser(oneToOnePayload);
@@ -814,6 +823,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           receiverId: directFriendId,
           receiverName: friendName || "Ban be",
           isGroupCall: false,
+          callType,
         });
       }
     } catch {
@@ -822,7 +832,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }
 
   /** Tham gia phòng gọi nhóm đang diễn ra (từ nút [Tham gia] trong banner) */
-  async function handleJoinGroupCall(roomId: string) {
+  async function handleJoinGroupCall(roomId: string, callType: string = "video") {
     if (!roomId || !currentUserId) return;
     const conversationId = selectedGroup ? groupConversationId(selectedGroup.groupId) : roomId;
     try {
@@ -837,7 +847,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         remoteUserId: selectedGroup ? String(selectedGroup.groupId) : "",
         remoteUserName: groupName || "Nhóm",
         isGroupCall: true,
+        callType,
       });
+      // Báo backend thành viên này vào phòng (tăng membersCount)
+      emitJoinGroupCall(roomId, currentUserId);
     } catch {
       addToast("Không thể tham gia cuộc gọi nhóm", "error", 2500);
     }
@@ -865,9 +878,41 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       }
     }
 
+    let contentToSend = inputValue;
+    const mentions: string[] = [];
+
+    if (chatMode === "GROUP") {
+      const allPattern = "@Tất cả mọi người";
+      if (contentToSend.includes(allPattern)) {
+        contentToSend = contentToSend.replaceAll(allPattern, "<@all>");
+        if (!mentions.includes("all")) {
+          mentions.push("all");
+        }
+      }
+
+      resolvedGroupMembers.forEach((m) => {
+        const friend = friends.find((f) => String(f.friend_id || f.id || f.userId) === String(m.userId));
+        const nickname = friend?.nickname;
+
+        const patterns: string[] = [];
+        if (nickname) patterns.push(`@${nickname}`);
+        const originalName = m.displayName || m.username || m.userId;
+        if (originalName) patterns.push(`@${originalName}`);
+
+        patterns.forEach((pattern) => {
+          if (contentToSend.includes(pattern)) {
+            contentToSend = contentToSend.replaceAll(pattern, `<@${m.userId}>`);
+            if (!mentions.includes(String(m.userId))) {
+              mentions.push(String(m.userId));
+            }
+          }
+        });
+      });
+    }
+
     if (chatMode === "GROUP") {
       if (groupSending) return;
-      await sendGroupMessage(inputValue, replyingMessage?.id || null);
+      await sendGroupMessage(contentToSend, replyingMessage?.id || null, mentions);
     } else {
       if (dmSending) return;
       await sendDmMessage(inputValue, replyingMessage?.id || null);
@@ -888,6 +933,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     sendDmMessage,
     replyingMessage,
     clearReplyingMessage,
+    resolvedGroupMembers,
   ]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -1212,7 +1258,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         groupName={groupName}
         friendName={friendName}
         memberCount={memberCount}
-        onStartVideoCall={handleStartVideoCall}
+        onStartVideoCall={() => handleStartCall("video")}
+        onStartVoiceCall={() => handleStartCall("audio")}
         onToggleSearch={() => setSearchOpen((prev) => !prev)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         activeConversationId={activeConversationId}
@@ -1547,6 +1594,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               audioBlob={audioBlob}
               recordingTime={recordingTime}
               placeholder={placeHolder}
+              mentionUsers={chatMode === "GROUP" ? resolvedGroupMembers : []}
+              authUserId={currentUserId}
               onInputChange={setInputValue}
               onKeyDown={handleKeyDown}
               onSend={handleSend}

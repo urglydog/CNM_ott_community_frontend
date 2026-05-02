@@ -9,8 +9,10 @@ export default function ZegoBaseRoom({
   userName,
   appId,
   scenarioMode,
+  callType,
   onLeave,
 }: any) {
+  console.log("👉 ZegoBaseRoom nhận được callType là:", callType);
   const isJoined = useRef(false);
   const zpRef = useRef<any>(null);
   const hasLeft = useRef(false);
@@ -44,8 +46,13 @@ export default function ZegoBaseRoom({
           zp.joinRoom({
             container: element,
             scenario: { mode: scenarioMode },
+            showRoomTimer: true,
             showPreJoinView: false,
             showLeavingView: false,
+            turnOnCameraWhenJoining: callType !== "audio",
+            showMyCameraToggleButton: callType !== "audio",
+            showAudioVideoSettingsButton: callType !== "audio",
+            showScreenSharingButton: callType !== "audio",
             onLeaveRoom: () => {
               hasLeft.current = true;
               if (typeof onLeave === "function") {
@@ -58,8 +65,22 @@ export default function ZegoBaseRoom({
         }
       })();
     },
-    [roomId, token, userId, userName, appId, scenarioMode, onLeave]
+    [roomId, token, userId, userName, appId, scenarioMode, callType, onLeave]
   );
+
+  useEffect(() => {
+    return () => {
+      if (zpRef.current) {
+        try {
+          zpRef.current.destroy();
+        } catch (error) {
+          console.warn("Lỗi khi destroy Zego:", error);
+        }
+        zpRef.current = null;
+      }
+      isJoined.current = false;
+    };
+  }, []);
 
   return (
     <div

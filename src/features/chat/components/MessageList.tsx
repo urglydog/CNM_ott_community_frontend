@@ -8,6 +8,7 @@ import type { ChatMode } from "../store/chatStore";
 import { GroupMessageBubble } from "./GroupMessageBubble";
 import { PrivateMessageBubble } from "./PrivateMessageBubble";
 import { SystemMessageBubble, GroupCallStartedBanner } from "./GroupMessageBubble";
+import { PollMessageBubble } from "./PollMessageBubble";
 import { getMessageDomId } from "../utils/messageSearch";
 
 interface MessageListProps {
@@ -119,6 +120,15 @@ export function MessageList({
           return (
             <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
               <SystemMessageBubble msg={msg} />
+            </div>
+          );
+        }
+
+        // Poll message — centered layout with voting UI
+        if (msg.contentType === "poll" && msg.pollData) {
+          return (
+            <div key={`poll-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
+              <PollMessageBubble key={`poll-bubble-${msg.id}`} msg={msg} currentUserId={currentUserId} />
             </div>
           );
         }

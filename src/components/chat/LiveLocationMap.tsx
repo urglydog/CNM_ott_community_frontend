@@ -1,4 +1,5 @@
 "use client";
+declare const google: any;
 
 import React, { useEffect, useRef, useState } from "react";
 import type { LiveLocationEntry } from "../../hooks/useLiveLocation";

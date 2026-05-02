@@ -207,6 +207,7 @@ export interface DirectMessageItem {
   contentType: string;
   content: string;
   stickerData?: StickerData;
+  locationData?: LocationData | null;
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
   /** ID của tin nhắn đang được trả lời */

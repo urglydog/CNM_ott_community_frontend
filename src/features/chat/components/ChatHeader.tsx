@@ -4,7 +4,7 @@ import { MoreHorizontal, Phone, Search, Sparkles, Video, WifiOff } from "lucide-
 import { GroupAvatar } from "./Avatar";
 import type { ChatMode } from "../store/chatStore";
 import type { GroupMember } from "../../groups/types";
-import type { Friend } from "../../../types";
+import type { FriendItem } from "../../../types";
 import { getAvatarInitial } from "../utils/messageUtils";
 
 interface ChatHeaderProps {

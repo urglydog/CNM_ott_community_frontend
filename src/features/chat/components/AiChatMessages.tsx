@@ -2,8 +2,8 @@
 
 import { Loader2 } from "lucide-react";
 import type { GroupChatMessage } from "../hooks/useGroupChat";
-import type { Friend } from "../../../types";
-import type { GroupInfo } from "../../groups/types";
+import type { FriendItem } from "../../../types";
+import type { Group } from "../../groups/types";
 
 interface AiConversationTurn {
   id: string;

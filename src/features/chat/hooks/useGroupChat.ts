@@ -23,6 +23,7 @@ function getPreviewContent(
   if (message.contentType === "sticker") return "[Sticker]";
   if (message.contentType === "emoji")
     return message.content || "[Biểu tượng cảm xúc]";
+  if (message.contentType === "poll") return "[Bình chọn]";
   if (Array.isArray(message.attachments) && message.attachments.length > 0) {
     const hasImage = message.attachments.some((a) => a?.type === "image");
     const hasVideo = message.attachments.some((a) => a?.type === "video");
@@ -127,6 +128,7 @@ export function useGroupChat(
     onMessageRead,
     onLiveLocationStopped,
     onUpdateMessage,
+    onPollUpdated,
   } = useSocket();
 
   const { setGroupConversationPreview } = useChatStore();
@@ -308,10 +310,11 @@ export function useGroupChat(
       ) {
         return;
       }
-      // Bỏ qua tin nhắn của chính mình, NGOẠI TRỪ call_log và group_call_started (cả 2 bên đều cần thấy)
+      // Bỏ qua tin nhắn của chính mình, NGOẠI TRỪ call_log, group_call_started VÀ poll (cần hiển thị)
       const isCallLog = (newMsg as any).contentType === "call_log" || (newMsg as any).messageType === "call_log";
       const isGroupCallStarted = (newMsg as any).contentType === "group_call_started" || (newMsg as any).messageType === "group_call_started";
-      if (!isCallLog && !isGroupCallStarted && Number(newMsg.senderId) === Number(user?.id)) return;
+      const isPoll = (newMsg as any).contentType === "poll";
+      if (!isCallLog && !isGroupCallStarted && !isPoll && Number(newMsg.senderId) === Number(user?.id)) return;
 
       // Cập nhật preview để nhóm trồi lên đầu trong ChatListPanel
       setGroupConversationPreview(currentRoomId, {
@@ -425,6 +428,24 @@ export function useGroupChat(
       );
     });
 
+    // ── Poll vote update listener ────────────────────────────────────────
+    const unsubPollUpdated = onPollUpdated(({ roomId, messageId, pollData }) => {
+      if (roomId !== currentRoomId) return;
+      setMessages((prev) =>
+        prev.map((m) => {
+          const msgId = String(m.id || m.messageId || "");
+          if (msgId === String(messageId)) {
+            // Create new object reference to trigger re-render
+            return {
+              ...m,
+              pollData: { ...pollData },
+            } as GroupChatMessage;
+          }
+          return m;
+        })
+      );
+    });
+
     return () => {
       unsubReceive();
       unsubRevoked();
@@ -433,6 +454,7 @@ export function useGroupChat(
       unsubStopTyping();
       unsubLiveLocationStopped();
       unsubUpdateMsg();
+      unsubPollUpdated();
       emitLeaveRoom(currentRoomId);
       // emitLeaveRoom(channelRoomId);
     };
@@ -447,6 +469,7 @@ export function useGroupChat(
     onUserStoppedTyping,
     onLiveLocationStopped,
     onUpdateMessage,
+    onPollUpdated,
     user?.id,
     getSenderInfo,
     setGroupConversationPreview,

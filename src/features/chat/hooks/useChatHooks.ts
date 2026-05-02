@@ -93,6 +93,9 @@ function getPreviewContent(
   if (message.contentType === "emoji") {
     return message.content || "[Biểu tượng cảm xúc]";
   }
+  if (message.contentType === "poll") {
+    return "[Bình chọn]";
+  }
   if (Array.isArray(message.attachments) && message.attachments.length > 0) {
     const hasImage = message.attachments.some((a) => a?.type === "image");
     const hasVideo = message.attachments.some((a) => a?.type === "video");

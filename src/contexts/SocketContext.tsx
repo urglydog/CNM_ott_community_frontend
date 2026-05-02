@@ -10,7 +10,14 @@ import React, {
 } from "react";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "./AuthContext";
-import type { MessageItem, StickerData, LiveLocationStartedPayload, LiveLocationUpdatedPayload, LiveLocationStoppedPayload } from "../types";
+import type { MessageItem, StickerData, LiveLocationStartedPayload, LiveLocationUpdatedPayload, LiveLocationStoppedPayload, PollData } from "../types";
+
+// Payload khi tin nhắn live location được cập nhật (isLive=false) từ DB
+export interface LiveLocationMessageStoppedPayload {
+  conversationId: string;
+  messageId: string;
+  locationData: import("../types").LocationData;
+}
 
 // Payload khi tin nhắn live location được cập nhật (isLive=false) từ DB
 export interface LiveLocationMessageStoppedPayload {
@@ -89,7 +96,8 @@ interface SocketContextValue {
     attachments?: object | null,
     stickerData?: StickerData,
     replyTo?: string | number | null,
-    mentions?: string[]
+    mentions?: string[],
+    pollData?: PollData
   ) => Promise<{ ok: boolean; message?: MessageItem; error?: string }>;
   emitTypingStart: (roomId: string) => void;
   emitTypingStop: (roomId: string) => void;
@@ -101,6 +109,12 @@ interface SocketContextValue {
   emitJoinGroupCall: (roomId: string, userId: string) => void;
   emitLeaveGroupCall: (roomId: string, userId: string) => void;
   emitMarkRead: (conversationId: string, messageId: string) => void;
+  // Poll voting emit helpers
+  emitPollVote: (
+    roomId: string,
+    messageId: string | number,
+    optionId: string
+  ) => Promise<{ ok: boolean; pollData?: PollData; error?: string }>;
   // Live Location emit helpers
   emitStartLiveLocation: (roomId: string) => void;
   emitUpdateLiveLocation: (roomId: string, lat: number, lng: number) => void;
@@ -137,6 +151,8 @@ interface SocketContextValue {
   onLiveLocationMessageStopped: (handler: (data: LiveLocationMessageStoppedPayload) => void) => () => void;
   /** update_message: Backend cập nhật message cũ (vd: group_call_started → call_log completed) */
   onUpdateMessage: (handler: (message: MessageItem) => void) => () => void;
+  /** poll_updated: Backend broadcast khi có người vote */
+  onPollUpdated: (handler: (data: { roomId: string; messageId: string; pollData: PollData }) => void) => () => void;
 }
 
 
@@ -407,7 +423,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       attachments: object | null = null,
       stickerData?: StickerData,
       replyTo?: string | number | null,
-      mentions?: string[]
+      mentions?: string[],
+      pollData?: PollData
     ): Promise<{ ok: boolean; message?: MessageItem; error?: string }> => {
       return new Promise((resolve) => {
         if (!socketRef.current) {
@@ -416,7 +433,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         }
         socketRef.current.emit(
           "send_message",
-          { roomId, content, contentType, attachments, stickerData, replyTo, mentions },
+          { roomId, content, contentType, attachments, stickerData, replyTo, mentions, pollData },
           (response: { ok: boolean; message?: MessageItem; error?: string }) => {
             resolve(response);
           }
@@ -477,6 +494,35 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const emitMarkRead = useCallback((conversationId: string, messageId: string) => {
     socketRef.current?.emit("mark_read", { conversationId, messageId });
   }, []);
+
+  // ── Poll voting emit helpers ──────────────────────────────────────────────
+
+  /**
+   * Emit vote_poll: gửi vote cho một lựa chọn trong poll
+   * Toggle behavior: nếu đã vote thì bỏ vote, nếu chưa vote thì thêm vote
+   */
+  const emitPollVote = useCallback(
+    (
+      roomId: string,
+      messageId: string | number,
+      optionId: string
+    ): Promise<{ ok: boolean; pollData?: PollData; error?: string }> => {
+      return new Promise((resolve) => {
+        if (!socketRef.current) {
+          resolve({ ok: false, error: "Socket chưa kết nối" });
+          return;
+        }
+        socketRef.current.emit(
+          "vote_poll",
+          { roomId, messageId, optionId },
+          (response: { ok: boolean; pollData?: PollData; error?: string }) => {
+            resolve(response);
+          }
+        );
+      });
+    },
+    []
+  );
 
   // ── Live Location emit helpers ──────────────────────────────────────────────
 
@@ -787,6 +833,22 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  // ── Poll event listeners ────────────────────────────────────────────────────
+
+  /**
+   * Lắng nghe poll_updated: được emit khi có người vote trong poll
+   */
+  const onPollUpdated = useCallback(
+    (handler: (data: { roomId: string; messageId: string; pollData: PollData }) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+      const listener = (data: { roomId: string; messageId: string; pollData: PollData }) => handler(data);
+      socket.on("poll_updated", listener);
+      return () => socket.off("poll_updated", listener);
+    },
+    []
+  );
+
   return (
     <SocketContext.Provider
       value={{
@@ -806,6 +868,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         emitJoinGroupCall,
         emitLeaveGroupCall,
         emitMarkRead,
+        emitPollVote,
         emitStartLiveLocation,
         emitUpdateLiveLocation,
         emitStopLiveLocation,
@@ -827,6 +890,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         onLiveLocationStopped,
         onLiveLocationMessageStopped,
         onUpdateMessage,
+        onPollUpdated,
       }}
     >
       {children}

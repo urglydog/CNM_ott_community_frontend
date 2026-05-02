@@ -21,6 +21,8 @@ export type MessageItem = {
   stickerData?: StickerData;
   /** Dữ liệu vị trí — chỉ có khi contentType === "location" */
   locationData?: LocationData | null;
+  /** Dữ liệu bình chọn — chỉ có khi contentType === "poll" */
+  pollData?: PollData | null;
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
   replyTo?: string | number | null;
@@ -73,6 +75,33 @@ export interface LocationData {
   isLive?: boolean;
   /** ISO string – thời điểm kết thúc live location */
   liveUntil?: string | null;
+}
+
+/**
+ * Một lựa chọn trong bình chọn.
+ */
+export interface PollOption {
+  id: string;
+  text: string;
+  voterIds: (string | number)[];
+}
+
+/**
+ * Cài đặt cho bình chọn.
+ */
+export interface PollSettings {
+  /** Cho phép chọn nhiều đáp án cùng lúc */
+  multipleChoice: boolean;
+  /** Cho phép thêm đáp án mới */
+  allowAddOption: boolean;
+}
+
+/**
+ * Dữ liệu bình chọn cho tin nhắn loại "poll".
+ */
+export interface PollData {
+  pollOptions: PollOption[];
+  pollSettings: PollSettings;
 }
 
 /**
@@ -207,6 +236,8 @@ export interface DirectMessageItem {
   contentType: string;
   content: string;
   stickerData?: StickerData;
+  /** Dữ liệu bình chọn — chỉ có khi contentType === "poll" */
+  pollData?: PollData | null;
   attachments?: MessageAttachment[] | null;
   reactions?: unknown;
   /** ID của tin nhắn đang được trả lời */

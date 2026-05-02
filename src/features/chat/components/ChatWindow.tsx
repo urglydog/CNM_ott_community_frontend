@@ -22,7 +22,7 @@ import {
 import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
 import { useGroupsStore } from "../../groups/store/groupsStore";
-import type { AuthUser, StickerData, ReplyToMessage } from "../../../types";
+import type { AuthUser, StickerData, ReplyToMessage, PollData } from "../../../types";
 import { askBot } from "../api";
 import CallOverlay from "@/features/chat/components/CallOverlay";
 import { useToast } from "../../../contexts/ToastContext";
@@ -48,6 +48,7 @@ import { AiChatMessages, type AiConversationTurn } from "./AiChatMessages";
 import { MessageSearchPanel } from "./MessageSearchPanel";
 import EmojiStickerPicker from "./EmojiStickerPicker";
 import ForwardMessageModal from "./ForwardMessageModal";
+import CreatePollModal from "./CreatePollModal";
 import apiClient from "../../../lib/axios";
 import { PinnedHeader } from "./PinnedHeader";
 import ChatSettingsSidebar from "./ChatSettingsSidebar";
@@ -182,7 +183,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       .catch(() => setGroupMembers([]));
   }, [selectedGroup]);
 
-  const { status, emitCallUser, emitJoinGroupCall } = useSocket();
+  const { status, emitCallUser, emitJoinGroupCall, emitSendMessage } = useSocket();
 
   const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
@@ -431,6 +432,43 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     message: GroupChatMessage;
     sourceConversationId: string;
   } | null>(null);
+
+  // ── Create Poll modal state ────────────────────────────────────────────────
+  const [createPollOpen, setCreatePollOpen] = useState(false);
+
+  // Handle poll creation
+  const handleCreatePoll = async (pollPayload: {
+    content: string;
+    pollData: PollData;
+  }) => {
+    const conversationId = activeConversationId;
+    if (!conversationId) {
+      addToast("Vui lòng chọn cuộc trò chuyện trước", "error");
+      return;
+    }
+
+    try {
+      const result = await emitSendMessage(
+        conversationId,
+        pollPayload.content,
+        "poll",
+        null,
+        undefined,
+        undefined,
+        undefined,
+        pollPayload.pollData
+      );
+
+      if (result.ok && result.message) {
+        addToast("Đã tạo bình chọn", "success");
+      } else {
+        addToast(result.error || "Không thể tạo bình chọn", "error");
+      }
+    } catch (error) {
+      console.error("[ChatWindow] handleCreatePoll error:", error);
+      addToast("Đã xảy ra lỗi khi tạo bình chọn", "error");
+    }
+  };
 
   function handleMessageContextMenu(
     e: React.MouseEvent,
@@ -1401,6 +1439,14 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         />
       )}
 
+      {/* Create Poll Modal */}
+      {createPollOpen && (
+        <CreatePollModal
+          onClose={() => setCreatePollOpen(false)}
+          onSubmit={handleCreatePoll}
+        />
+      )}
+
       {/* Input area */}
       <div className="bg-white border-t border-gray-200 flex flex-col shrink-0">
         {isAiChatOpen ? (
@@ -1457,6 +1503,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               onImageClick={() => imageInputRef.current?.click()}
               onFileClick={() => fileInputRef.current?.click()}
               onLocationClick={() => setLocationMenuOpen((prev) => !prev)}
+              onCreatePollClick={() => setCreatePollOpen(true)}
             >
               <EmojiStickerPicker
                 isOpen={pickerOpen}

@@ -18,6 +18,7 @@ interface ChatHeaderProps {
   friendName?: string;
   memberCount?: number;
   onStartVideoCall?: () => void;
+  onStartVoiceCall?: () => void;
   onToggleSearch?: () => void;
   onOpenSettings?: () => void;
   activeConversationId?: string | null;
@@ -36,6 +37,7 @@ export function ChatHeader({
   friendName = "",
   memberCount = 0,
   onStartVideoCall,
+  onStartVoiceCall,
   onToggleSearch,
   onOpenSettings,
   activeConversationId,
@@ -124,6 +126,8 @@ export function ChatHeader({
           type="button"
           className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
           title="Gọi thoại"
+          onClick={onStartVoiceCall}
+          disabled={!isConnected}
         >
           <Phone className="w-5 h-5" />
         </button>

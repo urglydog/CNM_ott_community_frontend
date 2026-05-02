@@ -1,11 +1,11 @@
 "use client";
 
 import React from "react";
-import { PhoneOff, Video } from "lucide-react";
+import { PhoneOff, Video, Phone } from "lucide-react";
 import type { CallSignalPayload } from "../../contexts/SocketContext";
 
 interface IncomingCallModalProps {
-  callData: CallSignalPayload;
+  callData: CallSignalPayload & { callType?: "video" | "audio" };
   onAccept: () => void;
   onDecline: () => void;
 }
@@ -17,6 +17,7 @@ export default function IncomingCallModal({
 }: IncomingCallModalProps) {
   const callerName = callData.callerName || "Nguoi dung";
   const avatarChar = callerName.charAt(0).toUpperCase();
+  const isVideo = (callData as any).callType !== "audio";
 
   return (
     <div className="fixed inset-0 z-10000 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -25,7 +26,9 @@ export default function IncomingCallModal({
           <span className="text-3xl font-bold text-blue-600">{avatarChar}</span>
         </div>
         <h3 className="text-xl font-bold text-gray-800 mb-1">{callerName}</h3>
-        <p className="text-gray-500 mb-8 animate-pulse">Dang goi video...</p>
+        <p className="text-gray-500 mb-8 animate-pulse">
+          Đang gọi {isVideo ? "video" : "thoại"}...
+        </p>
 
         <div className="flex gap-10">
           <button
@@ -40,7 +43,7 @@ export default function IncomingCallModal({
             className="w-14 h-14 bg-green-500 rounded-full flex items-center justify-center hover:bg-green-600 transition-transform hover:scale-110 shadow-lg"
             aria-label="Nhan cuoc goi"
           >
-            <Video className="text-white w-6 h-6" />
+            {isVideo ? <Video className="text-white w-6 h-6" /> : <Phone className="text-white w-6 h-6" />}
           </button>
         </div>
       </div>

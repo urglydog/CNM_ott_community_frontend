@@ -17,6 +17,7 @@ export type IncomingCallState = {
   callerName: string;
   receiverId?: string;
   isGroupCall?: boolean;
+  callType?: "video" | "audio";
 };
 
 export type ActiveCallState = {
@@ -27,6 +28,7 @@ export type ActiveCallState = {
   remoteUserId: string;
   remoteUserName: string;
   isGroupCall?: boolean;
+  callType?: "video" | "audio";
 };
 
 export type OutgoingCallState = {
@@ -35,6 +37,7 @@ export type OutgoingCallState = {
   receiverId: string;
   receiverName: string;
   isGroupCall: boolean;
+  callType?: "video" | "audio";
 };
 
 interface ChatState {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSocket } from "../../../contexts/SocketContext";
+
 import { useAuth } from "../../../contexts/AuthContext";
 import { getGroupMessages, sendGroupFileMessage, getReadStatusForMessages } from "../api";
 import { getPresignedUploadUrl } from "../../../api/client";
@@ -125,6 +126,7 @@ export function useGroupChat(
     onMessageRevoked,
     onMessageRead,
     onLiveLocationStopped,
+    onUpdateMessage,
   } = useSocket();
 
   const { setGroupConversationPreview } = useChatStore();
@@ -412,6 +414,17 @@ export function useGroupChat(
       ));
     });
 
+    const unsubUpdateMsg = onUpdateMessage((updatedMsg) => {
+      if (updatedMsg.conversationId !== currentRoomId) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id) === String(updatedMsg.id) || String(m.messageId) === String((updatedMsg as any).messageId)
+            ? { ...m, ...updatedMsg, isOwn: m.isOwn } as GroupChatMessage
+            : m
+        )
+      );
+    });
+
     return () => {
       unsubReceive();
       unsubRevoked();
@@ -419,6 +432,7 @@ export function useGroupChat(
       unsubTyping();
       unsubStopTyping();
       unsubLiveLocationStopped();
+      unsubUpdateMsg();
       emitLeaveRoom(currentRoomId);
       // emitLeaveRoom(channelRoomId);
     };
@@ -432,6 +446,7 @@ export function useGroupChat(
     onUserTyping,
     onUserStoppedTyping,
     onLiveLocationStopped,
+    onUpdateMessage,
     user?.id,
     getSenderInfo,
     setGroupConversationPreview,
@@ -617,7 +632,7 @@ export function useGroupChat(
 
   // ── Gửi tin nhắn nhóm ────────────────────────────────────────────────
   const sendMessage = useCallback(
-    async (content: string, replyTo?: string | number | null) => {
+    async (content: string, replyTo?: string | number | null, mentions?: string[]) => {
       if (!currentRoomId || !content.trim()) return;
 
       const tempId = `temp-${Date.now()}`;
@@ -633,6 +648,7 @@ export function useGroupChat(
         senderDisplayName: user?.displayName ?? null,
         senderAvatarUrl: null,
         replyTo: replyTo || null,
+        mentions: mentions || [],
       };
 
       setMessages((prev) => [...prev, optimisticMsg]);
@@ -646,6 +662,7 @@ export function useGroupChat(
           null,
           undefined,
           replyTo || null,
+          mentions || []
         );
 
         if (result.ok && result.message) {

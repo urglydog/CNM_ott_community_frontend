@@ -88,7 +88,8 @@ interface SocketContextValue {
     contentType?: string,
     attachments?: object | null,
     stickerData?: StickerData,
-    replyTo?: string | number | null
+    replyTo?: string | number | null,
+    mentions?: string[]
   ) => Promise<{ ok: boolean; message?: MessageItem; error?: string }>;
   emitTypingStart: (roomId: string) => void;
   emitTypingStop: (roomId: string) => void;
@@ -97,6 +98,8 @@ interface SocketContextValue {
   emitCallDeclined: (payload: CallSignalPayload) => void;
   emitCallCancel: (payload: CallSignalPayload) => void;
   emitEndCall: (payload: CallSignalPayload) => void;
+  emitJoinGroupCall: (roomId: string, userId: string) => void;
+  emitLeaveGroupCall: (roomId: string, userId: string) => void;
   emitMarkRead: (conversationId: string, messageId: string) => void;
   // Live Location emit helpers
   emitStartLiveLocation: (roomId: string) => void;
@@ -132,6 +135,8 @@ interface SocketContextValue {
   onLiveLocationStopped: (handler: (data: LiveLocationStoppedPayload) => void) => () => void;
   /** Cập nhật tin nhắn trong messages list khi server xác nhận dừng live location */
   onLiveLocationMessageStopped: (handler: (data: LiveLocationMessageStoppedPayload) => void) => () => void;
+  /** update_message: Backend cập nhật message cũ (vd: group_call_started → call_log completed) */
+  onUpdateMessage: (handler: (message: MessageItem) => void) => () => void;
 }
 
 
@@ -401,7 +406,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       contentType = "text",
       attachments: object | null = null,
       stickerData?: StickerData,
-      replyTo?: string | number | null
+      replyTo?: string | number | null,
+      mentions?: string[]
     ): Promise<{ ok: boolean; message?: MessageItem; error?: string }> => {
       return new Promise((resolve) => {
         if (!socketRef.current) {
@@ -410,7 +416,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         }
         socketRef.current.emit(
           "send_message",
-          { roomId, content, contentType, attachments, stickerData, replyTo },
+          { roomId, content, contentType, attachments, stickerData, replyTo, mentions },
           (response: { ok: boolean; message?: MessageItem; error?: string }) => {
             resolve(response);
           }
@@ -456,6 +462,16 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   const emitEndCall = useCallback((payload: CallSignalPayload) => {
     socketRef.current?.emit("end-call", payload);
+  }, []);
+
+  const emitJoinGroupCall = useCallback((roomId: string, userId: string) => {
+    socketRef.current?.emit("join_group_call", { roomId, userId });
+    console.log(`[socket] join_group_call → roomId=${roomId}`);
+  }, []);
+
+  const emitLeaveGroupCall = useCallback((roomId: string, userId: string) => {
+    socketRef.current?.emit("leave_group_call", { roomId, userId });
+    console.log(`[socket] leave_group_call → roomId=${roomId}`);
   }, []);
 
   const emitMarkRead = useCallback((conversationId: string, messageId: string) => {
@@ -760,6 +776,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     [socketInstance]
   );
 
+  const onUpdateMessage = useCallback(
+    (handler: (message: MessageItem) => void) => {
+      const socket = socketRef.current;
+      if (!socket) return () => {};
+      const listener = (msg: MessageItem) => handler(msg);
+      socket.on("update_message", listener);
+      return () => socket.off("update_message", listener);
+    },
+    []
+  );
+
   return (
     <SocketContext.Provider
       value={{
@@ -776,6 +803,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         emitCallDeclined,
         emitCallCancel,
         emitEndCall,
+        emitJoinGroupCall,
+        emitLeaveGroupCall,
         emitMarkRead,
         emitStartLiveLocation,
         emitUpdateLiveLocation,
@@ -797,6 +826,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         onLiveLocationUpdated,
         onLiveLocationStopped,
         onLiveLocationMessageStopped,
+        onUpdateMessage,
       }}
     >
       {children}

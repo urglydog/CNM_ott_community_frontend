@@ -27,6 +27,7 @@ export interface LiveLocationMessageStoppedPayload {
 }
 import apiClient from "../lib/axios";
 import { useToast } from "./ToastContext";
+import { useCallStore } from "../features/call/store/callStore";
 import { useChatStore } from "../features/chat/store/chatStore";
 import { useGroupsStore } from "../features/groups/store/groupsStore";
 
@@ -42,18 +43,22 @@ export type SocketStatus =
   | "error";
 
 export interface CallSignalPayload {
-  conversationId: string;
+  conversationId?: string;
   roomId: string;
   callerId: string;
-  callerName: string;
+  callerName?: string;
   receiverId: string;
+  receiverName?: string;
   to?: string;
   from?: string;
   token?: string;
   appId?: number;
   isGroupCall?: boolean;
+  callType?: "video" | "audio";
   reason?: string;
   disconnectedUserId?: string;
+  /** Thời lượng cuộc gọi (giây) — gửi từ backend khi call-ended / group-call-ended */
+  duration?: number;
 }
 
 export interface MessageRevokedPayload {
@@ -106,8 +111,8 @@ interface SocketContextValue {
   emitCallDeclined: (payload: CallSignalPayload) => void;
   emitCallCancel: (payload: CallSignalPayload) => void;
   emitEndCall: (payload: CallSignalPayload) => void;
-  emitJoinGroupCall: (roomId: string, userId: string) => void;
-  emitLeaveGroupCall: (roomId: string, userId: string) => void;
+  emitJoinGroupCall: (roomId: string, userId: string, conversationId?: string) => void;
+  emitLeaveGroupCall: (roomId: string, userId: string, conversationId?: string) => void;
   emitMarkRead: (conversationId: string, messageId: string) => void;
   // Poll voting emit helpers
   emitPollVote: (
@@ -170,7 +175,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     setOutgoingCall,
     setIsCallEnding,
     clearCallState,
-  } = useChatStore();
+    setLastEndedCallDuration,
+  } = useCallStore();
   const { addGroup, removeGroup } = useGroupsStore();
   const resolvedUserId = String(
     (user as any)?.id ?? (user as any)?._id ?? (user as any)?.userId ?? "",
@@ -181,6 +187,19 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Dùng state thay vì ref để context nhận được giá trị mới khi socket thay đổi
   const [socketInstance, setSocketInstance] = useState<Socket | null>(null);
+
+  /** Chuyển giây → chuỗi đọc được: "30 giây", "5 phút 30 giây", "01:05:30" */
+  const formatDuration = (seconds: number): string => {
+    if (!seconds || seconds <= 0) return "0 giây";
+    if (seconds < 60) return `${seconds} giây`;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) {
+      return `${h} giờ ${m} phút ${s} giây`;
+    }
+    return `${m} phút ${s} giây`;
+  };
 
   const scheduleCleanup = useCallback(() => {
     if (cleanupTimeoutRef.current) {
@@ -257,6 +276,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       setIncomingCall({
         ...payload,
         callerId,
+        callerName: payload.callerName || "Nguoi dung",
         receiverId: receiverId || resolvedUserId,
         isGroupCall: false,
       });
@@ -264,52 +284,104 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     };
 
     const handleCallAccepted = (payload: CallSignalPayload) => {
-      const normalizedRoomId = String(payload.roomId || "");
-      const outgoingMatches =
-        outgoingCall && String(outgoingCall.roomId) === normalizedRoomId;
-      const incomingMatches =
-        incomingCall && String(incomingCall.roomId) === normalizedRoomId;
-
-      if (!outgoingMatches && !incomingMatches) {
-        return;
-      }
+      console.log("=== CALLER SOCKET DEBUG ===");
+      console.log("Event 'call-accepted' received at:", new Date().toLocaleTimeString());
+      console.log("Payload from Backend:", payload);
+      console.log("Current ResolvedUserId in SocketContext:", resolvedUserId);
 
       const callerId = String(payload.callerId || "");
       const receiverId = String(payload.receiverId || "");
-      const remoteUserId =
-        callerId === resolvedUserId ? receiverId : callerId || receiverId;
+      console.log("Comparison:", callerId, "===", resolvedUserId);
 
-      const finalizeCall = (token: string, appId: number) => {
-        setActiveCall({
-          roomId: String(payload.roomId || "").replace(/:/g, "_"),
-          token,
-          appId,
-          conversationId: String(payload.conversationId || payload.roomId || ""),
-          remoteUserId: remoteUserId || "",
-          remoteUserName: payload.callerName || "",
-          isGroupCall: payload.isGroupCall,
-        });
+      const isCaller = callerId === resolvedUserId;
 
-        setIncomingCall(null);
+      // Xác định roomId để match với outgoingCall / incomingCall
+      const normalizedRoomId = String(payload.roomId || "").replace(/:/g, "_");
+
+      if (isCaller) {
+        // Guard: Nếu đã có activeCall cho cùng roomId → đã được set bởi startCall,
+        // bỏ qua để tránh unmount/remount VideoCallRoom gây crash Zego
+        if (activeCall && activeCall.roomId === normalizedRoomId) {
+          console.log("[handleCallAccepted] Tôi là caller và đã ở trong phòng này, bỏ qua setActiveCall.");
+          setOutgoingCall(null);
+          return;
+        }
+        console.log("I am the Caller. Setting activeCall now (ignoring outgoingCall state)...");
+
+        if (payload.token && payload.appId != null) {
+          console.log("Using token from backend payload. Calling setActiveCall...");
+          setActiveCall({
+            roomId: normalizedRoomId,
+            token: payload.token,
+            appId: Number(payload.appId),
+            conversationId: payload.conversationId || String(payload.roomId),
+            remoteUserId: String(payload.receiverId),
+            remoteUserName: String(payload.receiverName || "Nguoi dung"),
+            isGroupCall: payload.isGroupCall,
+            callType: payload.callType || "video",
+          });
+        } else {
+          console.log("No token in payload. Falling back to API call...");
+          apiClient
+            .get<{ appID: number; token: string }>("/api/calls/token", {
+              params: { userID: resolvedUserId },
+            })
+            .then((response) => {
+              setActiveCall({
+                roomId: normalizedRoomId,
+                token: String(response.data.token),
+                appId: Number(response.data.appID),
+                conversationId: payload.conversationId || String(payload.roomId),
+                remoteUserId: String(payload.receiverId),
+                remoteUserName: String(payload.receiverName || "Nguoi dung"),
+                isGroupCall: payload.isGroupCall,
+                callType: payload.callType || "video",
+              });
+            })
+            .catch(() => {
+              addToast("Khong the tao phong cuoc goi", "error", 3000);
+            });
+        }
+
         setOutgoingCall(null);
-      };
-
-      if (payload.token && payload.appId != null) {
-        finalizeCall(String(payload.token), Number(payload.appId));
+        console.log("setOutgoingCall(null) called. Outgoing UI should disappear.");
         return;
       }
 
-      if (!resolvedUserId) return;
-      apiClient
-        .get<{ appID: number; token: string }>("/api/calls/token", {
-          params: { userID: resolvedUserId },
-        })
-        .then((response) => {
-          finalizeCall(String(response.data.token), Number(response.data.appID));
-        })
-        .catch(() => {
-          addToast("Khong the tao phong cuoc goi", "error", 3000);
+      // ── Mình là receiver ──────────────────────────────────────────────
+      // Guard: Nếu đã có activeCall cho cùng roomId → bỏ qua để tránh
+      // overwrite payload không có token (do acceptCall đã setActiveCall rồi)
+      if (activeCall && activeCall.roomId === normalizedRoomId) {
+        console.log("[handleCallAccepted] Receiver đã ở trong phòng này, bỏ qua setActiveCall để tránh crash Zego.");
+        setIncomingCall(null);
+        return;
+      }
+
+      const incomingMatches =
+        incomingCall && String(incomingCall.roomId) === normalizedRoomId;
+
+      if (!incomingMatches) {
+        console.log("No matching incomingCall found. Skipping.");
+        return;
+      }
+
+      if (payload.token && payload.appId != null) {
+        setActiveCall({
+          roomId: normalizedRoomId,
+          token: String(payload.token),
+          appId: Number(payload.appId),
+          conversationId: payload.conversationId || String(payload.roomId),
+          remoteUserId: callerId,
+          remoteUserName: String(payload.callerName || "Nguoi dung"),
+          isGroupCall: payload.isGroupCall,
+          callType: payload.callType || "video",
         });
+      } else {
+        // Payload không có token — receiver đã tự fetch token trong acceptCall, bỏ qua
+        console.log("[handleCallAccepted] Payload không có token. Receiver đã tự khởi tạo phòng, bỏ qua.");
+      }
+
+      setIncomingCall(null);
     };
 
     const handleGroupCallRequest = (data: CallSignalPayload) => {
@@ -326,18 +398,40 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         ...data,
         roomId,
         callerId,
+        callerName: data.callerName || "Nguoi dung",
         receiverId: String(data.receiverId || resolvedUserId),
         isGroupCall: true,
       });
     };
 
     const handleCallEnded = (payload: CallSignalPayload) => {
-      if (activeCall && payload.conversationId !== activeCall.conversationId) {
+      const duration = payload.duration ?? 0;
+      const durationText = duration > 0 ? ` — Thời lượng: ${formatDuration(duration)}` : "";
+
+      // Nếu có activeCall → kiểm tra roomId khớp trước khi hủy
+      if (activeCall) {
+        const endedRoomId = String(payload.roomId || "").replace(/:/g, "_");
+        const currentRoomId = String(activeCall.roomId || "").replace(/:/g, "_");
+
+        if (currentRoomId === endedRoomId || endedRoomId === "") {
+          console.log(`[handleCallEnded] Cuộc gọi kết thúc. Duration=${duration}s, reason=${payload.reason}`);
+          addToast(`Cuộc gọi đã kết thúc${durationText}`, "info", 4000);
+
+          // Lưu duration để useCallManager / ChatWindow có thể truy cập
+          setLastEndedCallDuration(duration);
+
+          // Hủy ngay activeCall → VideoCallRoom unmount → useEffect cleanup gọi zp.destroy()
+          setActiveCall(null);
+          setOutgoingCall(null);
+          setIncomingCall(null);
+        }
         return;
       }
+
       scheduleCleanup();
       if (payload.reason) {
-        addToast("Cuoc goi da ket thuc", "info", 2500);
+        console.log(`[handleCallEnded] Cuộc gọi kết thúc (không có activeCall). Duration=${duration}s, reason=${payload.reason}`);
+        addToast(`Cuộc gọi đã kết thúc${durationText}`, "info", 4000);
       }
     };
 
@@ -481,14 +575,14 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socketRef.current?.emit("end-call", payload);
   }, []);
 
-  const emitJoinGroupCall = useCallback((roomId: string, userId: string) => {
-    socketRef.current?.emit("join_group_call", { roomId, userId });
-    console.log(`[socket] join_group_call → roomId=${roomId}`);
+  const emitJoinGroupCall = useCallback((roomId: string, userId: string, conversationId?: string) => {
+    socketRef.current?.emit("join_group_call", { roomId, userId, conversationId });
+    console.log(`[socket] join_group_call → roomId=${roomId}, userId=${userId}, conversationId=${conversationId}`);
   }, []);
 
-  const emitLeaveGroupCall = useCallback((roomId: string, userId: string) => {
-    socketRef.current?.emit("leave_group_call", { roomId, userId });
-    console.log(`[socket] leave_group_call → roomId=${roomId}`);
+  const emitLeaveGroupCall = useCallback((roomId: string, userId: string, conversationId?: string) => {
+    socketRef.current?.emit("leave_group_call", { roomId, userId, conversationId });
+    console.log(`[socket] leave_group_call → roomId=${roomId}, userId=${userId}, conversationId=${conversationId}`);
   }, []);
 
   const emitMarkRead = useCallback((conversationId: string, messageId: string) => {

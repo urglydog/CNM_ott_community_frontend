@@ -189,7 +189,7 @@ export async function leaveGroup(groupId: string | number, newOwnerId?: string |
 }
 
 export async function disbandGroup(groupId: string | number): Promise<any> {
-  const response = await apiClient.delete(`/api/groups/${groupId}`);
+  const response = await apiClient.delete(`/api/groups/${groupId}/disband`);
   return response.data;
 }
 

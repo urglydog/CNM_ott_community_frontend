@@ -1,8 +1,8 @@
 "use client";
 
 import { formatSearchDateTime, highlightKeyword } from "../utils/messageSearch";
-import type { Friend } from "../../../types";
-import type { GroupInfo } from "../../groups/types";
+import type { FriendItem } from "../../../types";
+import type { Group } from "../../groups/types";
 
 interface MessageSearchRow {
   id: string | number;
@@ -26,8 +26,8 @@ interface MessageSearchPanelProps {
   searchError: string;
   activeConversationId: string | null;
   currentUserId: string;
-  friends: Friend[];
-  myGroups: GroupInfo[];
+  friends: FriendItem[];
+  myGroups: Group[];
   selectedGroup?: { groupId?: string | number; name?: string } | null;
   todayDateString: string;
   onClose: () => void;

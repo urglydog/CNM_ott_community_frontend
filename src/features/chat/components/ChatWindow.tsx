@@ -271,6 +271,12 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       async (position) => {
         const { latitude: lat, longitude: lng } = position.coords;
         try {
+          // Chuẩn bị payload tùy theo loại chat
+          const isGroup = chatMode === "GROUP";
+          const payload = isGroup
+            ? { groupId: activeConversationId, type: "LOCATION", location: { lat, lng } }
+            : { conversationId: activeConversationId, locationData: { lat, lng } };
+
           const res = await fetch(
             `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/messages/location`,
             {
@@ -279,7 +285,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${authUser.token}`,
               },
-              body: JSON.stringify({ conversationId: activeConversationId, locationData: { lat, lng } }),
+              body: JSON.stringify(payload),
             },
           );
           if (!res.ok) {
@@ -361,6 +367,23 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           // Thời điểm kết thúc theo durationMs
           const liveUntil = new Date(Date.now() + durationMs).toISOString();
           try {
+            // Chuẩn bị payload tùy theo loại chat
+            const isGroup = chatMode === "GROUP";
+            const payload = isGroup
+              ? {
+                  groupId: activeConversationId,
+                  type: "LOCATION",
+                  location: { lat, lng, label: "Đang chia sẻ hành trình" },
+                  isLive: true,
+                  liveUntil,
+                }
+              : {
+                  conversationId: activeConversationId,
+                  locationData: { lat, lng, label: "Đang chia sẻ hành trình" },
+                  isLive: true,
+                  liveUntil,
+                };
+
             // Gửi tin nhắn live_location vào chat qua API
             const res = await fetch(
               `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/messages/location`,
@@ -370,12 +393,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${authUser.token}`,
                 },
-                body: JSON.stringify({
-                  conversationId: activeConversationId,
-                  locationData: { lat, lng, label: "Đang chia sẻ hành trình" },
-                  isLive: true,
-                  liveUntil,
-                }),
+                body: JSON.stringify(payload),
               },
             );
             if (res.ok) {
@@ -787,7 +805,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         if (currentUserRole === 'MEMBER' || !currentUserRole) {
           const hasUrl = /https?:\/\/[^\s]+|www\.[^\s]+/i.test(inputValue);
           if (hasUrl) {
-            addToast("Chỉ Trưởng/Phó nhóm mới được phép gửi liên kết trong nhóm này.", "warning", 3000);
+            addToast("Chỉ Trưởng/Phó nhóm mới được phép gửi liên kết trong nhóm này.", "error", 3000);
             return;
           }
         }

@@ -8,6 +8,7 @@ import { ReplyReference } from "./ReplyComponents";
 import { SenderAvatar } from "./Avatar";
 import type { GroupChatMessage } from "../hooks/useGroupChat";
 import { formatTime, isPureEmoji } from "../utils/messageUtils";
+import LocationMessage from "../../../components/chat/LocationMessage";
 import { useChatStore } from "../store/chatStore";
 
 /** Tin nhắn hệ thống (hiển thị giữa màn hình) */
@@ -336,6 +337,19 @@ function MessageBubbleContent({
             </div>
           );
         })()
+      ) : msg.contentType === "location" && msg.locationData ? (
+        <div className="mt-1">
+          <LocationMessage
+            locationData={msg.locationData}
+            isOwn={isOwn}
+            isLive={msg.locationData.isLive === true}
+            liveUntil={msg.locationData.liveUntil || null}
+            senderAvatarUrl={msg.senderAvatarUrl || null}
+            senderDisplayName={msg.senderDisplayName || null}
+            mapWidth={240}
+            mapHeight={150}
+          />
+        </div>
       ) : (
         <div
           className={`whitespace-pre-wrap wrap-break-word ${pureEmoji ? "text-3xl leading-none" : ""}`}

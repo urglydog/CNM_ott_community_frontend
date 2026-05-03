@@ -237,7 +237,7 @@ export function PrivateMessageBubble({
           </div>
         ) : msg.contentType === "location" && msg.locationData ? (
           /* Tin nhắn vị trí — hiển thị bản đồ tĩnh Google Maps Static API */
-          <div className="-mx-3 -my-2">
+          <div className="mt-1">
             <LocationMessage
               locationData={msg.locationData}
               isOwn={isOwn}

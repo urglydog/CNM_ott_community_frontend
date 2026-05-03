@@ -20,7 +20,7 @@ import {
   uploadFileDirect,
   getPresignedViewUrl,
 } from "../../../api/client";
-import type { AuthUser, Friend } from "../../../types";
+import type { AuthUser, FriendItem } from "../../../types";
 import type { Group } from "../../groups/types";
 
 // ── Preset backgrounds ──────────────────────────────────────────────────
@@ -65,7 +65,7 @@ function saveLocal(myId: string, friendId: string, s: LocalSettings) {
 interface ChatSettingsSidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  selectedFriend: Friend | null;
+  selectedFriend: FriendItem | null;
   authUser: AuthUser;
   onSearchMessages?: () => void;
   onBackgroundChange?: (bgUrl: string | null) => void;

@@ -236,6 +236,7 @@ export interface DirectMessageItem {
   contentType: string;
   content: string;
   stickerData?: StickerData;
+  locationData?: LocationData | null;
   /** Dữ liệu bình chọn — chỉ có khi contentType === "poll" */
   pollData?: PollData | null;
   attachments?: MessageAttachment[] | null;

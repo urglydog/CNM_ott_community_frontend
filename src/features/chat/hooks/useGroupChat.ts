@@ -565,7 +565,9 @@ export function useGroupChat(
           return;
         }
 
-        emitMarkRead(currentRoomId, messageId);
+        if (currentRoomId) {
+          emitMarkRead(currentRoomId, messageId);
+        }
       }, 100); // 100ms debounce
     }
   }, [messages, currentRoomId, emitMarkRead, isPageVisible, group?.groupId]);

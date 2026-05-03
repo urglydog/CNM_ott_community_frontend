@@ -68,12 +68,14 @@ export default function LocationMessage({
   return (
     <div
       style={{
-        width: "100%",           /* lấp đầy bubble cha — không dùng width cố định */
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+        borderRadius: "0.75rem", // rounded-xl
         overflow: "hidden",
+        border: "1px solid rgba(0,0,0,0.1)",
         background: "#e8eaf0",
         cursor: "pointer",
-        position: "relative",
-        /* border-radius, box-shadow, border được kế thừa từ bubble cha */
       }}
       onClick={() => window.open(googleMapsUrl, "_blank", "noopener,noreferrer")}
     >

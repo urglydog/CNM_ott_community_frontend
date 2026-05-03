@@ -11,6 +11,7 @@ export type Group = {
   isApprovalRequired?: boolean;
   allowSendLinks?: 'ALL' | 'ADMINS_ONLY';
   spamFilterLevel?: number;
+  pinnedMessages?: any[];
 };
 
 export type GroupRole = 'OWNER' | 'DEPUTY' | 'MEMBER';

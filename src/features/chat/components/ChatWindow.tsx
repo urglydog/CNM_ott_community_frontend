@@ -911,7 +911,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   const handleSendAudio = async () => {
     if (audioBlob) {
-      const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: "audio/webm" });
+      const audioFile = new File([audioBlob], `voice_${Date.now()}.wav`, { type: "audio/wav" });
       try {
         if (chatMode === "GROUP") {
           if (groupUploadingFile) return;

@@ -236,6 +236,19 @@ export default function ChatWindow({
 
         {messages.map((msg) => {
           const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUser.id);
+          const isBackgroundChange = 
+            msg.contentType === "system" || 
+            msg.content?.toLowerCase().includes("hình nền đã được thay đổi");
+
+          if (isBackgroundChange) {
+            return (
+              <div key={msg.id} className="flex justify-center my-2 w-full">
+                <div className="bg-black/5 px-4 py-1 rounded-full text-[12px] text-gray-500 font-medium">
+                  {msg.content}
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div key={msg.id} className={`flex flex-col gap-0.5 ${isOwn ? "items-end" : "items-start"}`}>

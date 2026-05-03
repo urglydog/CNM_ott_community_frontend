@@ -8,6 +8,8 @@ import { useToast } from "../../contexts/ToastContext";
 import { useChatStore } from "../../features/chat/store/chatStore";
 import { useContactsStore } from "../../features/contacts/store/contactsStore";
 import { useGroupsStore } from "../../features/groups/store/groupsStore";
+import { useMyGroups } from "../../features/groups/hooks/useGroupsHooks";
+import { useGroupSocket } from "../../features/groups/hooks/useGroupSocket";
 import { useJoinFriendDmRooms, friendIdFromConversationId } from "../../features/chat/hooks/useChatHooks";
 import { useFriendSocket } from "../../hooks/useFriendSocket";
 import { usePushNotifications } from "../../hooks/usePushNotifications";
@@ -49,6 +51,14 @@ export default function MainLayout({
   const { resetPending: resetContactsStore } = useContactsStore();
   const { reset: resetGroupsStore } = useGroupsStore();
 
+  // Hook để load và quản lý groups
+  const { myGroups, loadMyGroups } = useMyGroups();
+
+  // ── KHỞI TẠO SOCKET CHO GROUPS ──────────────────────────────────────────
+  // Quan trọng: useGroupSocket cần được gọi ngay sau khi myGroups được load
+  // Hook này sẽ tự động join tất cả các group rooms
+  useGroupSocket();
+
   usePushNotifications();
 
   // Load friends list
@@ -83,7 +93,8 @@ export default function MainLayout({
 
     loadPendingCount();
     loadFriends();
-  }, [isInitialized, isAuthenticated, loadFriends, setPendingFriendCount]);
+    loadMyGroups(); // Load danh sách groups khi đăng nhập
+  }, [isInitialized, isAuthenticated, loadFriends, loadMyGroups, setPendingFriendCount]);
 
   // Handle incoming messages
   useEffect(() => {

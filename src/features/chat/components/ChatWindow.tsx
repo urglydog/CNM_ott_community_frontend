@@ -22,9 +22,9 @@ import {
 import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
 import { useGroupsStore } from "../../groups/store/groupsStore";
-import type { AuthUser, StickerData, ReplyToMessage } from "../../../types";
+import type { AuthUser, StickerData, ReplyToMessage, PollData } from "../../../types";
 import { askBot } from "../api";
-import CallOverlay from "@/features/chat/components/CallOverlay";
+import { useCallManager } from "@/features/call";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
 import { getMessageDomId } from "../utils/messageSearch";
@@ -48,7 +48,7 @@ import { AiChatMessages, type AiConversationTurn } from "./AiChatMessages";
 import { MessageSearchPanel } from "./MessageSearchPanel";
 import EmojiStickerPicker from "./EmojiStickerPicker";
 import ForwardMessageModal from "./ForwardMessageModal";
-import apiClient from "../../../lib/axios";
+import CreatePollModal from "./CreatePollModal";
 import { PinnedHeader } from "./PinnedHeader";
 import ChatSettingsSidebar from "./ChatSettingsSidebar";
 import { usePinnedMessages } from "../hooks/usePinnedMessages";
@@ -81,8 +81,6 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     isAiChatOpen,
     pendingAiPrompt,
     clearPendingAiPrompt,
-    setOutgoingCall,
-    setActiveCall,
     friends,
     setSelectedFriend,
     setSelectedGroup,
@@ -182,7 +180,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       .catch(() => setGroupMembers([]));
   }, [selectedGroup]);
 
-  const { status, emitCallUser } = useSocket();
+  const { status, emitSendMessage } = useSocket();
+  const { startCall, joinGroupCall } = useCallManager();
+
   const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
   const [aiQuestion, setAiQuestion] = useState("");
@@ -448,6 +448,43 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     message: GroupChatMessage;
     sourceConversationId: string;
   } | null>(null);
+
+  // ── Create Poll modal state ────────────────────────────────────────────────
+  const [createPollOpen, setCreatePollOpen] = useState(false);
+
+  // Handle poll creation
+  const handleCreatePoll = async (pollPayload: {
+    content: string;
+    pollData: PollData;
+  }) => {
+    const conversationId = activeConversationId;
+    if (!conversationId) {
+      addToast("Vui lòng chọn cuộc trò chuyện trước", "error");
+      return;
+    }
+
+    try {
+      const result = await emitSendMessage(
+        conversationId,
+        pollPayload.content,
+        "poll",
+        null,
+        undefined,
+        undefined,
+        undefined,
+        pollPayload.pollData
+      );
+
+      if (result.ok && result.message) {
+        addToast("Đã tạo bình chọn", "success");
+      } else {
+        addToast(result.error || "Không thể tạo bình chọn", "error");
+      }
+    } catch (error) {
+      console.error("[ChatWindow] handleCreatePoll error:", error);
+      addToast("Đã xảy ra lỗi khi tạo bình chọn", "error");
+    }
+  };
 
   function handleMessageContextMenu(
     e: React.MouseEvent,
@@ -752,114 +789,6 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     }
   }, [aiConversation, currentUserId, aiHistoryStorageKey]);
 
-  async function handleStartVideoCall() {
-    const isGroupCall = chatMode === "GROUP";
-    const hasTarget = isGroupCall
-      ? selectedGroup != null
-      : selectedFriend != null;
-
-    if (!hasTarget) return;
-    try {
-      const directFriendId = String(
-        (selectedFriend as any)?.friend_id ??
-        (selectedFriend as any)?._id ??
-        (selectedFriend as any)?.id ??
-        "",
-      );
-
-      if (!isGroupCall && !directFriendId) {
-        throw new Error("Khong tim thay ID nguoi nhan de goi 1-1");
-      }
-
-      const normalizedGroupId = isGroupCall
-        ? String(selectedGroup!.groupId).replace("group_", "")
-        : "";
-
-      const rawRoomId = isGroupCall
-        ? `group_call_${normalizedGroupId}`
-        : `call_1vs1_${[currentUserId, directFriendId].sort().join("_")}`;
-      const safeRoomId = rawRoomId.replace(/:/g, "_");
-      const conversationId = isGroupCall
-        ? groupConversationId(selectedGroup!.groupId)
-        : dmConversationId(currentUserId, directFriendId);
-
-      if (isGroupCall) {
-        const groupCallPayload = {
-          groupId: String(selectedGroup!.groupId),
-          roomId: safeRoomId,
-          callerId: currentUserId,
-          callerName: currentUserName,
-        };
-        // Emit socket để backend lưu group_call_started và broadcast banner
-        emitCallUser({
-          ...groupCallPayload,
-          receiverId: String(selectedGroup!.groupId),
-          conversationId,
-          isGroupCall: true,
-        });
-        // Caller join phòng ngay (không cần cần cần chờ ai accept) — lấy token rồi set activeCall
-        try {
-          const response = await apiClient.get<{ appID: number; token: string }>("/api/calls/token", {
-            params: { userID: currentUserId },
-          });
-          setActiveCall({
-            roomId: safeRoomId,
-            token: String(response.data.token),
-            appId: Number(response.data.appID),
-            conversationId,
-            remoteUserId: String(selectedGroup!.groupId),
-            remoteUserName: groupName || "Nhóm",
-            isGroupCall: true,
-          });
-        } catch {
-          addToast("Không thể tạo phòng gọi nhóm", "error", 2500);
-        }
-      } else {
-        const oneToOnePayload = {
-          roomId: safeRoomId,
-          callerId: currentUserId,
-          callerName: currentUserName,
-          receiverId: directFriendId,
-          to: directFriendId,
-          conversationId,
-          isGroupCall: false,
-        };
-        console.debug("[ChatWindow][emit call-user] payload:", oneToOnePayload);
-        emitCallUser(oneToOnePayload);
-        setOutgoingCall({
-          roomId: safeRoomId,
-          conversationId,
-          receiverId: directFriendId,
-          receiverName: friendName || "Ban be",
-          isGroupCall: false,
-        });
-      }
-    } catch {
-      addToast("Khong the bat dau cuoc goi", "error", 2500);
-    }
-  }
-
-  /** Tham gia phòng gọi nhóm đang diễn ra (từ nút [Tham gia] trong banner) */
-  async function handleJoinGroupCall(roomId: string) {
-    if (!roomId || !currentUserId) return;
-    const conversationId = selectedGroup ? groupConversationId(selectedGroup.groupId) : roomId;
-    try {
-      const response = await apiClient.get<{ appID: number; token: string }>("/api/calls/token", {
-        params: { userID: currentUserId },
-      });
-      setActiveCall({
-        roomId,
-        token: String(response.data.token),
-        appId: Number(response.data.appID),
-        conversationId,
-        remoteUserId: selectedGroup ? String(selectedGroup.groupId) : "",
-        remoteUserName: groupName || "Nhóm",
-        isGroupCall: true,
-      });
-    } catch {
-      addToast("Không thể tham gia cuộc gọi nhóm", "error", 2500);
-    }
-  }
 
   // Khi chuyển đổi giữa nhóm và DM, clear input
   useEffect(() => {
@@ -883,9 +812,41 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       }
     }
 
+    let contentToSend = inputValue;
+    const mentions: string[] = [];
+
+    if (chatMode === "GROUP") {
+      const allPattern = "@Tất cả mọi người";
+      if (contentToSend.includes(allPattern)) {
+        contentToSend = contentToSend.replaceAll(allPattern, "<@all>");
+        if (!mentions.includes("all")) {
+          mentions.push("all");
+        }
+      }
+
+      resolvedGroupMembers.forEach((m) => {
+        const friend = friends.find((f) => String(f.friend_id || f.id || f.userId) === String(m.userId));
+        const nickname = friend?.nickname;
+
+        const patterns: string[] = [];
+        if (nickname) patterns.push(`@${nickname}`);
+        const originalName = m.displayName || m.username || m.userId;
+        if (originalName) patterns.push(`@${originalName}`);
+
+        patterns.forEach((pattern) => {
+          if (contentToSend.includes(pattern)) {
+            contentToSend = contentToSend.replaceAll(pattern, `<@${m.userId}>`);
+            if (!mentions.includes(String(m.userId))) {
+              mentions.push(String(m.userId));
+            }
+          }
+        });
+      });
+    }
+
     if (chatMode === "GROUP") {
       if (groupSending) return;
-      await sendGroupMessage(inputValue, replyingMessage?.id || null);
+      await sendGroupMessage(contentToSend, replyingMessage?.id || null, mentions);
     } else {
       if (dmSending) return;
       await sendDmMessage(inputValue, replyingMessage?.id || null);
@@ -906,6 +867,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     sendDmMessage,
     replyingMessage,
     clearReplyingMessage,
+    resolvedGroupMembers,
   ]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -1230,7 +1192,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         groupName={groupName}
         friendName={friendName}
         memberCount={memberCount}
-        onStartVideoCall={handleStartVideoCall}
+        onStartVideoCall={() => startCall("video")}
+        onStartVoiceCall={() => startCall("audio")}
         onToggleSearch={() => setSearchOpen((prev) => !prev)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         activeConversationId={activeConversationId}
@@ -1298,7 +1261,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           onReplyToMessage={handleReplyToMessage}
           onJumpToMessage={handleJumpToMessage}
           resolveDisplayAvatar={resolveDisplayAvatar}
-          onJoinGroupCall={handleJoinGroupCall}
+          onJoinGroupCall={joinGroupCall}
           isFocusBlue={isFocusBlue}
         />
 
@@ -1372,6 +1335,14 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         />
       )}
 
+      {/* Create Poll Modal */}
+      {createPollOpen && (
+        <CreatePollModal
+          onClose={() => setCreatePollOpen(false)}
+          onSubmit={handleCreatePoll}
+        />
+      )}
+
       {/* Input area */}
       <div className="bg-white border-t border-gray-200 flex flex-col shrink-0">
         {isAiChatOpen ? (
@@ -1428,6 +1399,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               onImageClick={() => imageInputRef.current?.click()}
               onFileClick={() => fileInputRef.current?.click()}
               onLocationClick={() => setLocationMenuOpen((prev) => !prev)}
+              onCreatePollClick={() => setCreatePollOpen(true)}
             >
               <EmojiStickerPicker
                 isOpen={pickerOpen}
@@ -1565,6 +1537,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               audioBlob={audioBlob}
               recordingTime={recordingTime}
               placeholder={placeHolder}
+              mentionUsers={chatMode === "GROUP" ? resolvedGroupMembers : []}
+              authUserId={currentUserId}
               onInputChange={setInputValue}
               onKeyDown={handleKeyDown}
               onSend={handleSend}
@@ -1578,8 +1552,6 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           </>
         )}
       </div>
-
-      <CallOverlay />
     </div>
   );
 }

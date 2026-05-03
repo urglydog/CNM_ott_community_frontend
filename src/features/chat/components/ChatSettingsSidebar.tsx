@@ -102,6 +102,9 @@ export default function ChatSettingsSidebar({
   const [nicknameSaving, setNicknameSaving] = useState(false);
   const [showBgPicker, setShowBgPicker] = useState(false);
   const [currentBgUrl, setCurrentBgUrl] = useState<string | null>(null);
+  const [pendingBgUrl, setPendingBgUrl] = useState<string | null>(null);
+  const [originalBgUrl, setOriginalBgUrl] = useState<string | null>(null);
+  const [resolvedBgUrls, setResolvedBgUrls] = useState<Record<string, string>>({});
   const [bgSaving, setBgSaving] = useState(false);
   const [bothSides, setBothSides] = useState(true);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
@@ -135,8 +138,12 @@ export default function ChatSettingsSidebar({
     }
   }, [friendId, myId, isOpen, friendshipId, selectedFriend]);
 
-  const [pendingBgUrl, setPendingBgUrl] = useState<string | null>(null);
-  const [resolvedBgUrls, setResolvedBgUrls] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (isOpen) {
+      setOriginalBgUrl(currentBgUrl);
+      setPendingBgUrl(currentBgUrl);
+    }
+  }, [isOpen, currentBgUrl]);
 
   // ── Handle presigned URLs for S3 backgrounds ──────────────────────
   useEffect(() => {
@@ -214,10 +221,26 @@ export default function ChatSettingsSidebar({
 
   // ── Background handlers ───────────────────────────────────────────
   function handleSelectBackground(bgUrl: string) {
-    setPendingBgUrl(bgUrl || null);
+    const nextUrl = bgUrl || null;
+    setPendingBgUrl(nextUrl);
     // Apply preview immediately for the sender
-    onBackgroundChange?.(bgUrl || null);
+    onBackgroundChange?.(nextUrl);
   }
+
+  const handleCancelBg = useCallback(() => {
+    // Revert to original background
+    onBackgroundChange?.(originalBgUrl);
+    setPendingBgUrl(originalBgUrl);
+    setShowBgPicker(false);
+  }, [originalBgUrl, onBackgroundChange]);
+
+  const handleClose = useCallback(() => {
+    // If we were picking background but didn't save, revert
+    if (showBgPicker && pendingBgUrl !== originalBgUrl) {
+      onBackgroundChange?.(originalBgUrl);
+    }
+    onClose();
+  }, [onClose, showBgPicker, pendingBgUrl, originalBgUrl, onBackgroundChange]);
 
   async function handleApplyBackground() {
     if (bgSaving || !friendshipId) return;
@@ -244,6 +267,7 @@ export default function ChatSettingsSidebar({
         });
       }
 
+      setOriginalBgUrl(pendingBgUrl);
       setShowBgPicker(false);
       addToast("Đã cập nhật hình nền", "success");
     } catch (err: any) {
@@ -320,7 +344,7 @@ export default function ChatSettingsSidebar({
   return (
     <>
       {isOpen && (
-        <div className="fixed inset-0 bg-black/10 z-[55] transition-opacity" onClick={onClose} />
+        <div className="fixed inset-0 bg-black/10 z-[55] transition-opacity" onClick={handleClose} />
       )}
       <input
         ref={fileInputRef}
@@ -337,7 +361,7 @@ export default function ChatSettingsSidebar({
       >
         {/* Header */}
         <div className="h-[68px] bg-white border-b border-gray-200 flex items-center px-4 shrink-0">
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors mr-2">
+          <button onClick={handleClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors mr-2">
             <X className="w-5 h-5 text-gray-600" />
           </button>
           <h2 className="text-lg font-semibold text-gray-800">Tuỳ chọn</h2>
@@ -378,7 +402,13 @@ export default function ChatSettingsSidebar({
 
           {/* Background picker */}
           {showBgPicker && (
-            <div className="bg-white border-b border-gray-200 px-4 py-4 animate-in slide-in-from-top-2 duration-200">
+            <div className="bg-white border-b border-gray-200 px-4 py-4 animate-in slide-in-from-top-2 duration-200 relative">
+              <button 
+                onClick={handleCancelBg}
+                className="absolute top-2 right-2 p-1 text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
               <div className="flex items-center justify-between mb-4">
                 <p className="text-sm font-bold text-gray-800">Đổi hình nền</p>
                 <button 

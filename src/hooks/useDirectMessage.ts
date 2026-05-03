@@ -81,6 +81,7 @@ export function useDirectMessage(
     onReceiveMessage,
     onUserTyping,
     onUserStoppedTyping,
+    onPollUpdated,
   } = useSocket();
   const { setConversationPreview } = useChatStore();
 
@@ -146,11 +147,12 @@ export function useDirectMessage(
     emitJoinRoom(currentRoomId);
 
     const unsubReceive = onReceiveMessage((newMsg) => {
-      // Bỏ qua nếu là tin nhắn của chính mình (đã có optimistic message xử lý)
-      if (Number(newMsg.senderId) === Number(user?.id)) return;
-
       // Bỏ qua nếu tin nhắn không thuộc phòng hiện tại
       if (newMsg.conversationId !== currentRoomId) return;
+
+      // Bỏ qua tin nhắn của chính mình, NGOẠI TRỪ poll (cần hiển thị)
+      const isPoll = (newMsg as any).contentType === "poll";
+      if (!isPoll && Number(newMsg.senderId) === Number(user?.id)) return;
 
       setMessages((prev) => {
         // Chỉ kiểm tra trùng lặp, không ghi đè optimistic message
@@ -185,13 +187,32 @@ export function useDirectMessage(
       setTypingUsers((prev) => prev.filter((n) => n !== userName));
     });
 
+    // ── Poll vote update listener ────────────────────────────────────────
+    const unsubPollUpdated = onPollUpdated(({ roomId, messageId, pollData }) => {
+      if (roomId !== currentRoomId) return;
+      setMessages((prev) =>
+        prev.map((m) => {
+          const msgId = String(m.id || m.messageId || "");
+          if (msgId === String(messageId)) {
+            // Create new object reference to trigger re-render
+            return {
+              ...m,
+              pollData: { ...pollData },
+            } as ChatMessage;
+          }
+          return m;
+        })
+      );
+    });
+
     return () => {
       unsubReceive();
       unsubTyping();
       unsubStopTyping();
+      unsubPollUpdated();
       emitLeaveRoom(currentRoomId);
     };
-  }, [currentRoomId, emitJoinRoom, emitLeaveRoom, onReceiveMessage, onUserTyping, onUserStoppedTyping, user?.id]);
+  }, [currentRoomId, emitJoinRoom, emitLeaveRoom, onReceiveMessage, onUserTyping, onUserStoppedTyping, onPollUpdated, user?.id]);
 
   // ── onTypingChange: bật/tắt typing indicator ──────────────────────
   const onTypingChange = useCallback(

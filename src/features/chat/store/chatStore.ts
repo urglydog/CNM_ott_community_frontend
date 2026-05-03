@@ -10,36 +10,6 @@ export type ConversationPreview = {
   createdAt: string;
 };
 
-export type IncomingCallState = {
-  roomId: string;
-  conversationId?: string;
-  callerId: string;
-  callerName: string;
-  receiverId?: string;
-  isGroupCall?: boolean;
-  callType?: "video" | "audio";
-};
-
-export type ActiveCallState = {
-  roomId: string;
-  token: string;
-  appId: number;
-  conversationId: string;
-  remoteUserId: string;
-  remoteUserName: string;
-  isGroupCall?: boolean;
-  callType?: "video" | "audio";
-};
-
-export type OutgoingCallState = {
-  roomId: string;
-  conversationId: string;
-  receiverId: string;
-  receiverName: string;
-  isGroupCall: boolean;
-  callType?: "video" | "audio";
-};
-
 interface ChatState {
   // ── Chế độ chat (nhóm hoặc riêng tư) ──────────────────────────────────
   chatMode: ChatMode;
@@ -104,17 +74,6 @@ interface ChatState {
   revokedMessageIds: Set<string>;
   markMessageRevoked: (messageId: string) => void;
   clearRevokedMessageId: (messageId: string) => void;
-
-  // ── Call state (server-authoritative) ─────────────────────────────────
-  incomingCall: IncomingCallState | null;
-  activeCall: ActiveCallState | null;
-  outgoingCall: OutgoingCallState | null;
-  isCallEnding: boolean;
-  setIncomingCall: (call: IncomingCallState | null) => void;
-  setActiveCall: (call: ActiveCallState | null) => void;
-  setOutgoingCall: (call: OutgoingCallState | null) => void;
-  setIsCallEnding: (status: boolean) => void;
-  clearCallState: () => void;
 
   // ── Reset khi logout ───────────────────────────────────────────────────
   reset: () => void;
@@ -242,19 +201,6 @@ export const useChatStore = create<ChatState>((set) => ({
       return { revokedMessageIds: next };
     }),
 
-  // ── Call state ─────────────────────────────────────────────────────────
-  incomingCall: null,
-  activeCall: null,
-  outgoingCall: null,
-  isCallEnding: false,
-  setIncomingCall: (call) => set({ incomingCall: call }),
-  setActiveCall: (call) =>
-    set({ activeCall: call, incomingCall: null, outgoingCall: null, isCallEnding: false }),
-  setOutgoingCall: (call) => set({ outgoingCall: call }),
-  setIsCallEnding: (status) => set({ isCallEnding: status }),
-  clearCallState: () =>
-    set({ incomingCall: null, activeCall: null, outgoingCall: null, isCallEnding: false }),
-
   // ── Reset ──────────────────────────────────────────────────────────────
   reset: () =>
     set({
@@ -272,9 +218,5 @@ export const useChatStore = create<ChatState>((set) => ({
       unreadCounts: {},
       groupUnreadCounts: {},
       revokedMessageIds: new Set<string>(),
-      incomingCall: null,
-      activeCall: null,
-      outgoingCall: null,
-      isCallEnding: false,
     }),
 }));

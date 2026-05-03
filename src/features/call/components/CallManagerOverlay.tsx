@@ -1,15 +1,11 @@
 "use client";
 
 import React, { useMemo, useEffect } from "react";
-import dynamic from "next/dynamic";
 import IncomingCallModal from "./IncomingCallModal";
+import OutgoingCallModal from "./OutgoingCallModal";
+import VideoCallRoom from "./VideoCallRoom";
 import { useCallManager, videoCallRef } from "../hooks/useCallManager";
 import { useAuth } from "../../../contexts/AuthContext";
-
-const VideoCallRoom = dynamic(() => import("./VideoCallRoom"), {
-  ssr: false,
-  loading: () => null,
-});
 
 export default function CallManagerOverlay() {
   const { user } = useAuth();
@@ -38,29 +34,19 @@ export default function CallManagerOverlay() {
     };
   }, [activeCall, resolvedUserId, resolvedUserName, endCall]);
 
-  // Chỉ render VideoCallRoom khi activeCall thực sự có token
+  // Chi render VideoCallRoom khi activeCall thuc su co token
   const showVideoCall = !!(callRoomProps && callRoomProps.token);
 
   // ============================================================
-  // ✅ SAFETY-NET: Cleanup Zego nếu component unmount khi có activeCall
+  // SAFETY-NET: Cleanup Zego neu component unmount khi co activeCall
   // ============================================================
-  // Lý do:
-  // - SocketContext lắng nghe 'call-ended' từ Server và gọi gracefulLeave
-  // - NHưng nếu Component unmount trước khi 'call-ended' tới (network delay)
-  // - → VideoCallRoom cleanup không được gọi
-  // - → Zego background process vẫn chạy, tìm DOM → crash "createSpan"
-  //
-  // Solution:
-  // - Nếu CallManagerOverlay unmount khi có activeCall
-  // - → Gọi gracefulLeave() ngay lập tức để cleanup Zego
   useEffect(() => {
     return () => {
-      // Khi component unmount
       if (activeCall && videoCallRef.current) {
         console.log(
           "[CallManagerOverlay cleanup] activeCall still exists, force gracefulLeave"
         );
-        videoCallRef.current.gracefulLeave().catch((err) => {
+        videoCallRef.current.gracefulLeave().catch((err: unknown) => {
           console.warn("[CallManagerOverlay cleanup] gracefulLeave error:", err);
         });
       }
@@ -75,33 +61,22 @@ export default function CallManagerOverlay() {
             callData={incomingCall}
             onAccept={acceptCall}
             onDecline={rejectCall}
+            autoDeclineAfterSec={30}
           />
         </div>
       )}
 
-      {/* Giao diện "Đang gọi..." — chỉ hiện khi có outgoingCall và chưa có activeCall */}
       {outgoingCall && !activeCall && (
-        <div className="fixed inset-0 z-10000 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-4 min-w-72">
-            <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-              <span className="text-3xl">📞</span>
-            </div>
-            <p className="text-base font-semibold text-gray-800">
-              Đang gọi cho {outgoingCall.receiverName || "người dùng"}...
-            </p>
-            <div className="flex gap-3 mt-2">
-              <button
-                onClick={endCall}
-                className="px-6 py-2 bg-red-500 hover:bg-red-600 text-white rounded-full font-medium transition-colors"
-              >
-                Hủy cuộc gọi
-              </button>
-            </div>
-          </div>
-        </div>
+        <OutgoingCallModal
+          receiverName={outgoingCall.receiverName || "Nguoi dung"}
+          callType={outgoingCall.callType}
+          isGroupCall={outgoingCall.isGroupCall}
+          onCancel={endCall}
+          autoCancelAfterSec={35}
+        />
       )}
 
-      {/* VideoCallRoom — mount khi có token, ref gắn vào module-level videoCallRef */}
+      {/* VideoCallRoom - mount khi co token, ref gan vao module-level videoCallRef */}
       {showVideoCall && (
         <div className="pointer-events-auto fixed inset-0 z-10001">
           <VideoCallRoom ref={videoCallRef} {...callRoomProps!} />

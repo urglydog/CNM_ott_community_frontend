@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { createRef, useCallback, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../../chat/store/chatStore";
@@ -9,12 +9,15 @@ import { groupConversationId } from "../../chat/hooks/useGroupChat";
 import {
   useCallStore,
   type IncomingCallState,
-  type ActiveCallState,
 } from "../store/callStore";
 import apiClient from "../../../lib/axios";
 import { useToast } from "../../../contexts/ToastContext";
+import type { VideoCallRoomHandle } from "../components/VideoCallRoom";
 
 const normalizeRoomId = (roomId: string) => String(roomId || "").replace(/:/g, "_");
+
+// Module-level ref — VideoCallRoom gắn vào đây, useCallManager dùng để gracefulLeave
+export const videoCallRef = createRef<VideoCallRoomHandle>();
 
 export function useCallManager() {
   const incomingCall = useCallStore((state) => state.incomingCall);
@@ -36,7 +39,6 @@ export function useCallManager() {
     emitLeaveGroupCall,
     onIncomingCall,
     onCallDeclined,
-    onEndCall,
   } = useSocket();
   const { chatMode, selectedFriend, selectedGroup } = useChatStore();
 
@@ -55,16 +57,11 @@ export function useCallManager() {
   const groupName = selectedGroup?.name ?? "";
 
   const incomingCallRef = useRef<IncomingCallState | null>(null);
-  const activeCallRef = useRef<ActiveCallState | null>(null);
   const currentUserIdRef = useRef(currentUserId);
 
   useEffect(() => {
     incomingCallRef.current = incomingCall;
   }, [incomingCall]);
-
-  useEffect(() => {
-    activeCallRef.current = activeCall;
-  }, [activeCall]);
 
   useEffect(() => {
     currentUserIdRef.current = currentUserId;
@@ -101,31 +98,26 @@ export function useCallManager() {
       }
     });
 
-    const unsubscribeEnd = onEndCall((data) => {
-      const current = activeCallRef.current;
-      if (!current) return;
-
-      const endedRoomId = normalizeRoomId(String((data as any)?.roomId || ""));
-      const currentRoomId = normalizeRoomId(String(current.roomId || ""));
-
-      if (currentRoomId === endedRoomId) {
-        setActiveCall(null);
-        setOutgoingCall(null);
-        setIncomingCall(null);
-      }
-    });
+    // ============================================================
+    // ✅ REMOVED: onEndCall listener đã được xử lý trong SocketContext
+    // ============================================================
+    // Lý do: SocketContext đã lắng nghe 'call-ended' và gọi gracefulLeave.
+    // Nếu useCallManager cũng lắng nghe → double-cleanup → crash Zego createSpan.
+    //
+    // Flow Server-Authoritative:
+    // 1. endCall() emit 'end-call' lên Server
+    // 2. Server emit 'call-ended' đến TẤT CẢ clients
+    // 3. SocketContext.handleCallEnded → gracefulLeave → setActiveCall(null)
+    // 4. useCallManager KHÔNG cần làm gì thêm
 
     return () => {
       unsubscribeIncoming();
       unsubscribeDeclined();
-      unsubscribeEnd();
     };
   }, [
     onIncomingCall,
     onCallDeclined,
-    onEndCall,
     setIncomingCall,
-    setActiveCall,
   ]);
 
   const startCall = useCallback(
@@ -324,34 +316,68 @@ export function useCallManager() {
     setIncomingCall(null);
   }, [incomingCall, currentUserId, emitCallDeclined, setIncomingCall]);
 
+  /**
+   * endCall - Chỉ emit tín hiệu kết thúc lên Server, KHÔNG tự ý unmount UI.
+   * Server sẽ quyết định khi nào TẤT CẢ clients cùng unmount.
+   * 
+   * Race Condition Fix: Nếu Frontend tự gọi setActiveCall(null) trước khi
+   * Zego cleanup xong → crash "Cannot read properties of null (reading 'createSpan')"
+   * 
+   * → Chỉ khi nhận được 'call-ended' từ Server thì mới gọi gracefulLeave() và setActiveCall(null)
+   */
   const endCall = useCallback(() => {
-    if (!activeCall || !currentUserId) return;
+    if (!currentUserId) return;
 
-    if (activeCall.isGroupCall) {
-      emitLeaveGroupCall(activeCall.roomId, currentUserId, activeCall.conversationId);
-      setActiveCall(null);
+    // ✅ TRƯỜNG HỢP 1: ĐÃ VÀO PHÒNG - Cuộc gọi đang diễn ra
+    // CHỈ emit, KHÔNG setActiveCall(null) ở đây
+    if (activeCall) {
+      if (activeCall.isGroupCall) {
+        emitLeaveGroupCall(activeCall.roomId, currentUserId, activeCall.conversationId);
+      } else {
+        emitEndCall({
+          conversationId: activeCall.conversationId,
+          roomId: activeCall.roomId,
+          callerId: currentUserId,
+          callerName: currentUserName,
+          receiverId: activeCall.remoteUserId,
+          to: activeCall.remoteUserId,
+          from: currentUserId,
+          isGroupCall: false,
+        });
+      }
+      // ❌ KHÔNG gọi setActiveCall(null) ở đây
+      // Server sẽ emit 'call-ended' → useCallManager onEndCall sẽ gọi gracefulLeave + setActiveCall(null)
       return;
     }
 
-    emitEndCall({
-      conversationId: activeCall.conversationId,
-      roomId: activeCall.roomId,
-      callerId: currentUserId,
-      callerName: currentUserName,
-      receiverId: activeCall.remoteUserId,
-      to: activeCall.remoteUserId,
-      from: currentUserId,
-      isGroupCall: false,
-    });
-
-    setActiveCall(null);
+    // ✅ TRƯỜNG HỢP 2: CHƯA VÀO PHÒNG - Caller hủy khi đối phương chưa nhấc máy
+    // OutgoingCall không cần gracefulLeave vì VideoCallRoom chưa mount
+    if (outgoingCall) {
+      if (socket) {
+        socket.emit("call-cancel", {
+          conversationId: outgoingCall.conversationId,
+          roomId: outgoingCall.roomId,
+          callerId: currentUserId,
+          callerName: currentUserName,
+          receiverId: outgoingCall.receiverId,
+          to: outgoingCall.receiverId,
+          from: currentUserId,
+          isGroupCall: outgoingCall.isGroupCall,
+        });
+      }
+      setOutgoingCall(null);
+      return;
+    }
   }, [
     activeCall,
+    outgoingCall,
     currentUserId,
     currentUserName,
     emitEndCall,
     emitLeaveGroupCall,
     setActiveCall,
+    setOutgoingCall,
+    socket,
   ]);
 
   const joinGroupCall = useCallback(

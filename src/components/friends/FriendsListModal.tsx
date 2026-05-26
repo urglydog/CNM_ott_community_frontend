@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { MessageCircle, Phone, UserCheck, X } from "lucide-react";
-import { getFriendsList } from "../../api/client";
+import { MessageCircle, Phone, UserCheck, X, UserMinus } from "lucide-react";
+import { getFriendsList, unfriend } from "../../api/client";
 import type { FriendItem } from "../../types";
 
 interface FriendsListModalProps {
@@ -34,6 +34,8 @@ export default function FriendsListModal({ onClose, onOpenChat }: FriendsListMod
   const [friends, setFriends] = useState<FriendItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unfriendTarget, setUnfriendTarget] = useState<FriendItem | null>(null);
+  const [unfriendLoading, setUnfriendLoading] = useState(false);
 
   const loadFriends = useCallback(async () => {
     try {
@@ -51,6 +53,21 @@ export default function FriendsListModal({ onClose, onOpenChat }: FriendsListMod
   useEffect(() => {
     loadFriends();
   }, [loadFriends]);
+
+  const handleUnfriend = async () => {
+    if (!unfriendTarget) return;
+    
+    try {
+      setUnfriendLoading(true);
+      await unfriend(unfriendTarget.friendshipId);
+      setFriends(prev => prev.filter(f => f.friendshipId !== unfriendTarget.friendshipId));
+      setUnfriendTarget(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Không thể hủy kết bạn");
+    } finally {
+      setUnfriendLoading(false);
+    }
+  };
 
   return (
     <div
@@ -159,12 +176,59 @@ export default function FriendsListModal({ onClose, onOpenChat }: FriendsListMod
                     >
                       <Phone className="w-4 h-4" />
                     </button>
+                    <button
+                      onClick={() => setUnfriendTarget(friend)}
+                      className="w-8 h-8 rounded-full bg-red-50 hover:bg-red-100 text-red-500 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                      title={`Hủy kết bạn với ${friend.friend_display_name}`}
+                      aria-label={`Hủy kết bạn với ${friend.friend_display_name}`}
+                    >
+                      <UserMinus className="w-4 h-4" />
+                    </button>
                   </div>
                 </li>
               ))}
             </ul>
           )}
         </div>
+
+        {/* Unfriend Confirmation Modal */}
+        {unfriendTarget && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center">
+            <div
+              className="absolute inset-0 bg-black/40"
+              onClick={() => !unfriendLoading && setUnfriendTarget(null)}
+            />
+            <div className="relative z-10 bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">Xác nhận hủy kết bạn</h3>
+              <p className="text-sm text-gray-600 mb-5">
+                Bạn có chắc muốn hủy kết bạn với <span className="font-medium">{unfriendTarget.friend_display_name}</span> không?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setUnfriendTarget(null)}
+                  disabled={unfriendLoading}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium text-sm transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  onClick={handleUnfriend}
+                  disabled={unfriendLoading}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium text-sm transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {unfriendLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Đang xử lý...
+                    </>
+                  ) : (
+                    "Hủy kết bạn"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, UserRound, X } from "lucide-react";
+import { ChevronDown, UserRound, X, QrCode } from "lucide-react";
 import { listUsers, sendFriendRequest } from "../../api/client";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
 import type { SearchUser } from "../../types";
+import QRCodeModal from "../qrcode/QRCodeModal";
 
 const RECENT_STORAGE_KEY = "ott_add_friend_recent";
 
@@ -108,6 +109,7 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
   const [recent, setRecent] = useState<RecentEntry[]>([]);
   const [sendingIds, setSendingIds] = useState<Set<string>>(new Set());
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+  const [showQR, setShowQR] = useState(false);
 
   const others = useMemo(
     () =>
@@ -215,14 +217,25 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
           <h2 id="add-friend-title" className="text-[17px] font-semibold text-gray-900">
             Thêm bạn
           </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-            aria-label="Đóng"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setShowQR(true)}
+              className="p-1.5 rounded-full text-gray-400 hover:bg-blue-50 hover:text-[#005ae0] transition-colors"
+              title="Quét mã QR"
+              aria-label="Quét mã QR"
+            >
+              <QrCode className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              aria-label="Đóng"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="overflow-y-auto flex-1 px-5 py-4">
@@ -353,6 +366,11 @@ export default function AddFriendModal({ onClose }: AddFriendModalProps) {
           </button>
         </div>
       </div>
+
+      {/* QR Code Modal */}
+      {showQR && (
+        <QRCodeModal isOpen={showQR} onClose={() => setShowQR(false)} />
+      )}
     </div>
   );
 }

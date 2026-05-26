@@ -112,6 +112,8 @@ export default function ChatListPanel({
   >({});
 
   const trimmedQuery = query.trim();
+  const safeFriends = Array.isArray(friends) ? friends : [];
+  const safeMyGroups = Array.isArray(myGroups) ? myGroups : [];
 
   function openAiFromSearch(prompt = "") {
     openAiChat(prompt);
@@ -160,7 +162,7 @@ export default function ChatListPanel({
     let cancelled = false;
 
     async function resolveFriendAvatars() {
-      const targets = friends.filter((f) => Boolean(f.friend_avatar_url));
+      const targets = safeFriends.filter((f) => Boolean(f.friend_avatar_url));
       if (targets.length === 0) return;
 
       const entries = await Promise.all(
@@ -205,7 +207,7 @@ export default function ChatListPanel({
     return () => {
       cancelled = true;
     };
-  }, [friends]);
+  }, [safeFriends]);
 
   // ── sortedChatItems: gộp friends + groups, tìm kiếm, sắp xếp ──────────────
 
@@ -213,13 +215,13 @@ export default function ChatListPanel({
     const q = query.trim().toLowerCase();
 
     // Map friends → PrivateChatItem
-    const privateItems: PrivateChatItem[] = friends.map((f) => ({
+    const privateItems: PrivateChatItem[] = safeFriends.map((f) => ({
       ...f,
       type: "PRIVATE",
     }));
 
     // Map groups → GroupChatItem
-    const groupItems: GroupChatItem[] = myGroups.map((g) => ({
+    const groupItems: GroupChatItem[] = safeMyGroups.map((g) => ({
       ...g,
       type: "GROUP",
     }));
@@ -272,8 +274,8 @@ export default function ChatListPanel({
 
     return merged;
   }, [
-    friends,
-    myGroups,
+    safeFriends,
+    safeMyGroups,
     query,
     conversationPreview,
     groupConversationPreview,
@@ -281,7 +283,7 @@ export default function ChatListPanel({
   ]);
 
   // Tổng số cuộc trò chuyện
-  const totalCount = friends.length + myGroups.length;
+  const totalCount = safeFriends.length + safeMyGroups.length;
 
   return (
     <div className="w-[340px] bg-white border-r border-gray-200 flex flex-col z-10 relative shrink-0">

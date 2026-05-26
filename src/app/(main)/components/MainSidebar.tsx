@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { UserPlus, MessageCircle, Search, Users, CircleUserRound } from "lucide-react";
+import { UserPlus, MessageCircle, Search, Users, CircleUserRound, QrCode } from "lucide-react";
 import { useChatStore } from "../../../features/chat/store/chatStore";
 import SearchUsersModal from "../../../features/contacts/components/AddFriendModal";
 import FriendRequestsModal from "../../../features/contacts/components/FriendRequestsModal";
 import GroupsPanel from "../../../features/groups/components/GroupsPanel";
+import QRCodeModal from "../../../components/qrcode/QRCodeModal";
 import type { FriendItem } from "../../../types";
 
 interface MainSidebarProps {
@@ -21,6 +22,7 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isRequestsOpen, setIsRequestsOpen] = useState(false);
   const [isGroupsOpen, setIsGroupsOpen] = useState(false);
+  const [isQROpen, setIsQROpen] = useState(false);
   const { setSelectedFriend } = useChatStore();
 
   const handleOpenChat = (friend: FriendItem) => {
@@ -67,6 +69,17 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
           >
             <Search className="text-white w-6 h-6" />
           </button>
+
+          {/* QR Code - Kết bạn qua mã QR */}
+          <button
+            onClick={() => setIsQROpen(true)}
+            className={navButtonClass(false)}
+            title="Kết bạn qua QR"
+            aria-label="Kết bạn qua QR"
+          >
+            <QrCode className="text-white w-6 h-6" />
+          </button>
+
           {/* Nút Lời mời kết bạn */}
           <button
             onClick={() => setIsRequestsOpen(true)}
@@ -122,6 +135,11 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
           </div>
           <div className="flex-1 bg-black/20" />
         </div>
+      )}
+
+      {/* QR Code Modal */}
+      {isQROpen && (
+        <QRCodeModal isOpen={isQROpen} onClose={() => setIsQROpen(false)} />
       )}
     </>
   );

@@ -617,3 +617,44 @@ export async function getChatBackground(
   return handleJson(res);
 }
 
+/**
+ * Hủy kết bạn
+ */
+export async function unfriend(friendshipId: string): Promise<{ message: string; data: { friendshipId: string; status: string } }> {
+  const res = await authFetch(`${API_BASE}/api/friends/${encodeURIComponent(friendshipId)}`, {
+    method: "DELETE",
+  });
+  return handleJson(res);
+}
+
+// ── QR Code Friend API ──────────────────────────────────────────────────────────
+
+export interface QRInfoResponse {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  qrData: string;
+}
+
+/**
+ * Lấy thông tin QR code của một người dùng
+ */
+export async function getQRInfo(userId: string): Promise<QRInfoResponse> {
+  const res = await authFetch(`${API_BASE}/api/friends/qr-info/${encodeURIComponent(userId)}`);
+  return handleJson<QRInfoResponse>(res);
+}
+
+/**
+ * Gửi lời mời kết bạn qua mã QR đã quét
+ */
+export async function sendFriendRequestByQR(
+  qrData: string,
+): Promise<{ message: string; data: any }> {
+  const res = await authFetch(`${API_BASE}/api/friends/request-by-qr`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qrData }),
+  });
+  return handleJson<{ message: string; data: any }>(res);
+}
+

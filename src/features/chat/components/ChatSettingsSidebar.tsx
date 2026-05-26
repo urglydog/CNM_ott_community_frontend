@@ -5,7 +5,7 @@ import {
   X, Search, User, Image as ImageIcon, BellOff, Bell,
   Pencil, Star, BookOpen, Users, UserPlus, ArrowRight,
   Pin, EyeOff, Phone, Settings, Clock, AlertTriangle,
-  Lock, Database, Trash2, ChevronRight, Loader2, Check, Upload, Camera,
+  Lock, Database, Trash2, ChevronRight, Loader2, Check, Upload, Camera, UserMinus,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useChatStore } from "../store/chatStore";
@@ -14,6 +14,7 @@ import { useToast } from "../../../contexts/ToastContext";
 import { useSocket } from "../../../contexts/SocketContext";
 import { createGroup, addMemberToGroup } from "../../groups/api";
 import {
+  unfriend,
   updateFriendNickname,
   updateChatBackground as apiUpdateChatBackground,
   getChatBackground as apiGetChatBackground,
@@ -113,6 +114,7 @@ export default function ChatSettingsSidebar({
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [addingToGroup, setAddingToGroup] = useState<string | null>(null);
   const [confirmClearHistory, setConfirmClearHistory] = useState(false);
+  const [confirmUnfriend, setConfirmUnfriend] = useState(false);
 
   // Load settings when friend changes / sidebar opens
   useEffect(() => {
@@ -125,6 +127,7 @@ export default function ChatSettingsSidebar({
     setShowAddToGroup(false);
     setShowCommonGroups(false);
     setConfirmClearHistory(false);
+    setConfirmUnfriend(false);
     setBothSides(true);
 
     // Load chat background from API
@@ -337,6 +340,21 @@ export default function ChatSettingsSidebar({
   function handleClearHistory() {
     addToast("Đã xóa lịch sử trò chuyện phía bạn", "success");
     setConfirmClearHistory(false);
+  }
+
+  async function handleUnfriend() {
+    if (!friendshipId) return;
+
+    try {
+      await unfriend(friendshipId);
+      setFriends(prev => prev.filter(friend => friend.friendshipId !== friendshipId));
+      setSelectedFriend(null);
+      setConfirmUnfriend(false);
+      onClose();
+      addToast(`Đã hủy kết bạn với ${friendName}`, "success");
+    } catch (err: any) {
+      addToast(err?.message || "Không thể hủy kết bạn", "error");
+    }
   }
 
   if (!selectedFriend) return null;
@@ -566,6 +584,14 @@ export default function ChatSettingsSidebar({
                 <span className="text-xs text-red-500 flex-1">Xác nhận xóa toàn bộ?</span>
                 <button onClick={handleClearHistory} className="px-3 py-1.5 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 transition-colors">Xóa</button>
                 <button onClick={() => setConfirmClearHistory(false)} className="px-3 py-1.5 bg-gray-200 text-gray-600 text-xs rounded-lg hover:bg-gray-300 transition-colors">Hủy</button>
+              </div>
+            )}
+            <ListItem icon={<UserMinus className="w-5 h-5 text-red-500" />} label="Hủy kết bạn" labelClassName="text-red-500" onClick={() => setConfirmUnfriend(true)} />
+            {confirmUnfriend && (
+              <div className="px-4 pb-3 flex items-center gap-2">
+                <span className="text-xs text-red-500 flex-1">Xác nhận hủy kết bạn?</span>
+                <button onClick={handleUnfriend} className="px-3 py-1.5 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 transition-colors">Hủy kết bạn</button>
+                <button onClick={() => setConfirmUnfriend(false)} className="px-3 py-1.5 bg-gray-200 text-gray-600 text-xs rounded-lg hover:bg-gray-300 transition-colors">Hủy</button>
               </div>
             )}
           </div>

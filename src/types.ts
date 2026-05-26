@@ -209,14 +209,44 @@ export interface SearchUser {
   phone_number?: string | null;
 }
 
+// ── QR Code Friend Types ─────────────────────────────────────────────────────────
+
+export interface QRInfo {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  qrData: string;
+}
+
+export interface QRFriendRequestResult {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  status: FriendshipStatus;
+  receiver: {
+    userId: string;
+    displayName: string;
+    avatarUrl: string | null;
+  };
+}
+
 export interface FriendItem {
   friendshipId: string;
   friend_id: string;
+  /** Numeric id if available (for compatibility with some code) */
+  id?: string | number;
+  /** DynamoDB userId string (for API calls) */
+  userId?: string;
   status: "accepted";
   updated_at: string;
   friend_display_name: string;
+  friend_original_name?: string;
   friend_username: string;
   friend_avatar_url: string | null;
+  /** Nickname set by current user for this friend */
+  nickname?: string | null;
+  chatBgUrl?: string | null;
+  pinnedMessages?: unknown[];
 }
 
 export interface FriendsListResponse {

@@ -1317,6 +1317,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         selectedFriend={selectedFriend}
+        selectedGroup={selectedGroup}
+        groupMembers={groupMembers}
+        groupMessages={groupMessages}
+        isGroupMessagesLoading={groupLoading}
         authUser={authUser}
         onSearchMessages={() => setSearchOpen(true)}
         onBackgroundChange={(url) => setChatBgUrl(url)}

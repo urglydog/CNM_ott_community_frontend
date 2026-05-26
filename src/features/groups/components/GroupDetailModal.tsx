@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X, Users, Link2, Copy, Check, Shield } from "lucide-react";
+import QRCode from "qrcode";
 import { useToast } from "../../../contexts/ToastContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useSocket } from "../../../contexts/SocketContext";
@@ -48,6 +49,8 @@ export default function GroupDetailModal({
 
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
   const [isLoadingInvite, setIsLoadingInvite] = useState(false);
+  const [inviteQrDataUrl, setInviteQrDataUrl] = useState("");
+  const [isLoadingInviteQr, setIsLoadingInviteQr] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [isDisbanding, setIsDisbanding] = useState(false);
@@ -84,6 +87,46 @@ export default function GroupDetailModal({
       })
       .finally(() => setIsLoadingInvite(false));
   }, [group.groupId, onGetInvite]);
+
+  useEffect(() => {
+    if (!inviteInfo?.inviteLink) {
+      setInviteQrDataUrl("");
+      setIsLoadingInviteQr(false);
+      return;
+    }
+
+    let mounted = true;
+    setIsLoadingInviteQr(true);
+
+    QRCode.toDataURL(inviteInfo.inviteLink, {
+      width: 220,
+      margin: 2,
+      color: {
+        dark: "#000000ff",
+        light: "#ffffffff",
+      },
+      errorCorrectionLevel: "H",
+    })
+      .then((dataUrl) => {
+        if (mounted) {
+          setInviteQrDataUrl(dataUrl);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setInviteQrDataUrl("");
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setIsLoadingInviteQr(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [inviteInfo?.inviteLink]);
 
   useEffect(() => {
     if (currentUserRole === 'OWNER' || currentUserRole === 'DEPUTY') {
@@ -706,6 +749,29 @@ export default function GroupDetailModal({
                       </div>
                     </div>
                   )}
+
+                  <div>
+                    <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-2">
+                      Mã QR tham gia nhóm
+                    </p>
+                    <div className="flex items-center justify-center rounded-xl border border-gray-200 bg-gray-50 p-4">
+                      {isLoadingInviteQr ? (
+                        <div className="flex h-[220px] w-[220px] items-center justify-center">
+                          <div className="w-8 h-8 border-2 border-[#005ae0] border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : inviteQrDataUrl ? (
+                        <img
+                          src={inviteQrDataUrl}
+                          alt="QR tham gia nhóm"
+                          className="h-[220px] w-[220px] object-contain"
+                        />
+                      ) : (
+                        <div className="flex h-[220px] w-[220px] items-center justify-center text-center text-[13px] text-gray-400">
+                          Không thể tạo mã QR
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
                   <p className="text-[11px] text-gray-400 text-center">
                     Chia sẻ mã hoặc liên kết trên để mời bạn bè tham gia nhóm

@@ -7,12 +7,14 @@ import {
   Pin, EyeOff, Phone, Settings, Clock, AlertTriangle,
   Lock, Database, Trash2, ChevronRight, Loader2, Check, Upload, Camera, UserMinus,
 } from "lucide-react";
+import QRCode from "qrcode";
 import { useRouter } from "next/navigation";
 import { useChatStore } from "../store/chatStore";
 import { useGroupsStore } from "../../groups/store/groupsStore";
 import { useToast } from "../../../contexts/ToastContext";
 import { useSocket } from "../../../contexts/SocketContext";
-import { createGroup, addMemberToGroup } from "../../groups/api";
+import { createGroup, addMemberToGroup, fetchGroupInvite } from "../../groups/api";
+import type { GroupChatMessage } from "../hooks/useGroupChat";
 import {
   unfriend,
   updateFriendNickname,
@@ -22,7 +24,8 @@ import {
   getPresignedViewUrl,
 } from "../../../api/client";
 import type { AuthUser, FriendItem } from "../../../types";
-import type { Group } from "../../groups/types";
+import type { Group, GroupMember, InviteInfo } from "../../groups/types";
+import { GroupAvatar } from "./Avatar";
 
 // ── Preset backgrounds ──────────────────────────────────────────────────
 const PRESET_BACKGROUNDS = [
@@ -67,16 +70,32 @@ interface ChatSettingsSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   selectedFriend: FriendItem | null;
+  selectedGroup?: Group | null;
+  groupMembers?: GroupMember[];
+  groupMessages?: GroupChatMessage[];
+  isGroupMessagesLoading?: boolean;
   authUser: AuthUser;
   onSearchMessages?: () => void;
   onBackgroundChange?: (bgUrl: string | null) => void;
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
+  onOpenGroupSettings?: () => void;
 }
 
 
 // ── Main Component ──────────────────────────────────────────────────────
 export default function ChatSettingsSidebar({
-  isOpen, onClose, selectedFriend, authUser, onSearchMessages, onBackgroundChange, resolveDisplayAvatar,
+  isOpen,
+  onClose,
+  selectedFriend,
+  selectedGroup,
+  groupMembers = [],
+  groupMessages = [],
+  isGroupMessagesLoading = false,
+  authUser,
+  onSearchMessages,
+  onBackgroundChange,
+  resolveDisplayAvatar,
+  onOpenGroupSettings,
 }: ChatSettingsSidebarProps) {
 
   const router = useRouter();
@@ -95,6 +114,35 @@ export default function ChatSettingsSidebar({
   const friendName = selectedFriend?.friend_display_name || selectedFriend?.friend_username || "Người dùng";
   const originalName = (selectedFriend as any)?.friend_original_name || selectedFriend?.friend_username || friendName;
   const avatarUrl = selectedFriend?.friend_avatar_url;
+  const isGroupChat = !!selectedGroup;
+  const groupName = selectedGroup?.name || "Nhóm trò chuyện";
+  const currentUserRole = groupMembers.find((member) => String(member.userId) === myId)?.role;
+  const isGroupOwner = currentUserRole === "OWNER";
+  const isGroupDeputy = currentUserRole === "DEPUTY";
+  const canManageGroup = isGroupOwner || isGroupDeputy;
+  const groupMemberCount = groupMembers.length || selectedGroup?.memberCount || 0;
+  const groupMediaItems = groupMessages.filter((message) => {
+    if (message.contentType === "image" || message.contentType === "video") {
+      return true;
+    }
+
+    if (!Array.isArray(message.attachments) || message.attachments.length === 0) {
+      return false;
+    }
+
+    return message.attachments.some((attachment) => attachment?.type === "image" || attachment?.type === "video");
+  });
+
+  const getGroupMediaPreview = (message: GroupChatMessage) => {
+    const attachment = message.attachments?.find((item) => item?.type === "image" || item?.type === "video") ?? message.attachments?.[0];
+
+    return {
+      type: attachment?.type === "video" || message.contentType === "video" ? "video" : "image",
+      previewUrl: attachment?.thumbnailUrl || attachment?.url || "",
+      mediaUrl: attachment?.url || "",
+      fileName: attachment?.name || message.content || "Đính kèm",
+    };
+  };
 
   // ── State ──────────────────────────────────────────────────────────
   const [localSettings, setLocalSettings] = useState<LocalSettings>({});
@@ -115,6 +163,10 @@ export default function ChatSettingsSidebar({
   const [addingToGroup, setAddingToGroup] = useState<string | null>(null);
   const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   const [confirmUnfriend, setConfirmUnfriend] = useState(false);
+  const [groupInviteInfo, setGroupInviteInfo] = useState<InviteInfo | null>(null);
+  const [groupInviteLoading, setGroupInviteLoading] = useState(false);
+  const [groupQrDataUrl, setGroupQrDataUrl] = useState<string>("");
+  const [groupQrLoading, setGroupQrLoading] = useState(false);
 
   // Load settings when friend changes / sidebar opens
   useEffect(() => {
@@ -140,6 +192,80 @@ export default function ChatSettingsSidebar({
         .catch(() => {});
     }
   }, [friendId, myId, isOpen, friendshipId, selectedFriend]);
+
+    useEffect(() => {
+      if (!isOpen || !selectedGroup) {
+        setGroupInviteInfo(null);
+        setGroupInviteLoading(false);
+        setGroupQrDataUrl("");
+        setGroupQrLoading(false);
+        return;
+      }
+
+      let mounted = true;
+      setGroupInviteLoading(true);
+
+      fetchGroupInvite(selectedGroup.groupId)
+        .then((invite) => {
+          if (mounted) {
+            setGroupInviteInfo(invite);
+          }
+        })
+        .catch(() => {
+          if (mounted) {
+            setGroupInviteInfo(null);
+          }
+        })
+        .finally(() => {
+          if (mounted) {
+            setGroupInviteLoading(false);
+          }
+        });
+
+      return () => {
+        mounted = false;
+      };
+    }, [isOpen, selectedGroup]);
+
+  useEffect(() => {
+    if (!groupInviteInfo?.inviteLink) {
+      setGroupQrDataUrl("");
+      setGroupQrLoading(false);
+      return;
+    }
+
+    let mounted = true;
+    setGroupQrLoading(true);
+
+    QRCode.toDataURL(groupInviteInfo.inviteLink, {
+      width: 220,
+      margin: 2,
+      color: {
+        dark: "#000000ff",
+        light: "#ffffffff",
+      },
+      errorCorrectionLevel: "H",
+    })
+      .then((dataUrl) => {
+        if (mounted) {
+          setGroupQrDataUrl(dataUrl);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setGroupQrDataUrl("");
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setGroupQrLoading(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [groupInviteInfo?.inviteLink]);
 
   useEffect(() => {
     if (isOpen) {
@@ -347,7 +473,7 @@ export default function ChatSettingsSidebar({
 
     try {
       await unfriend(friendshipId);
-      setFriends(prev => prev.filter(friend => friend.friendshipId !== friendshipId));
+      setFriends(friends.filter((friend) => friend.friendshipId !== friendshipId));
       setSelectedFriend(null);
       setConfirmUnfriend(false);
       onClose();
@@ -357,12 +483,287 @@ export default function ChatSettingsSidebar({
     }
   }
 
+  const handleCopyGroupInvite = useCallback(
+    async (value: string | null | undefined, successMessage: string) => {
+      if (!value) {
+        addToast("Chưa có dữ liệu để sao chép", "error");
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(value);
+        addToast(successMessage, "success");
+      } catch {
+        addToast("Không thể sao chép liên kết", "error");
+      }
+    },
+    [addToast]
+  );
+
+  if (isGroupChat && selectedGroup) {
+    return (
+      <>
+        {isOpen && (
+          <div className="fixed inset-0 bg-black/10 z-55 transition-opacity" onClick={handleClose} />
+        )}
+
+        <div
+          className={`fixed top-0 right-0 h-full w-95 bg-[#f4f5f7] shadow-2xl z-60 transform transition-transform duration-300 ease-in-out flex flex-col ${
+            isOpen ? "translate-x-0" : "translate-x-full"
+          }`}
+        >
+          <div className="h-17 bg-white border-b border-gray-200 flex items-center px-4 shrink-0">
+            <button onClick={handleClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors mr-2">
+              <X className="w-5 h-5 text-gray-600" />
+            </button>
+            <h2 className="text-lg font-semibold text-gray-800">Thông tin nhóm</h2>
+          </div>
+
+          <div className="flex-1 overflow-y-auto pb-8">
+            <div className="bg-white px-4 py-8 flex flex-col items-center border-b border-gray-200">
+              <div className="w-20 h-20 rounded-full bg-blue-50 overflow-hidden shadow-sm ring-4 ring-blue-50 flex items-center justify-center">
+                {groupMembers.length > 0 ? (
+                  <GroupAvatar members={groupMembers.slice(0, 4)} size={80} />
+                ) : (
+                  <span className="text-3xl font-bold text-blue-600">
+                    {(groupName || "N").charAt(0).toUpperCase()}
+                  </span>
+                )}
+              </div>
+
+              <h3 className="text-xl font-bold text-gray-900 mt-4 text-center">{groupName}</h3>
+              <p className="text-sm text-gray-500 mt-1">{groupMemberCount} thành viên</p>
+
+              <div className="grid grid-cols-4 gap-2 w-full max-w-75 mt-5">
+                <QuickAction icon={<BellOff className="w-5 h-5" />} label="Tắt thông báo" onClick={() => addToast("Đã mở tuỳ chọn thông báo nhóm", "info")} />
+                <QuickAction icon={<Pin className="w-5 h-5" />} label="Ghim hội thoại" onClick={() => addToast("Chức năng ghim hội thoại đang phát triển", "info")} />
+                <QuickAction icon={<UserPlus className="w-5 h-5" />} label="Thêm thành viên" onClick={() => addToast("Chức năng mời thành viên đang phát triển", "info")} />
+                <QuickAction icon={<Settings className="w-5 h-5" />} label="Quản lý nhóm" onClick={() => onOpenGroupSettings?.() ?? addToast("Chức năng quản lý nhóm đang phát triển", "info")} />
+              </div>
+            </div>
+
+            <div className="mt-2 bg-white border-y border-gray-200">
+              <ListItem
+                icon={<Users className="w-5 h-5" />}
+                label="Thành viên nhóm"
+                subLabel={`${groupMemberCount} thành viên`}
+                count={groupMemberCount}
+                hasArrow
+                onClick={() => addToast("Mở danh sách thành viên nhóm", "info")}
+              />
+              <div className="px-4 pb-3 pt-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {groupMembers.slice(0, 6).map((member) => (
+                    <div key={String(member.userId)} className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 ring-2 ring-white flex items-center justify-center text-xs font-semibold text-gray-500 shrink-0">
+                      {member.avatarUrl ? (
+                        <img src={member.avatarUrl} alt={member.displayName} className="w-full h-full object-cover" />
+                      ) : (
+                        <span>{(member.displayName || member.username || member.userId).charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                  ))}
+                  {groupMemberCount > 6 && (
+                    <div className="w-10 h-10 rounded-full bg-gray-100 ring-2 ring-white flex items-center justify-center text-xs font-semibold text-gray-600">
+                      +{groupMemberCount - 6}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-2 bg-white border-y border-gray-200">
+              <div className="px-4 pt-4 pb-1">
+                <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Bảng tin nhóm</p>
+              </div>
+              <ListItem icon={<Clock className="w-5 h-5" />} label="Danh sách nhắc hẹn" hasArrow onClick={() => addToast("Chức năng nhắc hẹn đang phát triển", "info")} />
+              <ListItem icon={<BookOpen className="w-5 h-5" />} label="Ghi chú ghim, bình chọn" hasArrow onClick={() => addToast("Chức năng ghi chú và bình chọn đang phát triển", "info")} />
+            </div>
+
+            <div className="mt-2 bg-white border-y border-gray-200">
+              <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Ảnh/Video</p>
+                <button type="button" onClick={() => addToast("Mở thư viện ảnh/video nhóm", "info")} className="text-[12px] text-blue-600 font-medium" disabled={isGroupMessagesLoading || groupMediaItems.length === 0}>Xem thêm</button>
+              </div>
+              <div className="px-4 pb-4">
+                {isGroupMessagesLoading ? (
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-500 flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Đang tải Ảnh/Video...
+                  </div>
+                ) : groupMediaItems.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-center text-sm text-gray-500">
+                    Không có Ảnh/Video trong đoạn chat
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {groupMediaItems.slice(0, 6).map((message) => {
+                      const media = getGroupMediaPreview(message);
+
+                      return (
+                        <a
+                          key={String(message.id)}
+                          href={media.mediaUrl || media.previewUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="group relative aspect-square overflow-hidden rounded-xl border border-gray-200 bg-gray-100"
+                        >
+                          {media.previewUrl ? (
+                            <img
+                              src={media.previewUrl}
+                              alt={media.fileName}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center bg-gray-200 text-gray-500 text-xs font-medium">
+                              {media.type === "video" ? "Video" : "Ảnh"}
+                            </div>
+                          )}
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent px-2 py-1.5">
+                            <p className="truncate text-[10px] font-medium text-white">{media.fileName}</p>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-2 bg-white border-y border-gray-200">
+              <div className="px-4 pt-4 pb-1">
+                <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">File</p>
+              </div>
+              <div className="px-4 pb-4 space-y-3">
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-500">
+                  Chưa có tệp gần đây
+                </div>
+                <button type="button" onClick={() => addToast("Mở danh sách file của nhóm", "info")} className="w-full rounded-xl bg-gray-100 text-gray-700 py-2.5 text-sm font-medium hover:bg-gray-200 transition-colors">
+                  Xem tất cả
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-2 bg-white border-y border-gray-200">
+              <div className="px-4 pt-4 pb-1">
+                <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Link</p>
+              </div>
+              <div className="px-4 pb-4 space-y-3">
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                      <ArrowRight className="w-5 h-5 text-gray-500" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {groupInviteLoading ? "Đang tải liên kết mời..." : groupInviteInfo?.inviteLink || "Chưa có liên kết mời"}
+                      </p>
+                      <p className="text-xs text-blue-600 mt-1 truncate">
+                        {groupInviteInfo?.inviteCode || ""}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCopyGroupInvite(groupInviteInfo?.inviteLink, "Đã sao chép liên kết mời")}
+                    className="flex-1 rounded-xl bg-blue-600 text-white py-2.5 text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+                    disabled={groupInviteLoading || !groupInviteInfo?.inviteLink}
+                  >
+                    Sao chép link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyGroupInvite(groupInviteInfo?.inviteCode, "Đã sao chép mã mời")}
+                    className="flex-1 rounded-xl bg-gray-100 text-gray-700 py-2.5 text-sm font-medium hover:bg-gray-200 transition-colors disabled:opacity-50"
+                    disabled={groupInviteLoading || !groupInviteInfo?.inviteCode}
+                  >
+                    Sao chép mã
+                  </button>
+                </div>
+
+                <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">Mã QR nhóm</p>
+                      <p className="text-xs text-gray-500">Quét QR để mở link tham gia nhóm</p>
+                    </div>
+                  </div>
+
+                  <div className="mx-auto flex w-full max-w-48 items-center justify-center overflow-hidden rounded-2xl border border-white bg-white p-3 shadow-sm">
+                    {groupQrLoading ? (
+                      <div className="flex h-48 w-48 items-center justify-center text-gray-500">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      </div>
+                    ) : groupQrDataUrl ? (
+                      <img src={groupQrDataUrl} alt="QR nhóm" className="h-48 w-48 object-contain" />
+                    ) : (
+                      <div className="flex h-48 w-48 items-center justify-center rounded-xl border border-dashed border-gray-300 text-center text-sm text-gray-500">
+                        Chưa tạo được mã QR
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-2 bg-white border-y border-gray-200">
+              <div className="px-4 pt-4 pb-1">
+                <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Thiết lập bảo mật</p>
+              </div>
+              <ListItem
+                icon={<Clock className="w-5 h-5" />}
+                label="Tin nhắn tự xóa"
+                subLabel="Chỉ dành cho trưởng nhóm hoặc phó nhóm"
+                hasArrow
+                onClick={() => addToast("Chức năng tin nhắn tự xóa đang phát triển", "info")}
+              />
+              <ListItem
+                icon={<EyeOff className="w-5 h-5" />}
+                label="Ẩn trò chuyện"
+                rightElement={<Toggle checked={!!localSettings.isHidden} onChange={(v) => { updateLocal({ isHidden: v }); addToast(v ? "Đã ẩn trò chuyện" : "Đã hiện trò chuyện", "success"); }} />}
+              />
+              <ListItem
+                icon={<AlertTriangle className="w-5 h-5" />}
+                label="Báo xấu"
+                labelClassName="text-red-500"
+                onClick={() => addToast("Chức năng báo xấu đang phát triển", "info")}
+              />
+            </div>
+
+            <div className="mt-2 bg-white border-y border-gray-200 mb-8">
+              <ListItem
+                icon={<Trash2 className="w-5 h-5 text-red-500" />}
+                label="Xóa lịch sử trò chuyện"
+                labelClassName="text-red-500"
+                onClick={() => setConfirmClearHistory(true)}
+              />
+              {confirmClearHistory && (
+                <div className="px-4 pb-3 flex items-center gap-2">
+                  <span className="text-xs text-red-500 flex-1">Xác nhận xóa toàn bộ?</span>
+                  <button onClick={handleClearHistory} className="px-3 py-1.5 bg-red-500 text-white text-xs rounded-lg hover:bg-red-600 transition-colors">Xóa</button>
+                  <button onClick={() => setConfirmClearHistory(false)} className="px-3 py-1.5 bg-gray-200 text-gray-600 text-xs rounded-lg hover:bg-gray-300 transition-colors">Hủy</button>
+                </div>
+              )}
+              <ListItem
+                icon={<UserMinus className="w-5 h-5 text-red-500" />}
+                label={canManageGroup ? "Giải tán nhóm" : "Rời nhóm"}
+                labelClassName="text-red-500"
+                onClick={() => addToast(canManageGroup ? "Mở luồng giải tán nhóm" : "Mở luồng rời nhóm", "info")}
+              />
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   if (!selectedFriend) return null;
 
   return (
     <>
       {isOpen && (
-        <div className="fixed inset-0 bg-black/10 z-[55] transition-opacity" onClick={handleClose} />
+        <div className="fixed inset-0 bg-black/10 z-55 transition-opacity" onClick={handleClose} />
       )}
       <input
         ref={fileInputRef}
@@ -373,18 +774,17 @@ export default function ChatSettingsSidebar({
       />
 
       <div
-        className={`fixed top-0 right-0 h-full w-[360px] bg-[#f4f5f7] shadow-2xl z-[60] transform transition-transform duration-300 ease-in-out flex flex-col ${
+        className={`fixed top-0 right-0 h-full w-90 bg-[#f4f5f7] shadow-2xl z-60 transform transition-transform duration-300 ease-in-out flex flex-col ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
         {/* Header */}
-        <div className="h-[68px] bg-white border-b border-gray-200 flex items-center px-4 shrink-0">
+        <div className="h-17 bg-white border-b border-gray-200 flex items-center px-4 shrink-0">
           <button onClick={handleClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors mr-2">
             <X className="w-5 h-5 text-gray-600" />
           </button>
           <h2 className="text-lg font-semibold text-gray-800">Tuỳ chọn</h2>
         </div>
-
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {/* Profile */}
@@ -406,7 +806,7 @@ export default function ChatSettingsSidebar({
             {(selectedFriend as any).nickname && (
               <p className="text-sm text-gray-400 mb-0.5">Tên gốc: {originalName}</p>
             )}
-            <div className="grid grid-cols-4 gap-2 w-full max-w-[280px] mt-4">
+            <div className="grid grid-cols-4 gap-2 w-full max-w-70 mt-4">
               <QuickAction icon={<Search className="w-5 h-5" />} label="Tìm tin nhắn" onClick={() => { onClose(); onSearchMessages?.(); }} />
               <QuickAction icon={<User className="w-5 h-5" />} label="Trang cá nhân" onClick={() => { onClose(); router.push("/profile"); }} />
               <QuickAction icon={<ImageIcon className="w-5 h-5" />} label="Đổi hình nền" onClick={() => setShowBgPicker(!showBgPicker)} />

@@ -86,7 +86,7 @@ export const useChatStore = create<ChatState>((set) => ({
 
   // ── Friends ─────────────────────────────────────────────────────────────
   friends: [],
-  setFriends: (friends) => set({ friends }),
+  setFriends: (friends) => set({ friends: Array.isArray(friends) ? friends : [] }),
   isLoadingFriends: false,
   setIsLoadingFriends: (loading) => set({ isLoadingFriends: loading }),
   friendsError: null,

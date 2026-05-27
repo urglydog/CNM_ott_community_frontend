@@ -46,6 +46,7 @@ export interface GroupChatMessage extends DirectMessageItem {
   readBy?: ReadReceiptReader[];
   /** Hàm để trigger reply action - được set từ ChatWindow */
   onReplyClick?: (message: GroupChatMessage) => void;
+  mentions?: string[];
 }
 
 /** Tạo conversationId cho nhóm — chính là groupId */
@@ -68,7 +69,7 @@ interface UseGroupChatReturn {
   isLoadingHistory: boolean;
   historyError: string | null;
   currentRoomId: string | null;
-  sendMessage: (content: string, replyTo?: string | number | null) => Promise<void>;
+  sendMessage: (content: string, replyTo?: string | number | null, mentions?: string[]) => Promise<void>;
   sendFileMessage: (file: File) => Promise<void>;
   sendStickerMessage: (stickerData: StickerData) => Promise<void>;
   sendEmojiMessage: (emoji: string) => Promise<void>;

@@ -75,7 +75,7 @@ export async function sendGroupFileMessage(
   const formData = new FormData();
   formData.append("file", payload.file);
   formData.append("sender_id", String(payload.senderId));
-  formData.append("channel_id", String(payload.groupId));
+  formData.append("group_id", String(payload.groupId));
 
   const response = await apiClient.post<SendDirectFileResponse>(
     "/api/messages/file",

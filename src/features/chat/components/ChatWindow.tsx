@@ -909,7 +909,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   const handleSendAudio = async () => {
     if (audioBlob) {
-      const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: "audio/webm" });
+      const audioFile = new File([audioBlob], `voice_${Date.now()}.wav`, { type: "audio/wav" });
       try {
         if (chatMode === "GROUP") {
           if (groupUploadingFile) return;
@@ -1312,6 +1312,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         selectedFriend={selectedFriend}
+        selectedGroup={selectedGroup}
+        groupMembers={groupMembers}
+        groupMessages={chatMode === "PRIVATE" ? (dmMessages as any) : groupMessages}
+        isGroupMessagesLoading={chatMode === "PRIVATE" ? dmLoading : groupLoading}
         authUser={authUser}
         onSearchMessages={() => setSearchOpen(true)}
         onBackgroundChange={(url) => setChatBgUrl(url)}

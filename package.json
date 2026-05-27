@@ -11,6 +11,7 @@
   "dependencies": {
     "@google/genai": "^1.29.0",
     "@yudiel/react-qr-scanner": "^2.6.0",
+    "agora-rtc-sdk-ng": "^4.24.4",
     "axios": "^1.7.9",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",

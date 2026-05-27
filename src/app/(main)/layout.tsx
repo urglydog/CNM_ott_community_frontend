@@ -14,6 +14,7 @@ import { useJoinFriendDmRooms, friendIdFromConversationId } from "../../features
 import { useFriendSocket } from "../../hooks/useFriendSocket";
 import { usePushNotifications } from "../../hooks/usePushNotifications";
 import { useCallRecovery } from "../../features/call";
+import { useCallRtcLifecycle } from "../../features/call/hooks/useCallRtcLifecycle";
 import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
@@ -32,6 +33,10 @@ export default function MainLayout({
 
   // ── Call recovery: check for active calls on startup & foreground resume ──
   useCallRecovery(isAuthenticated);
+
+  // ── Call RTC lifecycle: join/leave Agora based on callStore phase ──
+  useCallRtcLifecycle(isAuthenticated);
+
   const [pendingFriendCount, setPendingFriendCount] = useState(0);
 
   const {

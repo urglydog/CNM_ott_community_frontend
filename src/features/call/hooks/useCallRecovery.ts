@@ -17,6 +17,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useCallStore } from "../callStore";
 import { getActiveCall } from "../callApi";
+import { consumeRtcToken } from "./useCallRtcLifecycle";
 import type { GetActiveCallResponse } from "../types";
 
 /**
@@ -68,6 +69,10 @@ export function useCallRecovery(enabled: boolean): void {
           setReconnecting(response.call);
         } else if (response.call.status === "active" && me.status === "accepted") {
           // User has an active call — restore active state
+          // If backend returned a token, queue it for the RTC lifecycle hook
+          if (response.token) {
+            consumeRtcToken(response.token, response.call.callType === "video");
+          }
           setActive(response.call);
         } else if (response.call.status === "ringing" && me.status === "invited") {
           // User has a pending incoming call — restore incoming state

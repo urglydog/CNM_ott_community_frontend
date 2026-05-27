@@ -86,3 +86,40 @@ export type { CallPhase } from "./callStore";
 // Hooks
 export { useCallSocketListener } from "./hooks/useCallSocketListener";
 export { useCallRecovery } from "./hooks/useCallRecovery";
+export { useCallRtcLifecycle, consumeRtcToken } from "./hooks/useCallRtcLifecycle";
+
+// Agora RTC singleton (provider-specific)
+export {
+  initialize as initAgoraRtc,
+  joinChannel as joinAgoraChannel,
+  leaveChannel as leaveAgoraChannel,
+  muteMic as muteAgoraMic,
+  toggleMic as toggleAgoraMic,
+  setCameraEnabled as setAgoraCameraEnabled,
+  toggleCamera as toggleAgoraCamera,
+  switchCamera as switchAgoraCamera,
+  setSpeakerphone as setAgoraSpeakerphone,
+  toggleSpeaker as toggleAgoraSpeaker,
+  renewToken as renewAgoraToken,
+  destroy as destroyAgoraRtc,
+  isJoined as isAgoraJoined,
+  getLocalUid as getAgoraLocalUid,
+  getRemoteUsers as getAgoraRemoteUsers,
+  isMicMuted as isAgoraMicMuted,
+  isCameraEnabled as isAgoraCameraEnabled,
+  isSpeakerOn as isAgoraSpeakerOn,
+  getConnectionState as getAgoraConnectionState,
+  playRemoteVideo as playAgoraRemoteVideo,
+  stopRemoteVideo as stopAgoraRemoteVideo,
+  playLocalVideo as playAgoraLocalVideo,
+  stopLocalVideo as stopAgoraLocalVideo,
+  subscribe as subscribeAgoraRtc,
+  getClient as getAgoraClient,
+  getLocalAudioTrack as getAgoraLocalAudioTrack,
+  getLocalVideoTrack as getAgoraLocalVideoTrack,
+} from "./rtc/agoraRtc";
+export type { RtcRemoteUser, RtcCallbacks } from "./rtc/agoraRtc";
+
+// Agora RTC React hook
+export { useAgoraRtc } from "./rtc/useAgoraRtc";
+export type { UseAgoraRtcState, UseAgoraRtcActions, UseAgoraRtcReturn } from "./rtc/useAgoraRtc";

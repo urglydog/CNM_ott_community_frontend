@@ -11,7 +11,7 @@ interface ChatHeaderProps {
   chatMode: ChatMode | null;
   isAiChatOpen?: boolean;
   isConnected: boolean;
-  selectedFriend?: Friend | null;
+  selectedFriend?: FriendItem | null;
   selectedGroup?: { name?: string; memberCount?: number; groupId?: string | number } | null;
   groupMembers?: GroupMember[];
   groupName?: string;

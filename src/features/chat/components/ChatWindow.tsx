@@ -1319,8 +1319,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         selectedFriend={selectedFriend}
         selectedGroup={selectedGroup}
         groupMembers={groupMembers}
-        groupMessages={groupMessages}
-        isGroupMessagesLoading={groupLoading}
+        groupMessages={chatMode === "PRIVATE" ? (dmMessages as any) : groupMessages}
+        isGroupMessagesLoading={chatMode === "PRIVATE" ? dmLoading : groupLoading}
         authUser={authUser}
         onSearchMessages={() => setSearchOpen(true)}
         onBackgroundChange={(url) => setChatBgUrl(url)}

@@ -70,7 +70,7 @@ export function useGroupSocket() {
     }
 
     // Thêm từng thành viên mới vào selectedGroup
-    if (data.newMembers?.length > 0) {
+    if (data.newMembers && data.newMembers.length > 0) {
       data.newMembers.forEach((member) => {
         socketAddMember({
           userId: String(member.userId),

@@ -134,7 +134,7 @@ export function PrivateMessageBubble({
             String(msg.id) === focusedMessageId
               ? isFocusBlue 
                 ? "ring-2 ring-blue-500 animate-pulse-blue shadow-lg z-10 scale-[1.02] transition-transform" 
-                : "ring-2 ring-yellow-400 bg-yellow-50/30"
+                : "ring-2 ring-amber-400 bg-amber-50/40 shadow-md scale-[1.01] transition-all z-10"
               : ""
           }`}
 

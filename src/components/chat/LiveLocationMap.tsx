@@ -1,5 +1,20 @@
 "use client";
+
 declare const google: any;
+
+declare global {
+  namespace google {
+    namespace maps {
+      type Map = any;
+      type Marker = any;
+      type LatLng = any;
+      type LatLngBounds = any;
+      type SymbolPath = any;
+      type Animation = any;
+      type InfoWindow = any;
+    }
+  }
+}
 
 import React, { useEffect, useRef, useState } from "react";
 import type { LiveLocationEntry } from "../../hooks/useLiveLocation";

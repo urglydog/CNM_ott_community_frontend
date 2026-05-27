@@ -131,7 +131,7 @@ export function useCallManager() {
       // Guard: Nhóm chỉ được phép gọi video, không hỗ trợ gọi thoại
       if (isGroupCall && callType === "audio") {
         console.warn("[startCall] Chức năng gọi thoại không được hỗ trợ trong Group Chat.");
-        addToast("Gọi thoại không khả dụng trong nhóm. Vui lòng chọn gọi video.", "warning", 4000);
+        addToast("Gọi thoại không khả dụng trong nhóm. Vui lòng chọn gọi video.", "info", 4000);
         return;
       }
 
@@ -235,7 +235,7 @@ export function useCallManager() {
       // Guard: Nhóm chỉ được phép gọi video, chặn chấp nhận group audio call
       if (callData.isGroupCall && callData.callType === "audio") {
         console.warn("[acceptCall] Không thể chấp nhận gọi thoại nhóm.");
-        addToast("Gọi thoại không khả dụng trong nhóm.", "warning", 4000);
+        addToast("Gọi thoại không khả dụng trong nhóm.", "info", 4000);
         setIncomingCall(null);
         return;
       }

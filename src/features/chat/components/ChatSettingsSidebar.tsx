@@ -144,6 +144,27 @@ export default function ChatSettingsSidebar({
     };
   };
 
+  const groupFileItems = groupMessages.filter((message) => {
+    if (message.contentType === "file" || message.contentType === "document") {
+      return true;
+    }
+
+    if (!Array.isArray(message.attachments) || message.attachments.length === 0) {
+      return false;
+    }
+
+    return message.attachments.some((attachment) => attachment?.type === "file" || attachment?.type === "document");
+  });
+
+  const getGroupFileDetails = (message: GroupChatMessage) => {
+    const attachment = message.attachments?.find((item) => item?.type === "file" || item?.type === "document") ?? message.attachments?.[0];
+    return {
+      name: attachment?.name || message.content || "Tệp đính kèm",
+      url: attachment?.url || "",
+      size: attachment?.size ? `${(attachment.size / 1024).toFixed(1)} KB` : "Chưa rõ dung lượng",
+    };
+  };
+
   // ── State ──────────────────────────────────────────────────────────
   const [localSettings, setLocalSettings] = useState<LocalSettings>({});
   const [nicknameEditing, setNicknameEditing] = useState(false);
@@ -634,12 +655,39 @@ export default function ChatSettingsSidebar({
                 <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">File</p>
               </div>
               <div className="px-4 pb-4 space-y-3">
-                <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-500">
-                  Chưa có tệp gần đây
-                </div>
-                <button type="button" onClick={() => addToast("Mở danh sách file của nhóm", "info")} className="w-full rounded-xl bg-gray-100 text-gray-700 py-2.5 text-sm font-medium hover:bg-gray-200 transition-colors">
-                  Xem tất cả
-                </button>
+                {isGroupMessagesLoading ? (
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-500 flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Đang tải tệp...
+                  </div>
+                ) : groupFileItems.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-center text-sm text-gray-500">
+                    Chưa có tệp gần đây
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {groupFileItems.slice(0, 5).map((message) => {
+                      const file = getGroupFileDetails(message);
+                      return (
+                        <a
+                          key={String(message.id)}
+                          href={file.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-3 p-2.5 rounded-xl border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-colors"
+                        >
+                          <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center shrink-0 text-blue-600 font-bold text-xs uppercase">
+                            DOC
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-gray-800 truncate">{file.name}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">{file.size}</p>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -963,6 +1011,97 @@ export default function ChatSettingsSidebar({
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="mt-2 bg-white border-y border-gray-200">
+            <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+              <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Ảnh/Video</p>
+              <button type="button" onClick={() => addToast("Mở thư viện ảnh/video", "info")} className="text-[12px] text-blue-600 font-medium" disabled={isGroupMessagesLoading || groupMediaItems.length === 0}>Xem thêm</button>
+            </div>
+            <div className="px-4 pb-4">
+              {isGroupMessagesLoading ? (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-500 flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Đang tải Ảnh/Video...
+                </div>
+              ) : groupMediaItems.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-center text-sm text-gray-500">
+                  Không có Ảnh/Video trong đoạn chat
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  {groupMediaItems.slice(0, 6).map((message) => {
+                    const media = getGroupMediaPreview(message);
+
+                    return (
+                      <a
+                        key={String(message.id)}
+                        href={media.mediaUrl || media.previewUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="group relative aspect-square overflow-hidden rounded-xl border border-gray-200 bg-gray-100"
+                      >
+                        {media.previewUrl ? (
+                          <img
+                            src={media.previewUrl}
+                            alt={media.fileName}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center bg-gray-200 text-gray-500 text-xs font-medium">
+                            {media.type === "video" ? "Video" : "Ảnh"}
+                          </div>
+                        )}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent px-2 py-1.5">
+                          <p className="truncate text-[10px] font-medium text-white">{media.fileName}</p>
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-2 bg-white border-y border-gray-200">
+            <div className="px-4 pt-4 pb-1">
+              <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">File</p>
+            </div>
+            <div className="px-4 pb-4 space-y-3">
+              {isGroupMessagesLoading ? (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-500 flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Đang tải tệp...
+                </div>
+              ) : groupFileItems.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-center text-sm text-gray-500">
+                  Chưa có tệp gần đây
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {groupFileItems.slice(0, 5).map((message) => {
+                    const file = getGroupFileDetails(message);
+                    return (
+                      <a
+                        key={String(message.id)}
+                        href={file.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-3 p-2.5 rounded-xl border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-colors"
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center shrink-0 text-blue-600 font-bold text-xs uppercase">
+                          DOC
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-gray-800 truncate">{file.name}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{file.size}</p>
+                        </div>
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Settings */}

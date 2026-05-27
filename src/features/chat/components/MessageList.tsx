@@ -7,7 +7,7 @@ import type { FriendItem } from "../../../types";
 import type { ChatMode } from "../store/chatStore";
 import { GroupMessageBubble } from "./GroupMessageBubble";
 import { PrivateMessageBubble } from "./PrivateMessageBubble";
-import { SystemMessageBubble, GroupCallStartedBanner } from "./GroupMessageBubble";
+import { SystemMessageBubble } from "./GroupMessageBubble";
 import { PollMessageBubble } from "./PollMessageBubble";
 import { getMessageDomId } from "../utils/messageSearch";
 
@@ -34,7 +34,6 @@ interface MessageListProps {
   onReplyToMessage?: (msg: GroupChatMessage) => void;
   onJumpToMessage?: (messageId: string | number) => void;
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
-  onJoinGroupCall?: (roomId: string, callType?: string) => void;
   isFocusBlue?: boolean;
 }
 
@@ -57,19 +56,10 @@ export function MessageList({
   onReplyToMessage,
   onJumpToMessage,
   resolveDisplayAvatar,
-  onJoinGroupCall,
   isFocusBlue,
 }: MessageListProps) {
 
   const isSystemMessage = (msg: GroupChatMessage) => msg.contentType === "system";
-  const isGroupCallStarted = (msg: GroupChatMessage) => {
-    // Case 1: socket emit đặt đúng contentType (realtime)
-    if ((msg as any).contentType === "group_call_started" || (msg as any).messageType === "group_call_started") return true;
-    // Case 2: load từ DB — lưu dưới dạng call_log nhưng callData.status === 'started'
-    const callData = (msg as any).callData;
-    if ((msg.contentType === "call_log" || (msg as any).messageType === "call_log") && callData?.status === "started") return true;
-    return false;
-  };
 
   return (
     <div
@@ -129,15 +119,6 @@ export function MessageList({
           return (
             <div key={`poll-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
               <PollMessageBubble key={`poll-bubble-${msg.id}`} msg={msg} currentUserId={currentUserId} />
-            </div>
-          );
-        }
-
-        // Banner cuộc gọi nhóm đang diễn ra — hiển thị nút [Tham gia]
-        if (isGroupCallStarted(msg)) {
-          return (
-            <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
-              <GroupCallStartedBanner msg={msg} onJoin={onJoinGroupCall} />
             </div>
           );
         }

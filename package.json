@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
-    "@zegocloud/zego-uikit-prebuilt": "^2.17.3",
     "axios": "^1.7.9",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",

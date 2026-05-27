@@ -28,8 +28,6 @@ export interface LiveLocationMessageStoppedPayload {
 import { useToast } from "./ToastContext";
 import { useChatStore } from "../features/chat/store/chatStore";
 import { useGroupsStore } from "../features/groups/store/groupsStore";
-import { useCallSocket } from "../features/call/hooks/useCallSocket";
-
 const WS_URL =
   process.env.NEXT_PUBLIC_WS_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -95,18 +93,6 @@ interface SocketContextValue {
   emitStartLiveLocation: (roomId: string) => void;
   emitUpdateLiveLocation: (roomId: string, lat: number, lng: number) => void;
   emitStopLiveLocation: (roomId: string) => void;
-  // Call — delegated to useCallSocket
-  emitCallUser: (payload: any) => void;
-  emitCallAccepted: (payload: any) => void;
-  emitCallDeclined: (payload: any) => void;
-  emitCallCancel: (payload: any) => void;
-  emitEndCall: (payload: any) => void;
-  emitJoinGroupCall: (roomId: string, userId: string, conversationId?: string) => void;
-  emitLeaveGroupCall: (roomId: string, userId: string, conversationId?: string) => void;
-  onIncomingCall: (handler: (data: any) => void) => () => void;
-  onCallAccepted: (handler: (data: any) => void) => () => void;
-  onCallDeclined: (handler: (data: any) => void) => () => void;
-  onEndCall: (handler: (data: any) => void) => () => void;
   // Event listeners
   onReceiveMessage: (handler: (message: MessageItem) => void) => () => void;
   onRoomJoined: (handler: (data: { roomId: string }) => void) => () => void;
@@ -238,10 +224,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off("group:deleted", handleGroupDeleted);
     };
   }, [addToast, addGroup, removeGroup]);
-
-  // ── Call socket (extracted) ───────────────────────────────────────────────────
-
-  const callSocket = useCallSocket(socketInstance, resolvedUserId);
 
   // ── Emit helpers ─────────────────────────────────────────────────────────────
 
@@ -529,18 +511,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         emitStartLiveLocation,
         emitUpdateLiveLocation,
         emitStopLiveLocation,
-        // Call
-        emitCallUser: callSocket.emitCallUser,
-        emitCallAccepted: callSocket.emitCallAccepted,
-        emitCallDeclined: callSocket.emitCallDeclined,
-        emitCallCancel: callSocket.emitCallCancel,
-        emitEndCall: callSocket.emitEndCall,
-        emitJoinGroupCall: callSocket.emitJoinGroupCall,
-        emitLeaveGroupCall: callSocket.emitLeaveGroupCall,
-        onIncomingCall: callSocket.onIncomingCall,
-        onCallAccepted: callSocket.onCallAccepted,
-        onCallDeclined: callSocket.onCallDeclined,
-        onEndCall: callSocket.onEndCall,
         // Remaining
         onReceiveMessage,
         onRoomJoined,

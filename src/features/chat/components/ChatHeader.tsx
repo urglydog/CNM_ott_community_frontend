@@ -1,6 +1,6 @@
 "use client";
 
-import { MoreHorizontal, Phone, Search, Sparkles, Video, WifiOff } from "lucide-react";
+import { MoreHorizontal, Search, Sparkles, WifiOff } from "lucide-react";
 import { GroupAvatar } from "./Avatar";
 import type { ChatMode } from "../store/chatStore";
 import type { GroupMember } from "../../groups/types";
@@ -17,8 +17,6 @@ interface ChatHeaderProps {
   groupName?: string;
   friendName?: string;
   memberCount?: number;
-  onStartVideoCall?: () => void;
-  onStartVoiceCall?: () => void;
   onToggleSearch?: () => void;
   onOpenSettings?: () => void;
   activeConversationId?: string | null;
@@ -36,8 +34,6 @@ export function ChatHeader({
   groupName = "",
   friendName = "",
   memberCount = 0,
-  onStartVideoCall,
-  onStartVoiceCall,
   onToggleSearch,
   onOpenSettings,
   activeConversationId,
@@ -122,25 +118,6 @@ export function ChatHeader({
 
       {/* Action buttons */}
       <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
-          title="Gọi thoại"
-          onClick={onStartVoiceCall}
-          disabled={!isConnected}
-        >
-          <Phone className="w-5 h-5" />
-        </button>
-        <button
-          type="button"
-          className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
-          title="Gọi video"
-          onClick={onStartVideoCall}
-          disabled={!isConnected}
-        >
-          <Video className="w-5 h-5" />
-        </button>
-        <div className="w-px h-5 bg-gray-300 mx-1" />
         <button
           type="button"
           className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"

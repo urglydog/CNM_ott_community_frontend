@@ -18,8 +18,6 @@ import { fetchPendingFriendRequests, getFriendsList } from "../../features/conta
 import MainSidebar from "./components/MainSidebar";
 import ToastContainer from "../../components/common/ToastContainer";
 import AuthScreen from "../../components/auth/AuthScreen";
-import { CallManagerOverlay } from "@/features/call";
-
 export default function MainLayout({
   children,
 }: {
@@ -211,7 +209,6 @@ export default function MainLayout({
       />
       {children}
       <ToastContainer />
-      <CallManagerOverlay />
     </div>
   );
 }

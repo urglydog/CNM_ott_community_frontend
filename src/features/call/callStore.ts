@@ -47,6 +47,16 @@ interface CallState {
   /** The channel name for the Agora RTC session */
   channelName: string | null;
 
+  // ── Call window (pop-out) state ─────────────────────────────────────────
+  /** True while the pop-out call window is being opened (before "opened" confirmation) */
+  callWindowOpening: boolean;
+
+  /** True after the pop-out call window confirmed it joined Agora */
+  callWindowJoined: boolean;
+
+  /** Stored URL for manual open when popup was blocked by browser */
+  pendingCallWindowUrl: string | null;
+
   // ── Error state ────────────────────────────────────────────────────────
   /** Last call error message (for UI display) */
   errorMessage: string | null;
@@ -117,6 +127,17 @@ interface CallState {
    */
   reset: () => void;
 
+  // ── Call window actions ────────────────────────────────────────────────
+
+  /** Set whether the pop-out call window is being opened */
+  setCallWindowOpening: (opening: boolean) => void;
+
+  /** Set whether the pop-out call window has confirmed Agora join */
+  setCallWindowJoined: (joined: boolean) => void;
+
+  /** Store a URL for manual popup open when browser blocked the initial attempt */
+  setPendingCallWindowUrl: (url: string | null) => void;
+
   // ── Derived getters (convenience) ─────────────────────────────────────
 
   /** Get the callId of the current call, or null */
@@ -151,6 +172,9 @@ const initialState = {
   channelName: null as string | null,
   errorMessage: null as string | null,
   errorCode: null as string | null,
+  callWindowOpening: false,
+  callWindowJoined: false,
+  pendingCallWindowUrl: null as string | null,
 };
 
 // ── Store ──────────────────────────────────────────────────────────────────
@@ -234,7 +258,17 @@ export const useCallStore = create<CallState>((set, get) => ({
       errorCode: null,
     }),
 
-  reset: () => set({ ...initialState }),
+  reset: () =>
+    set({
+      ...initialState,
+      callWindowOpening: false,
+      callWindowJoined: false,
+      pendingCallWindowUrl: null,
+    }),
+
+  setCallWindowOpening: (opening) => set({ callWindowOpening: opening }),
+  setCallWindowJoined: (joined) => set({ callWindowJoined: joined }),
+  setPendingCallWindowUrl: (url) => set({ pendingCallWindowUrl: url }),
 
   // ── Derived getters ────────────────────────────────────────────────────
 

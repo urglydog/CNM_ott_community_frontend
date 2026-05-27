@@ -87,6 +87,7 @@ export type { CallPhase } from "./callStore";
 export { useCallSocketListener } from "./hooks/useCallSocketListener";
 export { useCallRecovery } from "./hooks/useCallRecovery";
 export { useCallRtcLifecycle, consumeRtcToken } from "./hooks/useCallRtcLifecycle";
+export { useCallManager } from "./hooks/useCallManager";
 
 // Agora RTC singleton (provider-specific)
 export {
@@ -123,3 +124,10 @@ export type { RtcRemoteUser, RtcCallbacks } from "./rtc/agoraRtc";
 // Agora RTC React hook
 export { useAgoraRtc } from "./rtc/useAgoraRtc";
 export type { UseAgoraRtcState, UseAgoraRtcActions, UseAgoraRtcReturn } from "./rtc/useAgoraRtc";
+
+// UI Components
+export { VideoSurface } from "./components/VideoSurface";
+export { CallControls } from "./components/CallControls";
+export { IncomingCallModal } from "./components/IncomingCallModal";
+export { OutgoingCallModal } from "./components/OutgoingCallModal";
+export { DirectCallScreen } from "./components/DirectCallScreen";

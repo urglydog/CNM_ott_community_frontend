@@ -35,6 +35,8 @@ export interface UseAgoraRtcState {
   localUid: number | null;
   /** UIDs of all remote users currently in the channel. */
   remoteUids: number[];
+  /** UIDs of remote users who have published video. */
+  remoteVideoUids: number[];
   /** Whether the local microphone is muted. */
   isMicMuted: boolean;
   /** Whether the local camera is enabled. */
@@ -43,6 +45,10 @@ export interface UseAgoraRtcState {
   isSpeakerOn: boolean;
   /** Agora connection state string. */
   connectionState: string;
+  /** Warning message when local camera/mic is unavailable, or null. */
+  localMediaWarning: string | null;
+  /** Whether the current device is mobile (Android/iOS/iPadOS). */
+  isMobile: boolean;
 }
 
 // ── Actions shape ───────────────────────────────────────────────────────────
@@ -58,11 +64,11 @@ export interface UseAgoraRtcActions {
   /** Leave the current channel and clean up tracks. */
   leave: () => Promise<void>;
 
-  /** Toggle mic mute. Returns the new muted state. */
-  toggleMic: () => boolean;
+  /** Toggle mic mute. Returns the new muted state. Async because it may retry creating the audio track. */
+  toggleMic: () => Promise<boolean>;
 
-  /** Toggle camera on/off. Returns the new enabled state. */
-  toggleCamera: () => boolean;
+  /** Toggle camera on/off. Returns the new enabled state. May create a new video track asynchronously. */
+  toggleCamera: () => Promise<boolean>;
 
   /** Switch to the next available camera (mobile flip / desktop multi-cam). */
   switchCamera: () => Promise<void>;
@@ -102,10 +108,13 @@ export function useAgoraRtc(): UseAgoraRtcReturn {
     isJoined: false,
     localUid: null,
     remoteUids: [],
+    remoteVideoUids: [],
     isMicMuted: false,
     isCameraEnabled: false,
     isSpeakerOn: true,
     connectionState: "DISCONNECTED",
+    localMediaWarning: null,
+    isMobile: rtc.isMobileDevice(),
   });
 
   // ── Subscribe to singleton events ───────────────────────────────────────
@@ -113,15 +122,18 @@ export function useAgoraRtc(): UseAgoraRtcReturn {
   useEffect(() => {
     const callbacks: RtcCallbacks = {
       onJoined: (_channel, uid) => {
+        const remoteUsers = rtc.getRemoteUsers();
         setState((prev) => ({
           ...prev,
           isJoined: true,
           localUid: uid,
-          remoteUids: rtc.getRemoteUsers().map((u) => u.uid),
+          remoteUids: remoteUsers.map((u) => u.uid),
+          remoteVideoUids: remoteUsers.filter((u) => u.hasVideo).map((u) => u.uid),
           isMicMuted: rtc.isMicMuted(),
           isCameraEnabled: rtc.isCameraEnabled(),
           isSpeakerOn: rtc.isSpeakerOn(),
           connectionState: rtc.getConnectionState(),
+          localMediaWarning: rtc.getLocalMediaWarning(),
         }));
       },
 
@@ -131,10 +143,16 @@ export function useAgoraRtc(): UseAgoraRtcReturn {
           isJoined: false,
           localUid: null,
           remoteUids: [],
+          remoteVideoUids: [],
           isMicMuted: false,
           isCameraEnabled: false,
           connectionState: "DISCONNECTED",
+          localMediaWarning: null,
         }));
+      },
+
+      onLocalMediaWarning: (message) => {
+        setState((prev) => ({ ...prev, localMediaWarning: message }));
       },
 
       onUserJoined: (uid) => {
@@ -150,7 +168,28 @@ export function useAgoraRtc(): UseAgoraRtcReturn {
         setState((prev) => ({
           ...prev,
           remoteUids: prev.remoteUids.filter((id) => id !== uid),
+          remoteVideoUids: prev.remoteVideoUids.filter((id) => id !== uid),
         }));
+      },
+
+      onUserPublished: (uid, mediaType) => {
+        if (mediaType === "video") {
+          setState((prev) => ({
+            ...prev,
+            remoteVideoUids: prev.remoteVideoUids.includes(uid)
+              ? prev.remoteVideoUids
+              : [...prev.remoteVideoUids, uid],
+          }));
+        }
+      },
+
+      onUserUnpublished: (uid, mediaType) => {
+        if (mediaType === "video") {
+          setState((prev) => ({
+            ...prev,
+            remoteVideoUids: prev.remoteVideoUids.filter((id) => id !== uid),
+          }));
+        }
       },
 
       onConnectionStateChange: (curState) => {
@@ -161,14 +200,18 @@ export function useAgoraRtc(): UseAgoraRtcReturn {
     const unsubscribe = rtc.subscribe(callbacks);
 
     // Sync with current singleton state on mount (handles re-mount during active call)
+    const currentRemoteUsers = rtc.getRemoteUsers();
     setState({
       isJoined: rtc.isJoined(),
       localUid: rtc.getLocalUid(),
-      remoteUids: rtc.getRemoteUsers().map((u) => u.uid),
+      remoteUids: currentRemoteUsers.map((u) => u.uid),
+      remoteVideoUids: currentRemoteUsers.filter((u) => u.hasVideo).map((u) => u.uid),
       isMicMuted: rtc.isMicMuted(),
       isCameraEnabled: rtc.isCameraEnabled(),
       isSpeakerOn: rtc.isSpeakerOn(),
       connectionState: rtc.getConnectionState(),
+      localMediaWarning: rtc.getLocalMediaWarning(),
+      isMobile: rtc.isMobileDevice(),
     });
 
     return unsubscribe;
@@ -193,15 +236,23 @@ export function useAgoraRtc(): UseAgoraRtcReturn {
     await rtc.leaveChannel();
   }, []);
 
-  const toggleMic = useCallback(() => {
-    const newMuted = rtc.toggleMic();
-    setState((prev) => ({ ...prev, isMicMuted: newMuted }));
+  const toggleMic = useCallback(async () => {
+    const newMuted = await rtc.toggleMic();
+    setState((prev) => ({
+      ...prev,
+      isMicMuted: newMuted,
+      localMediaWarning: rtc.getLocalMediaWarning(),
+    }));
     return newMuted;
   }, []);
 
-  const toggleCamera = useCallback(() => {
-    const newEnabled = rtc.toggleCamera();
-    setState((prev) => ({ ...prev, isCameraEnabled: newEnabled }));
+  const toggleCamera = useCallback(async () => {
+    const newEnabled = await rtc.toggleCamera();
+    setState((prev) => ({
+      ...prev,
+      isCameraEnabled: newEnabled,
+      localMediaWarning: rtc.getLocalMediaWarning(),
+    }));
     return newEnabled;
   }, []);
 
@@ -243,10 +294,13 @@ export function useAgoraRtc(): UseAgoraRtcReturn {
     isJoined: state.isJoined,
     localUid: state.localUid,
     remoteUids: state.remoteUids,
+    remoteVideoUids: state.remoteVideoUids,
     isMicMuted: state.isMicMuted,
     isCameraEnabled: state.isCameraEnabled,
     isSpeakerOn: state.isSpeakerOn,
     connectionState: state.connectionState,
+    localMediaWarning: state.localMediaWarning,
+    isMobile: state.isMobile,
     // Actions
     join,
     leave,

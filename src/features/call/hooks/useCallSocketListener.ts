@@ -12,6 +12,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { Socket } from "socket.io-client";
 import { useCallStore } from "../callStore";
 import { registerCallListeners, type CallEventHandlers } from "../callSocket";
 import type {
@@ -35,8 +36,12 @@ import type {
  * Register call socket event listeners and update the call store.
  *
  * @param currentUserId - The authenticated user's ID. When null, listeners are not registered.
+ * @param socket - The Socket.IO socket instance from SocketContext. When null, listeners are deferred.
  */
-export function useCallSocketListener(currentUserId: string | null): void {
+export function useCallSocketListener(
+  currentUserId: string | null,
+  socket: Socket | null,
+): void {
   const cleanupRef = useRef<(() => void) | null>(null);
 
   // Get store actions (stable references)
@@ -70,8 +75,8 @@ export function useCallSocketListener(currentUserId: string | null): void {
   };
 
   useEffect(() => {
-    if (!currentUserId) {
-      // Cleanup any existing listeners when user logs out
+    if (!currentUserId || !socket) {
+      // Cleanup any existing listeners when user logs out or socket is not ready
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;
@@ -117,7 +122,13 @@ export function useCallSocketListener(currentUserId: string | null): void {
 
       onMissed: (payload: CallMissedPayload) => {
         console.log("[call-socket] call:missed", payload.callId, "user", payload.userId);
-        actionsRef.current.updateSession(payload.callSession);
+        // If the missed user is us, transition to "ended" to close the incoming modal
+        const store = useCallStore.getState();
+        if (String(payload.userId) === String(store.currentUserId)) {
+          actionsRef.current.setEnded(payload.callSession);
+        } else {
+          actionsRef.current.updateSession(payload.callSession);
+        }
       },
 
       onParticipantJoined: (payload: CallParticipantJoinedPayload) => {
@@ -168,16 +179,24 @@ export function useCallSocketListener(currentUserId: string | null): void {
       onBusy: (payload: CallBusyPayload) => {
         console.log("[call-socket] call:busy", payload.callId, payload.message);
         actionsRef.current.setError(payload.message, "CALL_BUSY");
+        // Reset to idle — busy means the call attempt is over
+        setTimeout(() => {
+          useCallStore.getState().reset();
+        }, 2000);
       },
 
       onError: (payload: CallErrorPayload) => {
         console.error("[call-socket] call:error", payload.code, payload.message);
         actionsRef.current.setError(payload.message, payload.code);
+        // Reset to idle after showing the error briefly
+        setTimeout(() => {
+          useCallStore.getState().reset();
+        }, 2000);
       },
     };
 
-    // Register listeners
-    cleanupRef.current = registerCallListeners(handlers);
+    // Register listeners on the shared socket from SocketContext
+    cleanupRef.current = registerCallListeners(handlers, socket);
 
     return () => {
       if (cleanupRef.current) {
@@ -185,5 +204,5 @@ export function useCallSocketListener(currentUserId: string | null): void {
         cleanupRef.current = null;
       }
     };
-  }, [currentUserId, setCurrentUserId]);
+  }, [currentUserId, setCurrentUserId, socket]);
 }

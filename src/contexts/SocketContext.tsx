@@ -29,6 +29,7 @@ export interface LiveLocationMessageStoppedPayload {
 import { useToast } from "./ToastContext";
 import { useChatStore } from "../features/chat/store/chatStore";
 import { useGroupsStore } from "../features/groups/store/groupsStore";
+import { setExternalSocket } from "../lib/socket";
 const WS_URL =
   process.env.NEXT_PUBLIC_WS_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -133,13 +134,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     (user as any)?.id ?? (user as any)?._id ?? (user as any)?.userId ?? "",
   ).trim();
 
-  // ── Call signaling: register call socket event listeners ──────────────────
-  useCallSocketListener(resolvedUserId || null);
-
   const socketRef = useRef<Socket | null>(null);
   const [status, setStatus] = useState<SocketStatus>("disconnected");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [socketInstance, setSocketInstance] = useState<Socket | null>(null);
+
+  // ── Call signaling: register call socket event listeners ──────────────────
+  // Pass socketInstance so call listeners are registered on the SAME socket
+  // that SocketContext created — not a separate unauthenticated one.
+  useCallSocketListener(resolvedUserId || null, socketInstance);
 
   // ── Socket connection ────────────────────────────────────────────────────────
 
@@ -164,6 +167,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socketRef.current = socket;
     setSocketInstance(socket);
 
+    // ── Share this socket with callSocket.ts / lib/socket.ts ──────────────
+    // Without this, call event listeners register on a SEPARATE, unauthenticated
+    // socket created by lib/socket.ts → getSocket(), and the receiver never
+    // gets call:incoming events.
+    setExternalSocket(socket);
+
     socket.on("connect", () => {
       setStatus("connected");
       setErrorMessage(null);
@@ -172,6 +181,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socket.on("connect_error", (err) => {
       setStatus("error");
       setErrorMessage(err.message || "Kết nối thất bại");
+    });
+
+    // ── Temporary debug: log every incoming event ────────────────────────
+    // Helps diagnose which call events actually arrive at the receiver.
+    // Remove after confirming the call flow works end-to-end.
+    socket.onAny((eventName: string, ...args: unknown[]) => {
+      if (eventName.startsWith("call:") || eventName.startsWith("chat_") || eventName === "message_read") {
+        console.log(`[socket:onAny] ${eventName}`, args.length > 0 ? args[0] : "");
+      }
     });
 
     return () => {

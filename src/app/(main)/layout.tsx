@@ -15,6 +15,9 @@ import { useFriendSocket } from "../../hooks/useFriendSocket";
 import { usePushNotifications } from "../../hooks/usePushNotifications";
 import { useCallRecovery } from "../../features/call";
 import { useCallRtcLifecycle } from "../../features/call/hooks/useCallRtcLifecycle";
+import { IncomingCallModal } from "../../features/call/components/IncomingCallModal";
+import { OutgoingCallModal } from "../../features/call/components/OutgoingCallModal";
+import { DirectCallScreen } from "../../features/call/components/DirectCallScreen";
 import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
@@ -217,6 +220,10 @@ export default function MainLayout({
         onOpenDmChat={(friend) => setSelectedFriend(friend)}
       />
       {children}
+      {/* Global call UI overlay — renders only when call phase is active */}
+      <IncomingCallModal />
+      <OutgoingCallModal />
+      <DirectCallScreen />
       <ToastContainer />
     </div>
   );

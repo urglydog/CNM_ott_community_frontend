@@ -76,8 +76,13 @@ export const CALL_LISTEN_EVENTS = {
 
 // ── Helper ─────────────────────────────────────────────────────────────────
 
-function getActiveSocket(): Socket {
-  return getSocket();
+/**
+ * Get the active socket for call signaling.
+ * If an override socket is provided (from SocketContext), use it directly.
+ * Otherwise fall back to getSocket() singleton.
+ */
+function getActiveSocket(overrideSocket?: Socket): Socket {
+  return overrideSocket ?? getSocket();
 }
 
 // ── Client → Server emitters (with ack callbacks) ──────────────────────────
@@ -281,8 +286,8 @@ export interface CallEventHandlers {
  *   // Later:
  *   cleanup();
  */
-export function registerCallListeners(handlers: CallEventHandlers): () => void {
-  const socket = getActiveSocket();
+export function registerCallListeners(handlers: CallEventHandlers, socketOverride?: Socket): () => void {
+  const socket = getActiveSocket(socketOverride);
 
   const entries: Array<[string, ((...args: any[]) => void) | undefined]> = [
     [CALL_LISTEN_EVENTS.INCOMING, handlers.onIncoming],

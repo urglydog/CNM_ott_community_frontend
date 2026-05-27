@@ -52,6 +52,7 @@ import { PinnedHeader } from "./PinnedHeader";
 import ChatSettingsSidebar from "./ChatSettingsSidebar";
 import { usePinnedMessages } from "../hooks/usePinnedMessages";
 import { useChatBackground } from "../hooks/useChatBackground";
+import { useCallManager } from "../../call/hooks/useCallManager";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -98,6 +99,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     cancelRecording,
     setAudioBlob,
   } = useAudioRecorder();
+
+  const callManager = useCallManager();
 
   const currentUserId = String((authUser as any)._id || authUser.id || "");
   const currentUserName = authUser.displayName || authUser.username || "User";
@@ -1192,6 +1195,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         memberCount={memberCount}
         onToggleSearch={() => setSearchOpen((prev) => !prev)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onStartAudioCall={activeConversationId ? () => callManager.startCall(activeConversationId, "audio") : undefined}
+        onStartVideoCall={activeConversationId ? () => callManager.startCall(activeConversationId, "video") : undefined}
         activeConversationId={activeConversationId}
         resolveDisplayAvatar={resolveDisplayAvatar}
       />

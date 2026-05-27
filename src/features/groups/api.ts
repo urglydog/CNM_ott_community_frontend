@@ -24,6 +24,8 @@ export interface CreateGroupPayload {
   name: string;
   description?: string;
   type?: string;
+  allowSendLinks?: string;
+  spamFilterLevel?: number;
 }
 
 export interface JoinGroupPayload {
@@ -181,13 +183,13 @@ export async function updateMemberRole(
   return response.data;
 }
 
-export async function leaveGroup(groupId: string | number): Promise<any> {
-  const response = await apiClient.post(`/api/groups/${groupId}/leave`);
+export async function leaveGroup(groupId: string | number, newOwnerId?: string | number): Promise<any> {
+  const response = await apiClient.delete(`/api/groups/${groupId}/leave`, { data: { newOwnerId } });
   return response.data;
 }
 
 export async function disbandGroup(groupId: string | number): Promise<any> {
-  const response = await apiClient.delete(`/api/groups/${groupId}`);
+  const response = await apiClient.delete(`/api/groups/${groupId}/disband`);
   return response.data;
 }
 
@@ -217,7 +219,7 @@ export async function handleJoinRequest(
 
 export async function updateGroupSettings(
   groupId: string | number,
-  settings: { isApprovalRequired?: boolean }
+  settings: { isApprovalRequired?: boolean; allowSendLinks?: string; spamFilterLevel?: number }
 ): Promise<{ message: string }> {
   const response = await apiClient.patch(
     `/api/groups/${groupId}/settings`,

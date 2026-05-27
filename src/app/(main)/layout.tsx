@@ -8,6 +8,8 @@ import { useToast } from "../../contexts/ToastContext";
 import { useChatStore } from "../../features/chat/store/chatStore";
 import { useContactsStore } from "../../features/contacts/store/contactsStore";
 import { useGroupsStore } from "../../features/groups/store/groupsStore";
+import { useMyGroups } from "../../features/groups/hooks/useGroupsHooks";
+import { useGroupSocket } from "../../features/groups/hooks/useGroupSocket";
 import { useJoinFriendDmRooms, friendIdFromConversationId } from "../../features/chat/hooks/useChatHooks";
 import { useFriendSocket } from "../../hooks/useFriendSocket";
 import { usePushNotifications } from "../../hooks/usePushNotifications";
@@ -16,6 +18,7 @@ import { fetchPendingFriendRequests, getFriendsList } from "../../features/conta
 import MainSidebar from "./components/MainSidebar";
 import ToastContainer from "../../components/common/ToastContainer";
 import AuthScreen from "../../components/auth/AuthScreen";
+import { CallManagerOverlay } from "@/features/call";
 
 export default function MainLayout({
   children,
@@ -47,6 +50,14 @@ export default function MainLayout({
 
   const { resetPending: resetContactsStore } = useContactsStore();
   const { reset: resetGroupsStore } = useGroupsStore();
+
+  // Hook để load và quản lý groups
+  const { myGroups, loadMyGroups } = useMyGroups();
+
+  // ── KHỞI TẠO SOCKET CHO GROUPS ──────────────────────────────────────────
+  // Quan trọng: useGroupSocket cần được gọi ngay sau khi myGroups được load
+  // Hook này sẽ tự động join tất cả các group rooms
+  useGroupSocket();
 
   usePushNotifications();
 
@@ -82,7 +93,8 @@ export default function MainLayout({
 
     loadPendingCount();
     loadFriends();
-  }, [isInitialized, isAuthenticated, loadFriends, setPendingFriendCount]);
+    loadMyGroups(); // Load danh sách groups khi đăng nhập
+  }, [isInitialized, isAuthenticated, loadFriends, loadMyGroups, setPendingFriendCount]);
 
   // Handle incoming messages
   useEffect(() => {
@@ -199,6 +211,7 @@ export default function MainLayout({
       />
       {children}
       <ToastContainer />
+      <CallManagerOverlay />
     </div>
   );
 }

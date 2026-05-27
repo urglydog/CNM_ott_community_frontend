@@ -582,3 +582,79 @@ export async function getPresignedViewUrl(params: {
   );
   return handleJson<PresignedViewResponse>(res);
 }
+
+// ── Friend Settings API ─────────────────────────────────────────────────────────
+
+export async function updateFriendNickname(payload: {
+  friendshipId: string;
+  nickname: string | null;
+}): Promise<{ message: string; data: { friendshipId: string; nickname: string | null } }> {
+  const res = await authFetch(`${API_BASE}/api/friends/nickname`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  return handleJson(res);
+}
+
+export async function updateChatBackground(payload: {
+  friendshipId: string;
+  bgUrl: string | null;
+  bothSides?: boolean;
+}): Promise<{ message: string; data: { friendshipId: string; chatBgUrl: string | null } }> {
+  const res = await authFetch(`${API_BASE}/api/friends/chat-background`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  return handleJson(res);
+}
+
+export async function getChatBackground(
+  friendshipId: string,
+): Promise<{ chatBgUrl: string | null }> {
+  const res = await authFetch(
+    `${API_BASE}/api/friends/chat-background/${encodeURIComponent(friendshipId)}`,
+  );
+  return handleJson(res);
+}
+
+/**
+ * Hủy kết bạn
+ */
+export async function unfriend(friendshipId: string): Promise<{ message: string; data: { friendshipId: string; status: string } }> {
+  const res = await authFetch(`${API_BASE}/api/friends/${encodeURIComponent(friendshipId)}`, {
+    method: "DELETE",
+  });
+  return handleJson(res);
+}
+
+// ── QR Code Friend API ──────────────────────────────────────────────────────────
+
+export interface QRInfoResponse {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  qrData: string;
+}
+
+/**
+ * Lấy thông tin QR code của một người dùng
+ */
+export async function getQRInfo(userId: string): Promise<QRInfoResponse> {
+  const res = await authFetch(`${API_BASE}/api/friends/qr-info/${encodeURIComponent(userId)}`);
+  return handleJson<QRInfoResponse>(res);
+}
+
+/**
+ * Gửi lời mời kết bạn qua mã QR đã quét
+ */
+export async function sendFriendRequestByQR(
+  qrData: string,
+): Promise<{ message: string; data: any }> {
+  const res = await authFetch(`${API_BASE}/api/friends/request-by-qr`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qrData }),
+  });
+  return handleJson<{ message: string; data: any }>(res);
+}
+

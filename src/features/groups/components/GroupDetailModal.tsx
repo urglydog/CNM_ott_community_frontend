@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X, Users, Link2, Copy, Check, Shield } from "lucide-react";
+import QRCode from "qrcode";
 import { useToast } from "../../../contexts/ToastContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useSocket } from "../../../contexts/SocketContext";
@@ -9,6 +10,7 @@ import { useGroupsStore } from "../store/groupsStore";
 import type { Group, InviteInfo, GroupJoinRequest } from "../types";
 import { fetchPendingRequests, updateGroupSettings } from "../api";
 import InviteMemberModal from "./InviteMemberModal";
+import TransferOwnerModal from "./TransferOwnerModal";
 
 interface GroupDetailModalProps {
   group: Group;
@@ -47,11 +49,14 @@ export default function GroupDetailModal({
 
   const [inviteInfo, setInviteInfo] = useState<InviteInfo | null>(null);
   const [isLoadingInvite, setIsLoadingInvite] = useState(false);
+  const [inviteQrDataUrl, setInviteQrDataUrl] = useState("");
+  const [isLoadingInviteQr, setIsLoadingInviteQr] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [isDisbanding, setIsDisbanding] = useState(false);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [isTransferOwnerModalOpen, setIsTransferOwnerModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"members" | "requests" | "settings">("members");
   const [pendingRequests, setPendingRequests] = useState<GroupJoinRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
@@ -62,6 +67,8 @@ export default function GroupDetailModal({
   const currentUserId = String(user?.id || user?.userId || "");
   const currentUserRole = members.find((m) => String(m.userId) === currentUserId)?.role;
   const needsApproval = selectedGroup?.isApprovalRequired ?? group.isApprovalRequired ?? false;
+  const allowSendLinks = selectedGroup?.allowSendLinks ?? group.allowSendLinks ?? 'ALL';
+  const spamFilterLevel = selectedGroup?.spamFilterLevel ?? group.spamFilterLevel ?? 1;
 
   useEffect(() => {
     setIsLoadingMembers(true);
@@ -80,6 +87,46 @@ export default function GroupDetailModal({
       })
       .finally(() => setIsLoadingInvite(false));
   }, [group.groupId, onGetInvite]);
+
+  useEffect(() => {
+    if (!inviteInfo?.inviteLink) {
+      setInviteQrDataUrl("");
+      setIsLoadingInviteQr(false);
+      return;
+    }
+
+    let mounted = true;
+    setIsLoadingInviteQr(true);
+
+    QRCode.toDataURL(inviteInfo.inviteLink, {
+      width: 220,
+      margin: 2,
+      color: {
+        dark: "#000000ff",
+        light: "#ffffffff",
+      },
+      errorCorrectionLevel: "H",
+    })
+      .then((dataUrl) => {
+        if (mounted) {
+          setInviteQrDataUrl(dataUrl);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setInviteQrDataUrl("");
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setIsLoadingInviteQr(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [inviteInfo?.inviteLink]);
 
   useEffect(() => {
     if (currentUserRole === 'OWNER' || currentUserRole === 'DEPUTY') {
@@ -102,16 +149,15 @@ export default function GroupDetailModal({
     if (!socket) return;
     
     const handleMemberAdded = (data: any) => {
-      if (data.addedMembers && Array.isArray(data.addedMembers)) {
-        data.addedMembers.forEach((m: any) => socketAddMember(m));
-      } else if (data.member) {
-        socketAddMember(data.member);
-      }
+      // Backend send: { groupId, newMembers: userIds, addedBy }
+      // The modal doesn't have the user objects, so we need to fetch them
+      fetchMembers(group.groupId);
       addToast("Thành viên mới đã tham gia nhóm", "info");
     };
     
-    const handleMemberKicked = (data: any) => {
-      if (data.userId) socketRemoveMember(data.userId);
+    const handleMemberRemoved = (data: any) => {
+      // Backend send: { groupId, removedMember, kickedBy }
+      if (data.removedMember) socketRemoveMember(data.removedMember);
       addToast("Ai đó đã bị mời ra khỏi nhóm", "info");
     };
     
@@ -120,13 +166,14 @@ export default function GroupDetailModal({
     };
     
     const handleMemberLeft = (data: any) => {
-      if (data.userId) socketRemoveMember(data.userId);
+      // Backend send: { groupId, leftMember }
+      if (data.leftMember) socketRemoveMember(data.leftMember);
       addToast("Một người đã rời nhóm", "info");
     };
     
     const handleGroupDisbanded = () => {
       addToast("Nhóm đã bị giải tán", "error");
-      onClose(); // Đóng modal và thoát ra, active chat room sẽ được xoá bởi logic khác
+      onClose(); // Đóng modal và thoát ra
     };
 
     const handleNewJoinRequest = () => {
@@ -139,23 +186,24 @@ export default function GroupDetailModal({
       }
     };
 
-    socket.on("SERVER:MEMBER_ADDED", handleMemberAdded);
-    socket.on("SERVER:MEMBER_KICKED", handleMemberKicked);
-    socket.on("SERVER:ROLE_UPDATED", handleRoleUpdated);
-    socket.on("SERVER:MEMBER_LEFT", handleMemberLeft);
-    socket.on("SERVER:GROUP_DISBANDED", handleGroupDisbanded);
+    socket.on("group:members_added", handleMemberAdded);
+    socket.on("group:member_removed", handleMemberRemoved);
+    socket.on("SERVER:ROLE_UPDATED", handleRoleUpdated); // Keep this if you have it
+    socket.on("group:member_left", handleMemberLeft);
+    socket.on("group:deleted", handleGroupDisbanded);
     socket.on("SERVER:NEW_JOIN_REQUEST", handleNewJoinRequest);
 
     return () => {
-      socket.off("SERVER:MEMBER_ADDED", handleMemberAdded);
-      socket.off("SERVER:MEMBER_KICKED", handleMemberKicked);
+      socket.off("group:members_added", handleMemberAdded);
+      socket.off("group:member_removed", handleMemberRemoved);
       socket.off("SERVER:ROLE_UPDATED", handleRoleUpdated);
-      socket.off("SERVER:MEMBER_LEFT", handleMemberLeft);
-      socket.off("SERVER:GROUP_DISBANDED", handleGroupDisbanded);
+      socket.off("group:member_left", handleMemberLeft);
+      socket.off("group:deleted", handleGroupDisbanded);
       socket.off("SERVER:NEW_JOIN_REQUEST", handleNewJoinRequest);
     };
   }, [
     socket,
+    fetchMembers,
     socketAddMember,
     socketRemoveMember,
     socketUpdateRole,
@@ -190,6 +238,27 @@ export default function GroupDetailModal({
     } catch (err: any) {
       addToast("Lỗi rời nhóm: " + err.message, "error");
     } finally {
+      setIsLeaving(false);
+    }
+  };
+
+  const handleLeaveGroupClick = () => {
+    if (currentUserRole === 'OWNER' && members.length > 1) {
+      setIsTransferOwnerModalOpen(true);
+    } else {
+      handleLeaveGroup();
+    }
+  };
+
+  const handleConfirmTransferLeave = async (newOwnerId: string) => {
+    try {
+      setIsLeaving(true);
+      await leaveGroupAction(group.groupId, newOwnerId);
+      addToast("Bạn đã rời nhóm và chuyển quyền Trưởng nhóm", "success");
+      setIsTransferOwnerModalOpen(false);
+      onClose();
+    } catch (err: any) {
+      addToast("Lỗi rời nhóm: " + err.message, "error");
       setIsLeaving(false);
     }
   };
@@ -245,6 +314,40 @@ export default function GroupDetailModal({
         if (activeTab === "requests") setActiveTab("members");
       }
       addToast("Đã cập nhật cài đặt nhóm", "success");
+    } catch (err: any) {
+      addToast("Lỗi cập nhật cài đặt: " + err.message, "error");
+    } finally {
+      setIsUpdatingSettings(false);
+    }
+  };
+
+  const handleToggleAllowSendLinks = async () => {
+    const nextValue = allowSendLinks === 'ALL' ? 'ADMINS_ONLY' : 'ALL';
+    try {
+      setIsUpdatingSettings(true);
+      await updateGroupSettings(group.groupId, { allowSendLinks: nextValue });
+      updateGroup(group.groupId, { allowSendLinks: nextValue });
+      if (selectedGroup) {
+        setSelectedGroup({ ...selectedGroup, allowSendLinks: nextValue });
+      }
+      addToast("Đã cập nhật cài đặt nhóm", "success");
+    } catch (err: any) {
+      addToast("Lỗi cập nhật cài đặt: " + err.message, "error");
+    } finally {
+      setIsUpdatingSettings(false);
+    }
+  };
+
+  const handleUpdateSpamFilter = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextValue = Number(e.target.value);
+    try {
+      setIsUpdatingSettings(true);
+      await updateGroupSettings(group.groupId, { spamFilterLevel: nextValue });
+      updateGroup(group.groupId, { spamFilterLevel: nextValue });
+      if (selectedGroup) {
+        setSelectedGroup({ ...selectedGroup, spamFilterLevel: nextValue });
+      }
+      addToast("Đã cập nhật mức độ lọc Spam", "success");
     } catch (err: any) {
       addToast("Lỗi cập nhật cài đặt: " + err.message, "error");
     } finally {
@@ -483,6 +586,47 @@ export default function GroupDetailModal({
                   />
                 </button>
               </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-gray-500" />
+                  <div>
+                    <div className="text-[13px] font-medium text-gray-800">Chặn thành viên gửi liên kết (Link)</div>
+                    <div className="text-[12px] text-gray-500">Chỉ cho phép Trưởng/Phó nhóm gửi link</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleAllowSendLinks}
+                  disabled={isUpdatingSettings}
+                  aria-pressed={allowSendLinks === 'ADMINS_ONLY'}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${allowSendLinks === 'ADMINS_ONLY' ? 'bg-[#005ae0]' : 'bg-gray-200'} ${isUpdatingSettings ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${allowSendLinks === 'ADMINS_ONLY' ? 'translate-x-5' : 'translate-x-1'}`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-gray-500" />
+                  <div>
+                    <div className="text-[13px] font-medium text-gray-800">Mức độ lọc Spam</div>
+                    <div className="text-[12px] text-gray-500">Chọn mức độ kiểm duyệt nội dung tin nhắn</div>
+                  </div>
+                </div>
+                <select
+                  value={spamFilterLevel}
+                  onChange={handleUpdateSpamFilter}
+                  disabled={isUpdatingSettings}
+                  className="text-[13px] bg-gray-50 border border-gray-200 rounded-md px-2 py-1 outline-none focus:border-[#005ae0]"
+                >
+                  <option value={0}>Tắt (Không lọc)</option>
+                  <option value={1}>Vừa (Tiêu chuẩn)</option>
+                  <option value={2}>Gắt gao (Chặn mạnh)</option>
+                </select>
+              </div>
             </div>
           )}
 
@@ -606,6 +750,29 @@ export default function GroupDetailModal({
                     </div>
                   )}
 
+                  <div>
+                    <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-2">
+                      Mã QR tham gia nhóm
+                    </p>
+                    <div className="flex items-center justify-center rounded-xl border border-gray-200 bg-gray-50 p-4">
+                      {isLoadingInviteQr ? (
+                        <div className="flex h-[220px] w-[220px] items-center justify-center">
+                          <div className="w-8 h-8 border-2 border-[#005ae0] border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : inviteQrDataUrl ? (
+                        <img
+                          src={inviteQrDataUrl}
+                          alt="QR tham gia nhóm"
+                          className="h-[220px] w-[220px] object-contain"
+                        />
+                      ) : (
+                        <div className="flex h-[220px] w-[220px] items-center justify-center text-center text-[13px] text-gray-400">
+                          Không thể tạo mã QR
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   <p className="text-[11px] text-gray-400 text-center">
                     Chia sẻ mã hoặc liên kết trên để mời bạn bè tham gia nhóm
                   </p>
@@ -624,7 +791,7 @@ export default function GroupDetailModal({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={handleLeaveGroup}
+              onClick={handleLeaveGroupClick}
               disabled={isLeaving}
               className="px-4 py-2 text-[13px] font-medium rounded-lg text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
@@ -658,6 +825,18 @@ export default function GroupDetailModal({
           group={group}
           currentMembers={members}
           onClose={() => setIsInviteModalOpen(false)}
+        />
+      )}
+
+      {/* Modal Chuyển Quyền & Rời Nhóm */}
+      {isTransferOwnerModalOpen && (
+        <TransferOwnerModal
+          group={group}
+          currentMembers={members}
+          currentUserId={currentUserId}
+          onClose={() => setIsTransferOwnerModalOpen(false)}
+          onConfirm={handleConfirmTransferLeave}
+          isLoading={isLeaving}
         />
       )}
     </div>

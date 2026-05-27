@@ -49,6 +49,21 @@ function snippet(text: string, max = 52) {
   return `${t.slice(0, max)}…`;
 }
 
+function formatSnippetText(rawContent: string, friends: any[] = []) {
+  if (!rawContent) return "";
+  let txt = String(rawContent).replaceAll("<@all>", "@Tất cả");
+  txt = txt.replace(/<@([^>]+)>/g, (match, userId) => {
+    if (userId === "all") return "@Tất cả";
+    const friend = friends.find((f) => String(f.friend_id || f.id || f.userId) === String(userId));
+    if (friend?.nickname) return `@${friend.nickname}`;
+    if (friend?.friend_display_name || friend?.displayName) {
+      return `@${friend.friend_display_name || friend.displayName}`;
+    }
+    return "@Người dùng";
+  });
+  return snippet(txt);
+}
+
 // ── Union type cho mỗi item trong danh sách gộp ──────────────────────────────
 
 interface PrivateChatItem extends FriendItem {
@@ -97,6 +112,8 @@ export default function ChatListPanel({
   >({});
 
   const trimmedQuery = query.trim();
+  const safeFriends = Array.isArray(friends) ? friends : [];
+  const safeMyGroups = Array.isArray(myGroups) ? myGroups : [];
 
   function openAiFromSearch(prompt = "") {
     openAiChat(prompt);
@@ -145,7 +162,7 @@ export default function ChatListPanel({
     let cancelled = false;
 
     async function resolveFriendAvatars() {
-      const targets = friends.filter((f) => Boolean(f.friend_avatar_url));
+      const targets = safeFriends.filter((f) => Boolean(f.friend_avatar_url));
       if (targets.length === 0) return;
 
       const entries = await Promise.all(
@@ -190,7 +207,7 @@ export default function ChatListPanel({
     return () => {
       cancelled = true;
     };
-  }, [friends]);
+  }, [safeFriends]);
 
   // ── sortedChatItems: gộp friends + groups, tìm kiếm, sắp xếp ──────────────
 
@@ -198,13 +215,13 @@ export default function ChatListPanel({
     const q = query.trim().toLowerCase();
 
     // Map friends → PrivateChatItem
-    const privateItems: PrivateChatItem[] = friends.map((f) => ({
+    const privateItems: PrivateChatItem[] = safeFriends.map((f) => ({
       ...f,
       type: "PRIVATE",
     }));
 
     // Map groups → GroupChatItem
-    const groupItems: GroupChatItem[] = myGroups.map((g) => ({
+    const groupItems: GroupChatItem[] = safeMyGroups.map((g) => ({
       ...g,
       type: "GROUP",
     }));
@@ -257,8 +274,8 @@ export default function ChatListPanel({
 
     return merged;
   }, [
-    friends,
-    myGroups,
+    safeFriends,
+    safeMyGroups,
     query,
     conversationPreview,
     groupConversationPreview,
@@ -266,7 +283,7 @@ export default function ChatListPanel({
   ]);
 
   // Tổng số cuộc trò chuyện
-  const totalCount = friends.length + myGroups.length;
+  const totalCount = safeFriends.length + safeMyGroups.length;
 
   return (
     <div className="w-[340px] bg-white border-r border-gray-200 flex flex-col z-10 relative shrink-0">
@@ -471,6 +488,7 @@ function PrivateChatRow({
   unread,
   onClick,
 }: PrivateChatRowProps) {
+  const friends = useChatStore((state) => state.friends || []);
   return (
     <button
       type="button"
@@ -516,7 +534,7 @@ function PrivateChatRow({
           )}
         </div>
         <p className="text-xs text-gray-500 truncate text-left">
-          {preview ? snippet(preview.content) : `@${item.friend_username}`}
+          {preview ? formatSnippetText(preview.content, friends) : `@${item.friend_username}`}
         </p>
       </div>
     </button>
@@ -540,6 +558,7 @@ function GroupChatRow({
   unread,
   onClick,
 }: GroupChatRowProps) {
+  const friends = useChatStore((state) => state.friends || []);
   return (
     <button
       type="button"
@@ -585,7 +604,7 @@ function GroupChatRow({
           )}
         </div>
         <p className="text-xs text-gray-500 truncate text-left">
-          {preview ? snippet(preview.content) : item.description || "Nhóm chat"}
+          {preview ? formatSnippetText(preview.content, friends) : item.description || "Nhóm chat"}
         </p>
       </div>
     </button>

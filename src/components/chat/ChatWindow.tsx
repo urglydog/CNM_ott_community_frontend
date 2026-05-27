@@ -24,6 +24,10 @@ import { useEffect, useRef, useState } from "react";
 import { useDirectMessage, type DmActivityPayload } from "../../hooks/useDirectMessage";
 import { useSocket } from "../../contexts/SocketContext";
 import type { AuthUser, FriendItem } from "../../types";
+import { useLiveLocation } from "../../hooks/useLiveLocation";
+import LocationMessage from "./LocationMessage";
+import LiveLocationMap from "./LiveLocationMap";
+import LocationShareButton from "./LocationShareButton";
 
 interface ChatWindowProps {
   selectedFriend: FriendItem | null;
@@ -65,12 +69,25 @@ export default function ChatWindow({
     scrollContainerRef,
     typingUsers,
     onTypingChange,
+    setMessages,
   } = useDirectMessage(friendId, { onDmActivity });
 
   const { status } = useSocket();
   const [inputValue, setInputValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isConnected = status === "connected";
+
+  // Logic Live Location
+  const {
+    isSharing,
+    liveLocations,
+    myLocation,
+    startSharing,
+    stopSharing,
+  } = useLiveLocation(
+    friendId ? `dm:${[Number(authUser.id), Number(friendId)].sort((a, b) => a - b).join(":")}` : null,
+    setMessages
+  );
 
   const friendName = selectedFriend?.friend_display_name ?? "";
 
@@ -182,8 +199,20 @@ export default function ChatWindow({
 
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto p-4 flex flex-col gap-3"
+        className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 relative"
       >
+        {/* Bản đồ Live Location hiển thị khi có người đang chia sẻ */}
+        {(isSharing || liveLocations.size > 0) && (
+          <div className="sticky top-0 z-20 mb-4 shadow-md rounded-xl overflow-hidden">
+            <LiveLocationMap
+              liveLocations={liveLocations}
+              myLocation={myLocation}
+              currentUserId={authUser.id}
+              height={280}
+            />
+          </div>
+        )}
+
         {isLoadingHistory && (
           <div className="flex items-center justify-center py-8 text-gray-400 text-sm gap-2">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -207,33 +236,70 @@ export default function ChatWindow({
 
         {messages.map((msg) => {
           const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUser.id);
+          const isBackgroundChange = 
+            msg.contentType === "system" || 
+            msg.content?.toLowerCase().includes("hình nền đã được thay đổi");
+
+          if (isBackgroundChange) {
+            return (
+              <div key={msg.id} className="flex justify-center my-2 w-full">
+                <div className="bg-black/5 px-4 py-1 rounded-full text-[12px] text-gray-500 font-medium">
+                  {msg.content}
+                </div>
+              </div>
+            );
+          }
 
           return (
-            <div key={msg.id} className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
+            <div key={msg.id} className={`flex flex-col gap-0.5 ${isOwn ? "items-end" : "items-start"}`}>
+
+              {/* Tên người gửi — NGOÀI bubble, phía trên */}
+              {!isOwn && (
+                <span className="text-xs text-gray-400 font-medium ml-2 leading-none">
+                  {friendName}
+                </span>
+              )}
+
+              {/* Bubble — chỉ chứa nội dung, không có tên */}
               <div
-                className={`max-w-[70%] px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${
+                className={`max-w-[70%] rounded-2xl text-[14px] shadow-sm border overflow-hidden ${
+                  msg.contentType === "location" ? "min-w-[240px]" : ""
+                } ${
                   isOwn
                     ? "bg-blue-500 text-white border-blue-500 rounded-br-sm"
                     : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
                 } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""}`}
               >
-                {!isOwn && (
-                  <div className={`text-xs font-medium mb-0.5 ${isOwn ? "text-blue-200" : "text-gray-400"}`}>
-                    {friendName}
+                {msg.contentType === "location" && msg.locationData ? (
+                  /* Location: map flush to bubble edges */
+                  <LocationMessage
+                    locationData={msg.locationData}
+                    isOwn={isOwn}
+                    isLive={msg.locationData.isLive === true}
+                    liveUntil={msg.locationData.liveUntil}
+                    senderAvatarUrl={msg.senderAvatarUrl}
+                    senderDisplayName={msg.senderDisplayName}
+                  />
+                ) : (
+                  /* Text / other: padded */
+                  <div className="px-3 py-2">
+                    <div className="whitespace-pre-wrap wrap-break-word">{msg.content || "[Không có nội dung]"}</div>
                   </div>
                 )}
-                <div className="whitespace-pre-wrap wrap-break-word">{msg.content || "[Không có nội dung]"}</div>
-                <div
-                  className={`mt-1 text-[10px] flex items-center gap-1 ${
-                    isOwn ? "text-blue-200 justify-end" : "text-gray-400"
-                  }`}
-                >
-                  {formatTime(msg.createdAt)}
-                  {isOwn && msg.sendStatus === "sending" && <Loader2 className="w-3 h-3 animate-spin inline-block" />}
-                  {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
-                  {isOwn && msg.sendStatus === "failed" && <span className="text-red-300">✗</span>}
-                </div>
               </div>
+
+              {/* Timestamp — NGOÀI bubble, phía dưới */}
+              <div
+                className={`text-[10px] flex items-center gap-1 ${
+                  isOwn ? "text-gray-400 mr-1" : "text-gray-400 ml-2"
+                }`}
+              >
+                {formatTime(msg.createdAt)}
+                {isOwn && msg.sendStatus === "sending" && <Loader2 className="w-3 h-3 animate-spin inline-block" />}
+                {isOwn && msg.sendStatus === "sent" && <span>✓</span>}
+                {isOwn && msg.sendStatus === "failed" && <span className="text-red-300">✗</span>}
+              </div>
+
             </div>
           );
         })}
@@ -257,7 +323,17 @@ export default function ChatWindow({
           <Image className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
           <Paperclip className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
           <LinkIcon className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
-          <MapPin className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
+          
+          {/* Nút Chia sẻ vị trí mới */}
+          <LocationShareButton
+            conversationId={friendId ? `dm:${[Number(authUser.id), Number(friendId)].sort((a, b) => a - b).join(":")}` : ""}
+            token={authUser.token}
+            isLiveSharing={isSharing}
+            onStartLiveLocation={startSharing}
+            onStopLiveLocation={stopSharing}
+            style={{ display: "inline-flex" }}
+          />
+
           <Contact className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
           <CheckSquare className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />
           <Type className="w-5 h-5 text-gray-500 cursor-pointer hover:text-gray-700" />

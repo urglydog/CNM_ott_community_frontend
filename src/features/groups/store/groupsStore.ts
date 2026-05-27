@@ -25,7 +25,7 @@ interface GroupsState {
   addMembers: (groupId: string | number, userIds: (string | number)[]) => Promise<void>;
   kickMember: (groupId: string | number, targetUserId: string | number) => Promise<void>;
   updateRole: (groupId: string | number, targetUserId: string | number, newRole: GroupRole) => Promise<void>;
-  leaveGroupAction: (groupId: string | number) => Promise<void>;
+  leaveGroupAction: (groupId: string | number, newOwnerId?: string | number) => Promise<void>;
   disbandGroupAction: (groupId: string | number) => Promise<void>;
   approveRequest: (groupId: string | number, targetUserId: string | number, action: "APPROVE" | "REJECT") => Promise<void>;
 
@@ -41,13 +41,29 @@ export const useGroupsStore = create<GroupsState>((set) => ({
   myGroups: [],
   setMyGroups: (groups) => set({ myGroups: groups }),
   addGroup: (group) =>
-    set((state) => ({ myGroups: [group, ...state.myGroups] })),
+    set((state) => {
+      // Tránh thêm trùng lặp - kiểm tra theo groupId
+      const exists = state.myGroups.some(
+        (g) => String(g.groupId) === String(group.groupId)
+      );
+      if (exists) {
+        // Cập nhật thông tin nhóm thay vì thêm mới
+        return {
+          myGroups: state.myGroups.map((g) =>
+            String(g.groupId) === String(group.groupId) ? { ...g, ...group } : g
+          ),
+        };
+      }
+      return { myGroups: [group, ...state.myGroups] };
+    }),
   removeGroup: (groupId) =>
-    set((state) => ({
-      myGroups: state.myGroups.filter(
-        (g) => String(g.groupId) !== String(groupId)
-      ),
-    })),
+    set((state) => {
+      const isSelected = state.selectedGroup && String(state.selectedGroup.groupId) === String(groupId);
+      return {
+        myGroups: state.myGroups.filter((g) => String(g.groupId) !== String(groupId)),
+        selectedGroup: isSelected ? null : state.selectedGroup,
+      };
+    }),
   updateGroup: (groupId, updates) =>
     set((state) => ({
       myGroups: state.myGroups.map((g) =>
@@ -143,9 +159,9 @@ export const useGroupsStore = create<GroupsState>((set) => ({
     }
   },
 
-  leaveGroupAction: async (groupId) => {
+  leaveGroupAction: async (groupId, newOwnerId) => {
     try {
-      await groupsApi.leaveGroup(groupId);
+      await groupsApi.leaveGroup(groupId, newOwnerId);
       set((state) => ({
         myGroups: state.myGroups.filter(g => String(g.groupId) !== String(groupId)),
         selectedGroup: state.selectedGroup && String(state.selectedGroup.groupId) === String(groupId) ? null : state.selectedGroup

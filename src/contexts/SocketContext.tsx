@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "./AuthContext";
+import { useCallSocketListener } from "../features/call";
 import type {
   MessageItem,
   StickerData,
@@ -131,6 +132,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const resolvedUserId = String(
     (user as any)?.id ?? (user as any)?._id ?? (user as any)?.userId ?? "",
   ).trim();
+
+  // ── Call signaling: register call socket event listeners ──────────────────
+  useCallSocketListener(resolvedUserId || null);
 
   const socketRef = useRef<Socket | null>(null);
   const [status, setStatus] = useState<SocketStatus>("disconnected");

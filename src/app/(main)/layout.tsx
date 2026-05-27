@@ -13,6 +13,7 @@ import { useGroupSocket } from "../../features/groups/hooks/useGroupSocket";
 import { useJoinFriendDmRooms, friendIdFromConversationId } from "../../features/chat/hooks/useChatHooks";
 import { useFriendSocket } from "../../hooks/useFriendSocket";
 import { usePushNotifications } from "../../hooks/usePushNotifications";
+import { useCallRecovery } from "../../features/call";
 import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
@@ -28,6 +29,9 @@ export default function MainLayout({
   const { user, isAuthenticated, isInitialized, logout, updateUser } = useAuth();
   const { socket, onReceiveMessage } = useSocket();
   const { addToast } = useToast();
+
+  // ── Call recovery: check for active calls on startup & foreground resume ──
+  useCallRecovery(isAuthenticated);
   const [pendingFriendCount, setPendingFriendCount] = useState(0);
 
   const {

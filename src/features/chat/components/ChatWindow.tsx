@@ -24,7 +24,6 @@ import { useChatStore } from "../store/chatStore";
 import { useGroupsStore } from "../../groups/store/groupsStore";
 import type { AuthUser, StickerData, ReplyToMessage, PollData } from "../../../types";
 import { askBot } from "../api";
-import { useCallManager } from "@/features/call";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
 import { getMessageDomId } from "../utils/messageSearch";
@@ -53,6 +52,7 @@ import { PinnedHeader } from "./PinnedHeader";
 import ChatSettingsSidebar from "./ChatSettingsSidebar";
 import { usePinnedMessages } from "../hooks/usePinnedMessages";
 import { useChatBackground } from "../hooks/useChatBackground";
+import { useCallManager } from "../../call/hooks/useCallManager";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -99,6 +99,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     cancelRecording,
     setAudioBlob,
   } = useAudioRecorder();
+
+  const callManager = useCallManager();
 
   const currentUserId = String((authUser as any)._id || authUser.id || "");
   const currentUserName = authUser.displayName || authUser.username || "User";
@@ -181,7 +183,6 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   }, [selectedGroup]);
 
   const { status, emitSendMessage } = useSocket();
-  const { startCall, joinGroupCall } = useCallManager();
 
   const { addToast } = useToast();
   const [inputValue, setInputValue] = useState("");
@@ -1192,10 +1193,10 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         groupName={groupName}
         friendName={friendName}
         memberCount={memberCount}
-        onStartVideoCall={() => startCall("video")}
-        onStartVoiceCall={() => startCall("audio")}
         onToggleSearch={() => setSearchOpen((prev) => !prev)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onStartAudioCall={activeConversationId ? () => callManager.startCall(activeConversationId, "audio") : undefined}
+        onStartVideoCall={activeConversationId ? () => callManager.startCall(activeConversationId, "video") : undefined}
         activeConversationId={activeConversationId}
         resolveDisplayAvatar={resolveDisplayAvatar}
       />
@@ -1261,7 +1262,6 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           onReplyToMessage={handleReplyToMessage}
           onJumpToMessage={handleJumpToMessage}
           resolveDisplayAvatar={resolveDisplayAvatar}
-          onJoinGroupCall={joinGroupCall}
           isFocusBlue={isFocusBlue}
         />
 

@@ -1,140 +1,105 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { IncomingCallState } from "@/features/call/store/callStore";
+import { Phone, PhoneOff, Video, PhoneCall, ExternalLink } from "lucide-react";
+import { useCallManager } from "../hooks/useCallManager";
+import { useCallStore } from "../callStore";
 
-interface IncomingCallModalProps {
-  callData: IncomingCallState;
-  onAccept: (callData: IncomingCallState) => void;
-  onDecline: () => void;
-  autoDeclineAfterSec?: number;
-}
+/**
+ * Modal overlay shown when a direct incoming call is received.
+ * Displays caller info, call type, and accept/reject buttons.
+ *
+ * After accepting, if the popup was blocked, shows a manual "Open call window" button.
+ *
+ * Only renders when callStore.phase === "incoming".
+ */
+export function IncomingCallModal() {
+  const { phase, callSession, acceptCall, rejectCall, openCallWindowManually } = useCallManager();
+  const pendingCallWindowUrl = useCallStore((s) => s.pendingCallWindowUrl);
+  const callWindowOpening = useCallStore((s) => s.callWindowOpening);
 
-export default function IncomingCallModal({
-  callData,
-  onAccept,
-  onDecline,
-  autoDeclineAfterSec = 30,
-}: IncomingCallModalProps) {
-  const callLabel = callData.callType === "audio" ? "Goi thoai" : "Goi video";
-  const isGroupCall = Boolean(callData.isGroupCall);
+  if (phase !== "incoming" || !callSession) return null;
 
-  const [remainingMs, setRemainingMs] = useState(autoDeclineAfterSec * 1000);
-  const timeoutHandledRef = useRef(false);
-  const ringtoneRef = useRef<HTMLAudioElement | null>(null);
+  const isVideo = callSession.callType === "video";
 
-  const stopRingtone = useCallback(() => {
-    if (!ringtoneRef.current) return;
-    ringtoneRef.current.pause();
-    ringtoneRef.current.currentTime = 0;
-    ringtoneRef.current = null;
-  }, []);
+  // Find the initiator (caller) from participants
+  const caller = callSession.participants.find(
+    (p) => p.userId === callSession.initiatorId,
+  );
 
-  const handleDecline = useCallback(() => {
-    stopRingtone();
-    onDecline();
-  }, [onDecline, stopRingtone]);
+  // The caller name is set by the socket listener into callSession metadata
+  // For now, use a fallback — the socket incoming payload has initiatorName
+  // which is stored in the callSession by useCallSocketListener
+  const callerName =
+    (callSession as any).initiatorName || "Người gọi";
 
-  const handleAccept = useCallback(() => {
-    stopRingtone();
-    onAccept(callData);
-  }, [callData, onAccept, stopRingtone]);
-
-  useEffect(() => {
-    timeoutHandledRef.current = false;
-    setRemainingMs(autoDeclineAfterSec * 1000);
-
-    const startedAt = Date.now();
-    const tick = setInterval(() => {
-      const elapsed = Date.now() - startedAt;
-      const next = Math.max(autoDeclineAfterSec * 1000 - elapsed, 0);
-      setRemainingMs(next);
-
-      if (next <= 0 && !timeoutHandledRef.current) {
-        timeoutHandledRef.current = true;
-        handleDecline();
-      }
-    }, 100);
-
-    return () => clearInterval(tick);
-  }, [autoDeclineAfterSec, handleDecline]);
-
-  useEffect(() => {
-    const audio = new Audio("/sounds/ringtone.mp3");
-    audio.loop = true;
-    audio.volume = 0.85;
-    ringtoneRef.current = audio;
-    audio.play().catch(() => {
-      // Browser can block autoplay when user has not interacted yet.
-    });
-
-    return () => stopRingtone();
-  }, [stopRingtone]);
-
-  const timeLeftText = useMemo(() => {
-    const totalSeconds = Math.ceil(remainingMs / 1000);
-    const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
-    const ss = String(totalSeconds % 60).padStart(2, "0");
-    return `${mm}:${ss}`;
-  }, [remainingMs]);
-
-  const progress = useMemo(() => {
-    const total = autoDeclineAfterSec * 1000;
-    return total > 0 ? 1 - remainingMs / total : 1;
-  }, [autoDeclineAfterSec, remainingMs]);
-
-  const circleRadius = 34;
-  const circumference = 2 * Math.PI * circleRadius;
-  const strokeOffset = circumference * (1 - progress);
+  // Show manual open button when popup was blocked after accepting
+  const showManualOpen = !!pendingCallWindowUrl && !callWindowOpening;
 
   return (
-    <div className="fixed inset-0 z-10000 flex items-center justify-center bg-black/65 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-black/5">
-        <div className="mb-5 flex items-center gap-4">
-          <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-200/70" />
-            <span className="relative text-xl font-bold">{(callData.callerName || "U").charAt(0).toUpperCase()}</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 w-80 flex flex-col items-center gap-6 animate-in fade-in zoom-in-95 duration-200">
+        {/* Caller avatar */}
+        <div className="relative">
+          <div className="w-24 h-24 rounded-full bg-blue-500 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
+            {callerName.charAt(0).toUpperCase()}
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-lg font-semibold text-slate-900">{callData.callerName || "Nguoi dung"}</p>
-            <p className="text-sm text-slate-500">{isGroupCall ? "Cuoc goi nhom" : callLabel}</p>
-          </div>
+          {/* Pulse animation */}
+          <div className="absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-20" />
         </div>
 
-        <div className="mb-5 flex items-center justify-center">
-          <div className="relative h-24 w-24">
-            <svg className="h-24 w-24 -rotate-90" viewBox="0 0 80 80" aria-hidden>
-              <circle cx="40" cy="40" r={circleRadius} className="fill-none stroke-slate-200" strokeWidth="7" />
-              <circle
-                cx="40"
-                cy="40"
-                r={circleRadius}
-                className="fill-none stroke-emerald-500 transition-[stroke-dashoffset] duration-100"
-                strokeWidth="7"
-                strokeDasharray={circumference}
-                strokeDashoffset={strokeOffset}
-                strokeLinecap="round"
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-base font-semibold text-slate-900">{timeLeftText}</span>
-              <span className="text-[11px] text-slate-500">Tu dong huy</span>
-            </div>
-          </div>
+        {/* Caller info */}
+        <div className="text-center">
+          <h3 className="text-xl font-semibold text-gray-900">
+            {callerName}
+          </h3>
+          <p className="text-sm text-gray-500 mt-1 flex items-center justify-center gap-1.5">
+            {isVideo ? (
+              <>
+                <Video className="w-4 h-4" />
+                Cuộc gọi video đến
+              </>
+            ) : (
+              <>
+                <PhoneCall className="w-4 h-4" />
+                Cuộc gọi thoại đến
+              </>
+            )}
+          </p>
         </div>
 
-        <div className="flex gap-3">
+        {/* Manual open button — shown when popup was blocked after accept */}
+        {showManualOpen && (
           <button
-            onClick={handleDecline}
-            className="flex-1 rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-600"
+            type="button"
+            onClick={openCallWindowManually}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors cursor-pointer text-sm font-medium shadow-md"
+            title="Mở cửa sổ gọi"
           >
-            Tu choi
+            <ExternalLink className="w-4 h-4" />
+            Mở cửa sổ gọi
           </button>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-8 mt-2">
+          {/* Reject */}
           <button
-            onClick={handleAccept}
-            className="flex-1 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-600"
+            type="button"
+            onClick={rejectCall}
+            className="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors shadow-lg cursor-pointer"
+            title="Từ chối"
           >
-            Nghe may
+            <PhoneOff className="w-7 h-7" />
+          </button>
+
+          {/* Accept */}
+          <button
+            type="button"
+            onClick={acceptCall}
+            className="w-16 h-16 rounded-full bg-green-500 text-white flex items-center justify-center hover:bg-green-600 transition-colors shadow-lg animate-pulse cursor-pointer"
+            title="Chấp nhận"
+          >
+            <Phone className="w-7 h-7" />
           </button>
         </div>
       </div>

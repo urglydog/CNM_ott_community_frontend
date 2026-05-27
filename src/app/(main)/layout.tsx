@@ -13,13 +13,16 @@ import { useGroupSocket } from "../../features/groups/hooks/useGroupSocket";
 import { useJoinFriendDmRooms, friendIdFromConversationId } from "../../features/chat/hooks/useChatHooks";
 import { useFriendSocket } from "../../hooks/useFriendSocket";
 import { usePushNotifications } from "../../hooks/usePushNotifications";
+import { useCallRecovery } from "../../features/call";
+import { useCallRtcLifecycle } from "../../features/call/hooks/useCallRtcLifecycle";
+import { IncomingCallModal } from "../../features/call/components/IncomingCallModal";
+import { OutgoingCallModal } from "../../features/call/components/OutgoingCallModal";
+import { DirectCallScreen } from "../../features/call/components/DirectCallScreen";
 import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
 import ToastContainer from "../../components/common/ToastContainer";
 import AuthScreen from "../../components/auth/AuthScreen";
-import { CallManagerOverlay } from "@/features/call";
-
 export default function MainLayout({
   children,
 }: {
@@ -30,6 +33,13 @@ export default function MainLayout({
   const { user, isAuthenticated, isInitialized, logout, updateUser } = useAuth();
   const { socket, onReceiveMessage } = useSocket();
   const { addToast } = useToast();
+
+  // ── Call recovery: check for active calls on startup & foreground resume ──
+  useCallRecovery(isAuthenticated);
+
+  // ── Call RTC lifecycle: join/leave Agora based on callStore phase ──
+  useCallRtcLifecycle(isAuthenticated);
+
   const [pendingFriendCount, setPendingFriendCount] = useState(0);
 
   const {
@@ -210,8 +220,11 @@ export default function MainLayout({
         onOpenDmChat={(friend) => setSelectedFriend(friend)}
       />
       {children}
+      {/* Global call UI overlay — renders only when call phase is active */}
+      <IncomingCallModal />
+      <OutgoingCallModal />
+      <DirectCallScreen />
       <ToastContainer />
-      <CallManagerOverlay />
     </div>
   );
 }

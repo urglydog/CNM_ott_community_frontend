@@ -1,127 +1,110 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PhoneOff, PhoneOutgoing, AlertCircle, ExternalLink } from "lucide-react";
+import { useCallManager } from "../hooks/useCallManager";
+import { useCallStore } from "../callStore";
 
-interface OutgoingCallModalProps {
-  receiverName: string;
-  callType?: "video" | "audio";
-  isGroupCall?: boolean;
-  onCancel: () => void;
-  autoCancelAfterSec?: number;
-}
+/**
+ * Modal overlay shown when an outgoing call is being placed.
+ * Displays the callee info, "Đang gọi..." status, and a cancel button.
+ * Also shows error state (e.g., "Người dùng đang bận").
+ *
+ * When the popup was blocked by the browser, shows a manual "Open call window" button.
+ *
+ * Renders when callStore.phase === "outgoing" (or when errorMessage is set).
+ */
+export function OutgoingCallModal() {
+  const { phase, callSession, cancelCall, errorMessage, errorCode, clearError, openCallWindowManually } = useCallManager();
+  const pendingCallWindowUrl = useCallStore((s) => s.pendingCallWindowUrl);
+  const callWindowOpening = useCallStore((s) => s.callWindowOpening);
 
-export default function OutgoingCallModal({
-  receiverName,
-  callType = "video",
-  isGroupCall = false,
-  onCancel,
-  autoCancelAfterSec = 35,
-}: OutgoingCallModalProps) {
-  const [remainingMs, setRemainingMs] = useState(autoCancelAfterSec * 1000);
-  const timeoutHandledRef = useRef(false);
-  const waitingAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Show error overlay even if phase has already transitioned
+  if (errorMessage && errorCode === "CALL_BUSY") {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 w-80 flex flex-col items-center gap-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-20 h-20 rounded-full bg-orange-100 flex items-center justify-center">
+            <AlertCircle className="w-10 h-10 text-orange-500" />
+          </div>
+          <div className="text-center">
+            <h3 className="text-lg font-semibold text-gray-900">Không thể gọi</h3>
+            <p className="text-sm text-gray-500 mt-1">{errorMessage}</p>
+          </div>
+          <button
+            type="button"
+            onClick={clearError}
+            className="px-6 py-2 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors cursor-pointer text-sm font-medium"
+          >
+            Đã hiểu
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  const stopWaitingAudio = useCallback(() => {
-    if (!waitingAudioRef.current) return;
-    waitingAudioRef.current.pause();
-    waitingAudioRef.current.currentTime = 0;
-    waitingAudioRef.current = null;
-  }, []);
+  if (phase !== "outgoing" || !callSession) return null;
 
-  const handleCancel = useCallback(() => {
-    stopWaitingAudio();
-    onCancel();
-  }, [onCancel, stopWaitingAudio]);
+  const isVideo = callSession.callType === "video";
 
-  useEffect(() => {
-    timeoutHandledRef.current = false;
-    setRemainingMs(autoCancelAfterSec * 1000);
+  // For outgoing calls, the remote participant is the callee
+  const remoteParticipant = callSession.participants.find(
+    (p) => p.userId !== callSession.initiatorId,
+  );
 
-    const startedAt = Date.now();
-    const tick = setInterval(() => {
-      const elapsed = Date.now() - startedAt;
-      const next = Math.max(autoCancelAfterSec * 1000 - elapsed, 0);
-      setRemainingMs(next);
+  // Callee name — may be stored in callSession metadata by the socket handler
+  const calleeName =
+    (callSession as any).recipientName || "Đang gọi...";
 
-      if (next <= 0 && !timeoutHandledRef.current) {
-        timeoutHandledRef.current = true;
-        handleCancel();
-      }
-    }, 100);
-
-    return () => clearInterval(tick);
-  }, [autoCancelAfterSec, handleCancel]);
-
-  useEffect(() => {
-    const audio = new Audio("/sounds/waiting.mp3");
-    audio.loop = true;
-    audio.volume = 0.65;
-    waitingAudioRef.current = audio;
-    audio.play().catch(() => {
-      // Browser có thể chặn autoplay nếu chưa có tương tác người dùng.
-    });
-
-    return () => stopWaitingAudio();
-  }, [stopWaitingAudio]);
-
-  const title = isGroupCall ? "Dang goi nhom" : "Dang goi";
-  const subtitle = isGroupCall
-    ? `Moi thanh vien vao phong` 
-    : callType === "audio"
-      ? "Dang cho doi phuong nhac may (thoai)"
-      : "Dang cho doi phuong nhac may (video)";
-
-  const timeLeftText = useMemo(() => {
-    const totalSeconds = Math.ceil(remainingMs / 1000);
-    const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
-    const ss = String(totalSeconds % 60).padStart(2, "0");
-    return `${mm}:${ss}`;
-  }, [remainingMs]);
-
-  const progress = useMemo(() => {
-    const total = autoCancelAfterSec * 1000;
-    return total > 0 ? 1 - remainingMs / total : 1;
-  }, [autoCancelAfterSec, remainingMs]);
-
-  const circleRadius = 44;
-  const circumference = 2 * Math.PI * circleRadius;
-  const strokeOffset = circumference * (1 - progress);
+  // Show manual open button when popup was blocked
+  const showManualOpen = !!pendingCallWindowUrl && !callWindowOpening;
 
   return (
-    <div className="fixed inset-0 z-10000 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-3xl bg-linear-to-br from-slate-900 via-slate-800 to-emerald-900 p-7 text-white shadow-2xl ring-1 ring-white/10">
-        <p className="text-xs uppercase tracking-[0.25em] text-emerald-300">{title}</p>
-        <p className="mt-2 truncate text-2xl font-semibold">{receiverName || "Nguoi dung"}</p>
-        <p className="mt-1 text-sm text-slate-200/85">{subtitle}</p>
-
-        <div className="my-7 flex items-center justify-center">
-          <div className="relative h-32 w-32">
-            <svg className="h-32 w-32 -rotate-90" viewBox="0 0 100 100" aria-hidden>
-              <circle cx="50" cy="50" r={circleRadius} className="fill-none stroke-white/15" strokeWidth="8" />
-              <circle
-                cx="50"
-                cy="50"
-                r={circleRadius}
-                className="fill-none stroke-emerald-300 transition-[stroke-dashoffset] duration-100"
-                strokeWidth="8"
-                strokeDasharray={circumference}
-                strokeDashoffset={strokeOffset}
-                strokeLinecap="round"
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-2xl font-bold tabular-nums">{timeLeftText}</span>
-              <span className="text-xs text-slate-200/80">Tu dong huy</span>
-            </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 w-80 flex flex-col items-center gap-6 animate-in fade-in zoom-in-95 duration-200">
+        {/* Callee avatar */}
+        <div className="relative">
+          <div className="w-24 h-24 rounded-full bg-blue-500 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
+            {calleeName.charAt(0).toUpperCase()}
           </div>
+          {/* Ringing animation */}
+          <div className="absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-20" />
         </div>
 
-        <button
-          onClick={handleCancel}
-          className="w-full rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-600"
-        >
-          Huy cuoc goi
-        </button>
+        {/* Callee info */}
+        <div className="text-center">
+          <h3 className="text-xl font-semibold text-gray-900">
+            {calleeName}
+          </h3>
+          <p className="text-sm text-gray-500 mt-1 flex items-center justify-center gap-1.5">
+            <PhoneOutgoing className="w-4 h-4 animate-pulse" />
+            {isVideo ? "Đang gọi video..." : "Đang gọi..."}
+          </p>
+        </div>
+
+        {/* Manual open button — shown when popup was blocked */}
+        {showManualOpen && (
+          <button
+            type="button"
+            onClick={openCallWindowManually}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors cursor-pointer text-sm font-medium shadow-md"
+            title="Mở cửa sổ gọi"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Mở cửa sổ gọi
+          </button>
+        )}
+
+        {/* Cancel button */}
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={cancelCall}
+            className="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors shadow-lg cursor-pointer"
+            title="Huỷ cuộc gọi"
+          >
+            <PhoneOff className="w-7 h-7" />
+          </button>
+        </div>
       </div>
     </div>
   );

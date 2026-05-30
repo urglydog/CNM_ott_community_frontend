@@ -27,6 +27,7 @@ export type MessageItem = {
   reactions?: unknown;
   replyTo?: string | number | null;
   replyToMessage?: ReplyToMessage | null;
+  storyReply?: StoryReply | null;
   createdAt: string;
   senderDisplayName?: string | null;
   senderAvatarUrl?: string | null;
@@ -40,6 +41,14 @@ export interface MessageAttachment {
   mimeType?: string | null;
   key?: string | null;
   name?: string | null;
+}
+
+export interface StoryReply {
+  storyId: string;
+  authorName: string;
+  type: "image" | "text";
+  text?: string;
+  mediaUrl?: string | null;
 }
 
 /**
@@ -276,6 +285,7 @@ export interface DirectMessageItem {
   replyTo?: string | number | null;
   /** Thông tin đã populate của tin nhắn gốc (hiển thị preview) */
   replyToMessage?: ReplyToMessage | null;
+  storyReply?: StoryReply | null;
   createdAt: string;
   /** Display name của người gửi, do backend enrich khi trả message */
   senderDisplayName?: string | null;

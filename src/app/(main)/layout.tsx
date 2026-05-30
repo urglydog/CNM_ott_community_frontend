@@ -164,6 +164,23 @@ export default function MainLayout({
     return off;
   }, [socket, isAuthenticated, onReceiveMessage, selectedFriend, selectedGroup, setConversationPreview, incrementUnread, incrementGroupUnread, setGroupConversationPreview, addToast, friends, chatMode]);
 
+  useEffect(() => {
+    if (!socket || !isAuthenticated) return;
+
+    const handleReminderDue = (payload: any) => {
+      const content =
+        payload?.reminder?.content ||
+        payload?.message?.content?.split("\n")?.[1] ||
+        "Nhắc hẹn";
+      addToast(`Đến giờ nhắc hẹn: ${content}`, "message", 6000);
+    };
+
+    socket.on("reminder:due", handleReminderDue);
+    return () => {
+      socket.off("reminder:due", handleReminderDue);
+    };
+  }, [socket, isAuthenticated, addToast]);
+
   // Handle friend socket events
   useFriendSocket(
     (sender) => {

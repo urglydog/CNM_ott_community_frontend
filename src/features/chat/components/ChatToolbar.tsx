@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Image, Link as LinkIcon, MapPin, MoreHorizontal, Paperclip, Smile, Contact, CheckSquare, Type, BarChart2 } from "lucide-react";
+import { Image, Link as LinkIcon, MapPin, MoreHorizontal, Paperclip, Smile, Contact, CalendarClock, BarChart2 } from "lucide-react";
 
 interface ChatToolbarProps {
   isConnected: boolean;
@@ -15,6 +15,7 @@ interface ChatToolbarProps {
   onLocationClick?: () => void;
   /** Callback khi nhấn nút Tạo bình chọn */
   onCreatePollClick?: () => void;
+  onCreateReminderClick?: () => void;
   children?: React.ReactNode;
 }
 
@@ -28,6 +29,7 @@ export function ChatToolbar({
   onFileClick,
   onLocationClick,
   onCreatePollClick,
+  onCreateReminderClick,
   children,
 }: ChatToolbarProps) {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
@@ -51,6 +53,11 @@ export function ChatToolbar({
   const handlePollClick = () => {
     setMoreMenuOpen(false);
     onCreatePollClick?.();
+  };
+
+  const handleReminderClick = () => {
+    setMoreMenuOpen(false);
+    onCreateReminderClick?.();
   };
 
   return (
@@ -127,11 +134,12 @@ export function ChatToolbar({
 
               <button
                 type="button"
-                onClick={() => setMoreMenuOpen(false)}
-                className="flex items-center gap-3 w-full px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
+                onClick={handleReminderClick}
+                disabled={!isConnected}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-left hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
-                  <Type className="w-4 h-4 text-gray-500" />
+                  <CalendarClock className="w-4 h-4 text-gray-500" />
                 </div>
                 <div>
                   <div className="text-[13px] font-medium text-gray-800">Tạo nhắc hẹn</div>

@@ -23,7 +23,7 @@ import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
 import { useGroupsStore } from "../../groups/store/groupsStore";
 import type { AuthUser, StickerData, ReplyToMessage, PollData } from "../../../types";
-import { askBot } from "../api";
+import { askBot, createNote, createReminder } from "../api";
 import { useToast } from "../../../contexts/ToastContext";
 import type { GroupMember } from "../../groups/types";
 import { getMessageDomId } from "../utils/messageSearch";
@@ -48,6 +48,8 @@ import { MessageSearchPanel } from "./MessageSearchPanel";
 import EmojiStickerPicker from "./EmojiStickerPicker";
 import ForwardMessageModal from "./ForwardMessageModal";
 import CreatePollModal from "./CreatePollModal";
+import CreateReminderModal, { type ReminderPayload } from "./CreateReminderModal";
+import CreateNoteModal, { type NotePayload } from "./CreateNoteModal";
 import { PinnedHeader } from "./PinnedHeader";
 import ChatSettingsSidebar from "./ChatSettingsSidebar";
 import { usePinnedMessages } from "../hooks/usePinnedMessages";
@@ -485,6 +487,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   // ── Create Poll modal state ────────────────────────────────────────────────
   const [createPollOpen, setCreatePollOpen] = useState(false);
+  const [createReminderOpen, setCreateReminderOpen] = useState(false);
+  const [createNoteOpen, setCreateNoteOpen] = useState(false);
 
   // Handle poll creation
   const handleCreatePoll = async (pollPayload: {
@@ -517,6 +521,110 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     } catch (error) {
       console.error("[ChatWindow] handleCreatePoll error:", error);
       addToast("Đã xảy ra lỗi khi tạo bình chọn", "error");
+    }
+  };
+
+  const handleCreateReminder = async (payload: ReminderPayload) => {
+    const conversationId = activeConversationId;
+    if (!conversationId) {
+      addToast("Vui lòng chọn cuộc trò chuyện trước", "error");
+      return;
+    }
+
+    try {
+      const result = await createReminder({
+        conversationId,
+        content: payload.content,
+        remindAt: payload.remindAt,
+        repeat: payload.repeat,
+      });
+      if (result?.message) {
+        const reminderMessage = {
+          ...result.message,
+          conversationId,
+          contentType: "reminder",
+          isOwn: Number(result.message.senderId) === Number(currentUserId),
+          sendStatus: "sent" as const,
+        };
+
+        if (chatMode === "GROUP") {
+          setGroupMessages((prev) =>
+            prev.some((m) => String(m.id) === String(reminderMessage.id))
+              ? prev
+              : [...prev, reminderMessage as GroupChatMessage],
+          );
+        } else {
+          setDmMessages((prev) =>
+            prev.some((m) => String(m.id) === String(reminderMessage.id))
+              ? prev
+              : [...prev, reminderMessage as any],
+          );
+        }
+      }
+      addToast("Đã tạo nhắc hẹn", "success");
+    } catch (error) {
+      console.error("[ChatWindow] handleCreateReminder error:", error);
+      addToast(
+        error instanceof Error
+          ? error.message
+          : "Đã xảy ra lỗi khi tạo nhắc hẹn",
+        "error",
+      );
+    }
+  };
+
+  const handleCreateNote = async (payload: NotePayload) => {
+    const conversationId = activeConversationId;
+    if (!conversationId) {
+      addToast("Vui lòng chọn cuộc trò chuyện trước", "error");
+      return;
+    }
+
+    try {
+      const result = await createNote({
+        conversationId,
+        content: payload.content,
+        pinToTop: payload.pinToTop,
+      });
+
+      if (result?.message) {
+        const noteMessage = {
+          ...result.message,
+          conversationId,
+          contentType: "note",
+          isOwn: Number(result.message.senderId) === Number(currentUserId),
+          sendStatus: "sent" as const,
+        };
+
+        if (chatMode === "GROUP") {
+          setGroupMessages((prev) =>
+            prev.some((m) => String(m.id) === String(noteMessage.id))
+              ? prev
+              : [...prev, noteMessage as GroupChatMessage],
+          );
+        } else {
+          setDmMessages((prev) =>
+            prev.some((m) => String(m.id) === String(noteMessage.id))
+              ? prev
+              : [...prev, noteMessage as any],
+          );
+        }
+      }
+
+      addToast(
+        result?.pinError
+          ? `Đã tạo ghi chú, nhưng chưa ghim được: ${result.pinError}`
+          : "Đã tạo ghi chú",
+        result?.pinError ? "info" : "success",
+      );
+    } catch (error) {
+      console.error("[ChatWindow] handleCreateNote error:", error);
+      addToast(
+        error instanceof Error
+          ? error.message
+          : "Đã xảy ra lỗi khi tạo ghi chú",
+        "error",
+      );
     }
   };
 
@@ -1403,6 +1511,20 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         />
       )}
 
+      {createReminderOpen && (
+        <CreateReminderModal
+          onClose={() => setCreateReminderOpen(false)}
+          onSubmit={handleCreateReminder}
+        />
+      )}
+
+      {createNoteOpen && (
+        <CreateNoteModal
+          onClose={() => setCreateNoteOpen(false)}
+          onSubmit={handleCreateNote}
+        />
+      )}
+
       {/* Input area */}
       <div className="bg-white border-t border-gray-200 flex flex-col shrink-0">
         {isAiChatOpen ? (
@@ -1460,6 +1582,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
               onFileClick={() => fileInputRef.current?.click()}
               onLocationClick={() => setLocationMenuOpen((prev) => !prev)}
               onCreatePollClick={() => setCreatePollOpen(true)}
+              onCreateReminderClick={() => setCreateReminderOpen(true)}
+              onCreateNoteClick={() => setCreateNoteOpen(true)}
             >
               <EmojiStickerPicker
                 isOpen={pickerOpen}

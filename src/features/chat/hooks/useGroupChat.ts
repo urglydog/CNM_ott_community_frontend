@@ -24,6 +24,9 @@ function getPreviewContent(
   if (message.contentType === "emoji")
     return message.content || "[Biểu tượng cảm xúc]";
   if (message.contentType === "poll") return "[Bình chọn]";
+  if (message.contentType === "reminder") return "[Nhắc hẹn]";
+  if (message.contentType === "reminder_due") return "Đến giờ nhắc hẹn";
+  if (message.contentType === "note") return "[Ghi chú]";
   if (Array.isArray(message.attachments) && message.attachments.length > 0) {
     const hasImage = message.attachments.some((a) => a?.type === "image");
     const hasVideo = message.attachments.some((a) => a?.type === "video");
@@ -316,7 +319,8 @@ export function useGroupChat(
       const isGroupCallStarted = (newMsg as any).contentType === "group_call_started" || (newMsg as any).messageType === "group_call_started";
       const isGroupCallActive = (newMsg as any).contentType === "group_call_active" || (newMsg as any).messageType === "group_call_active";
       const isPoll = (newMsg as any).contentType === "poll";
-      if (!isCallLog && !isGroupCallStarted && !isGroupCallActive && !isPoll && Number(newMsg.senderId) === Number(user?.id)) return;
+      const isReminder = (newMsg as any).contentType === "reminder";
+      if (!isCallLog && !isGroupCallStarted && !isGroupCallActive && !isPoll && !isReminder && Number(newMsg.senderId) === Number(user?.id)) return;
 
       // Cập nhật preview để nhóm trồi lên đầu trong ChatListPanel
       setGroupConversationPreview(currentRoomId, {

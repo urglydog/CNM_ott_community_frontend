@@ -10,6 +10,8 @@ import { GroupMessageBubble } from "./GroupMessageBubble";
 import { PrivateMessageBubble } from "./PrivateMessageBubble";
 import { SystemMessageBubble } from "./GroupMessageBubble";
 import { PollMessageBubble } from "./PollMessageBubble";
+import ReminderMessageBubble, { isReminderMessage } from "./ReminderMessageBubble";
+import NoteMessageBubble from "./NoteMessageBubble";
 import { getMessageDomId } from "../utils/messageSearch";
 
 interface MessageListProps {
@@ -39,7 +41,6 @@ interface MessageListProps {
   activeGroupCall?: { callId: string; channelName: string } | null;
   onJoinActiveGroupCall?: (callId: string) => void;
 }
-
 
 export function MessageList({
   chatMode,
@@ -175,9 +176,6 @@ export function MessageList({
                 : "rounded-xl animate-flash-gold ring-2 ring-amber-400 py-2 px-2 mx-1 shadow-lg scale-[1.01] transition-all z-10"
               : "px-2 py-2";
 
-
-
-
           // System message
           if (isSystemMessage(msg)) {
             return (
@@ -187,7 +185,25 @@ export function MessageList({
             );
           }
 
-          // Poll message — centered layout with voting UI
+          // Reminder message
+          if (isReminderMessage(msg)) {
+            return (
+              <div key={`reminder-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <ReminderMessageBubble msg={msg} currentUserId={currentUserId} />
+              </div>
+            );
+          }
+
+          // Note message
+          if (msg.contentType === "note") {
+            return (
+              <div key={`note-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <NoteMessageBubble msg={msg} currentUserId={currentUserId} />
+              </div>
+            );
+          }
+
+          // Poll message
           if (msg.contentType === "poll" && msg.pollData) {
             return (
               <div key={`poll-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
@@ -227,7 +243,6 @@ export function MessageList({
                 focusedMessageId={focusedMessageId}
                 isFocusBlue={isFocusBlue}
               />
-
             </div>
           );
         });

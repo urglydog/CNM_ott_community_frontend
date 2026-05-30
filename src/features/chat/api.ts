@@ -102,6 +102,70 @@ export async function askBot(message: string): Promise<BotChatResponse> {
   return response.data;
 }
 
+export type ReminderRepeat = "none" | "daily" | "weekly" | "monthly";
+
+export interface CreateReminderPayload {
+  conversationId: string;
+  content: string;
+  remindAt: string;
+  repeat: ReminderRepeat;
+}
+
+export interface ReminderItem {
+  reminderId: string;
+  conversationId: string;
+  creatorId: string;
+  content: string;
+  remindAt: string;
+  repeat: ReminderRepeat;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  messageId?: string | null;
+}
+
+export interface CreateReminderResponse {
+  data: {
+    reminder: ReminderItem;
+    message: DirectMessageItem;
+  };
+}
+
+export async function createReminder(
+  payload: CreateReminderPayload,
+): Promise<CreateReminderResponse["data"]> {
+  const response = await apiClient.post<CreateReminderResponse>(
+    "/api/reminders",
+    payload,
+  );
+  return response.data.data;
+}
+
+export interface CreateNotePayload {
+  conversationId: string;
+  content: string;
+  pinToTop: boolean;
+}
+
+export interface CreateNoteResponse {
+  data: {
+    note: DirectMessageItem;
+    message: DirectMessageItem;
+    pinnedMessages?: unknown[] | null;
+    pinError?: string | null;
+  };
+}
+
+export async function createNote(
+  payload: CreateNotePayload,
+): Promise<CreateNoteResponse["data"]> {
+  const response = await apiClient.post<CreateNoteResponse>(
+    "/api/notes",
+    payload,
+  );
+  return response.data.data;
+}
+
 /**
  * Lấy lịch sử tin nhắn nhóm.
  * Backend sử dụng conversationId = groupId nên dùng chung endpoint với DM.

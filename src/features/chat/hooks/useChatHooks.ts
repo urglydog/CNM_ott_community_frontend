@@ -96,6 +96,15 @@ function getPreviewContent(
   if (message.contentType === "poll") {
     return "[Bình chọn]";
   }
+  if (message.contentType === "reminder") {
+    return "[Nhắc hẹn]";
+  }
+  if (message.contentType === "reminder_due") {
+    return "Đến giờ nhắc hẹn";
+  }
+  if (message.contentType === "note") {
+    return "[Ghi chú]";
+  }
   if (Array.isArray(message.attachments) && message.attachments.length > 0) {
     const hasImage = message.attachments.some((a) => a?.type === "image");
     const hasVideo = message.attachments.some((a) => a?.type === "video");
@@ -296,7 +305,8 @@ export function useDirectMessage(
     const unsubReceive = onReceiveMessage((newMsg) => {
       // Chặn tin nhắn của chính mình, NGOẠI TRỪ call_log (cả 2 bên đều cần thấy)
       const isCallLog = (newMsg as any).contentType === "call_log" || (newMsg as any).messageType === "call_log";
-      if (!isCallLog && Number(newMsg.senderId) === Number(user?.id)) return;
+      const isReminder = (newMsg as any).contentType === "reminder";
+      if (!isCallLog && !isReminder && Number(newMsg.senderId) === Number(user?.id)) return;
       if (!isSameDmConversation(newMsg.conversationId, currentRoomId)) return;
 
       // Cập nhật preview trong store

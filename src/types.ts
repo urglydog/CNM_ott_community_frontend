@@ -145,6 +145,7 @@ export type AuthUser = {
   email?: string;
   phone?: string;
   avatarUrl?: string | null;
+  coverUrl?: string | null;
   emailVerified?: boolean;
   phoneVerified?: boolean;
   token: string;

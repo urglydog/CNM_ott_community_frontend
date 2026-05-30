@@ -1,427 +1,297 @@
 "use client";
 
-import { createRef, useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import { useAuth } from "../../../contexts/AuthContext";
-import { useSocket } from "../../../contexts/SocketContext";
-import { useChatStore } from "../../chat/store/chatStore";
-import { dmConversationId } from "../../chat/hooks/useChatHooks";
-import { groupConversationId } from "../../chat/hooks/useGroupChat";
-import {
-  useCallStore,
-  type IncomingCallState,
-} from "../store/callStore";
-import apiClient from "../../../lib/axios";
 import { useToast } from "../../../contexts/ToastContext";
-import type { VideoCallRoomHandle } from "../components/VideoCallRoom";
+import { useCallStore } from "../callStore";
+import * as callApi from "../callApi";
+import { consumeRtcToken } from "./useCallRtcLifecycle";
+import type { CallType, CallSession, TokenPayload } from "../types";
 
-const normalizeRoomId = (roomId: string) => String(roomId || "").replace(/:/g, "_");
+// ── Call window helpers ────────────────────────────────────────────────────
 
-// Module-level ref — VideoCallRoom gắn vào đây, useCallManager dùng để gracefulLeave
-export const videoCallRef = createRef<VideoCallRoomHandle>();
+/**
+ * Build the URL for the pop-out call window with all required params.
+ */
+function buildCallWindowUrl(
+  token: TokenPayload,
+  callSession: CallSession,
+  remoteName: string,
+  isInitiator: boolean,
+): string {
+  const params = new URLSearchParams({
+    appId: token.appId,
+    channelName: token.channelName,
+    token: token.token,
+    uid: String(token.uid),
+    callType: callSession.callType,
+    remoteName,
+    callId: callSession.callId,
+    isInitiator: String(isInitiator),
+  });
+  return `/call/window?${params.toString()}`;
+}
 
+/**
+ * Attempt to open the call window as a browser popup.
+ * Returns the Window object if successful, null if blocked.
+ */
+function openCallWindow(url: string): Window | null {
+  try {
+    return window.open(
+      url,
+      "ott-call-window",
+      "width=420,height=640,menubar=no,toolbar=no,status=no,resizable=yes",
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Orchestration hook for direct 1-1 call flows.
+ *
+ * Provides high-level actions (startCall, acceptCall, rejectCall, cancelCall, endCall)
+ * that combine REST API calls, token queuing, and callStore state transitions.
+ *
+ * Usage:
+ *   const { startCall, acceptCall, rejectCall, cancelCall, endCall } = useCallManager();
+ *   await startCall(conversationId, "video");
+ */
 export function useCallManager() {
-  const incomingCall = useCallStore((state) => state.incomingCall);
-  const activeCall = useCallStore((state) => state.activeCall);
-  const outgoingCall = useCallStore((state) => state.outgoingCall);
-  const setIncomingCall = useCallStore((state) => state.setIncomingCall);
-  const setActiveCall = useCallStore((state) => state.setActiveCall);
-  const setOutgoingCall = useCallStore((state) => state.setOutgoingCall);
-
   const { user } = useAuth();
   const { addToast } = useToast();
-  const {
-    socket,
-    emitCallUser,
-    emitCallAccepted,
-    emitCallDeclined,
-    emitEndCall,
-    emitJoinGroupCall,
-    emitLeaveGroupCall,
-    onIncomingCall,
-    onCallDeclined,
-  } = useSocket();
-  const { chatMode, selectedFriend, selectedGroup } = useChatStore();
+  const phase = useCallStore((s) => s.phase);
+  const callSession = useCallStore((s) => s.callSession);
+  const isInitiator = useCallStore((s) => s.isInitiator);
+  const errorMessage = useCallStore((s) => s.errorMessage);
+  const errorCode = useCallStore((s) => s.errorCode);
 
-  const currentUserId = String(
-    (user as any)?.id ?? (user as any)?._id ?? (user as any)?.userId ?? "",
-  ).trim();
-  const currentUserName =
-    (user as any)?.displayName || (user as any)?.username || "User";
-
-  const currentUser = useMemo(() => {
-    if (!currentUserId) return null;
-    return { userId: currentUserId, userName: currentUserName };
-  }, [currentUserId, currentUserName]);
-
-  const friendName = selectedFriend?.friend_display_name ?? "";
-  const groupName = selectedGroup?.name ?? "";
-
-  const incomingCallRef = useRef<IncomingCallState | null>(null);
-  const currentUserIdRef = useRef(currentUserId);
-
+  // Set currentUserId in callStore when user is available
   useEffect(() => {
-    incomingCallRef.current = incomingCall;
-  }, [incomingCall]);
-
-  useEffect(() => {
-    currentUserIdRef.current = currentUserId;
-  }, [currentUserId]);
-
-  useEffect(() => {
-    const unsubscribeIncoming = onIncomingCall((data) => {
-      const resolvedUserId = currentUserIdRef.current;
-      const callerId = String((data as any)?.callerId ?? (data as any)?.from ?? "");
-      const receiverId = String((data as any)?.receiverId ?? (data as any)?.to ?? "");
-
-      if (callerId && callerId === resolvedUserId) return;
-      if (receiverId && resolvedUserId && receiverId !== resolvedUserId) return;
-
-      setIncomingCall({
-        roomId: normalizeRoomId(String((data as any)?.roomId || "")),
-        conversationId: (data as any)?.conversationId,
-        callerId,
-        callerName: (data as any)?.callerName || "Nguoi dung",
-        receiverId: receiverId || resolvedUserId,
-        isGroupCall: (data as any)?.isGroupCall,
-        callType: (data as any)?.callType || "video",
-      });
-    });
-
-    const unsubscribeDeclined = onCallDeclined((data) => {
-      const current = incomingCallRef.current;
-      if (!current) return;
-
-      const currentRoomId = normalizeRoomId(String(current.roomId || ""));
-      const canceledRoomId = normalizeRoomId(String((data as any)?.roomId || ""));
-      if (currentRoomId === canceledRoomId) {
-        setIncomingCall(null);
-      }
-    });
-
-    // ============================================================
-    // ✅ REMOVED: onEndCall listener đã được xử lý trong SocketContext
-    // ============================================================
-    // Lý do: SocketContext đã lắng nghe 'call-ended' và gọi gracefulLeave.
-    // Nếu useCallManager cũng lắng nghe → double-cleanup → crash Zego createSpan.
-    //
-    // Flow Server-Authoritative:
-    // 1. endCall() emit 'end-call' lên Server
-    // 2. Server emit 'call-ended' đến TẤT CẢ clients
-    // 3. SocketContext.handleCallEnded → gracefulLeave → setActiveCall(null)
-    // 4. useCallManager KHÔNG cần làm gì thêm
-
-    return () => {
-      unsubscribeIncoming();
-      unsubscribeDeclined();
-    };
-  }, [
-    onIncomingCall,
-    onCallDeclined,
-    setIncomingCall,
-  ]);
-
-  const startCall = useCallback(
-    (callType: "video" | "audio" = "video") => {
-      if (!currentUserId) return;
-
-      const isGroupCall = chatMode === "GROUP";
-      const hasTarget = isGroupCall ? selectedGroup != null : selectedFriend != null;
-      if (!hasTarget) return;
-
-      // Guard: Nhóm chỉ được phép gọi video, không hỗ trợ gọi thoại
-      if (isGroupCall && callType === "audio") {
-        console.warn("[startCall] Chức năng gọi thoại không được hỗ trợ trong Group Chat.");
-        addToast("Gọi thoại không khả dụng trong nhóm. Vui lòng chọn gọi video.", "info", 4000);
-        return;
-      }
-
-      const directFriendId = String(
-        (selectedFriend as any)?.friend_id ??
-          (selectedFriend as any)?._id ??
-          (selectedFriend as any)?.id ??
-          "",
-      );
-
-      if (!isGroupCall && !directFriendId) return;
-
-      const normalizedGroupId = isGroupCall
-        ? String(selectedGroup!.groupId).replace("group_", "")
-        : "";
-
-      const rawRoomId = isGroupCall
-        ? `group_call_${normalizedGroupId}`
-        : `call_1vs1_${[currentUserId, directFriendId].sort().join("_")}`;
-      const safeRoomId = normalizeRoomId(rawRoomId);
-      const conversationId = isGroupCall
-        ? groupConversationId(selectedGroup!.groupId)
-        : dmConversationId(currentUserId, directFriendId);
-
-      if (isGroupCall) {
-        emitCallUser({
-          roomId: safeRoomId,
-          callerId: currentUserId,
-          callerName: currentUserName,
-          groupId: String(selectedGroup!.groupId),
-          receiverId: String(selectedGroup!.groupId),
-          conversationId,
-          isGroupCall: true,
-          callType,
-        });
-
-        // Lấy token ngay để initiator có thể tham gia phòng video ngay lập tức
-        apiClient
-          .get<{ appID: number; token: string }>("/api/calls/token", {
-            params: { userID: currentUserId },
-          })
-          .then((response) => {
-            setActiveCall({
-              roomId: safeRoomId,
-              token: String(response.data.token),
-              appId: Number(response.data.appID),
-              conversationId,
-              remoteUserId: String(selectedGroup!.groupId),
-              remoteUserName: groupName || "Nhom",
-              isGroupCall: true,
-              callType,
-            });
-          })
-          .catch(() => {
-            addToast("Khong the tao phong cuoc goi", "error");
-          });
-        return;
-      }
-
-      emitCallUser({
-        roomId: safeRoomId,
-        callerId: currentUserId,
-        callerName: currentUserName,
-        receiverId: directFriendId,
-        to: directFriendId,
-        conversationId,
-        isGroupCall: false,
-        callType,
-      });
-
-      // Báo cho CallManagerOverlay hiển thị giao diện đợi cho người gọi
-      setOutgoingCall({
-        roomId: safeRoomId,
-        conversationId,
-        receiverId: directFriendId,
-        receiverName: friendName,
-        isGroupCall: false,
-        callType,
-      });
-      // KHÔNG setActiveCall ở đây — Caller phải ĐỢI sự kiện call-accepted
-      // từ Socket trả về kèm Token mới được mở phòng.
-    },
-    [
-      chatMode,
-      currentUserId,
-      currentUserName,
-      selectedFriend,
-      selectedGroup,
-      emitCallUser,
-      groupName,
-      setOutgoingCall,
-      friendName,
-      addToast,
-    ]
-  );
-
-  const acceptCall = useCallback(
-    async (callData: IncomingCallState) => {
-      if (!user || !socket) return;
-
-      // Guard: Nhóm chỉ được phép gọi video, chặn chấp nhận group audio call
-      if (callData.isGroupCall && callData.callType === "audio") {
-        console.warn("[acceptCall] Không thể chấp nhận gọi thoại nhóm.");
-        addToast("Gọi thoại không khả dụng trong nhóm.", "info", 4000);
-        setIncomingCall(null);
-        return;
-      }
-
-      const resolvedUserId = String(
-        (user as any).id || (user as any).userId,
-      );
-
-      emitCallAccepted({
-        conversationId: callData.conversationId || callData.roomId,
-        roomId: callData.roomId,
-        callerId: String(callData.callerId),
-        callerName: callData.callerName,
-        receiverId: resolvedUserId,
-        receiverName: currentUserName,
-        isGroupCall: callData.isGroupCall,
-        callType: callData.callType || "video",
-      });
-
-      const conversationId = callData.conversationId || callData.roomId;
-      const roomId = String(callData.roomId || "").replace(/:/g, "_");
-
-      // Guard: Nếu đã có activeCall cho cùng roomId → đã được khởi tạo rồi, bỏ qua
-      if (activeCall && activeCall.roomId === roomId) {
-        console.log("[acceptCall] Đã ở trong phòng này rồi, bỏ qua setActiveCall.");
-        setIncomingCall(null);
-        return;
-      }
-
-      try {
-        const response = await apiClient.get("/api/calls/token", {
-          params: { userID: resolvedUserId },
-        });
-
-        setActiveCall({
-          roomId,
-          token: String(response.data.token),
-          appId: Number(response.data.appID),
-          conversationId,
-          remoteUserId: String(callData.callerId),
-          remoteUserName: callData.callerName,
-          isGroupCall: callData.isGroupCall,
-          callType: callData.callType || "video",
-        });
-
-        setIncomingCall(null);
-
-        if (callData.isGroupCall) {
-          const convId = callData.conversationId || callData.roomId;
-          emitJoinGroupCall(roomId, resolvedUserId, convId);
-        }
-      } catch (error) {
-        console.error("Lỗi lấy token ZegoCloud:", error);
-        addToast("Không thể tạo phòng cuộc gọi", "error");
-      }
-    },
-    [user, socket, activeCall, emitCallAccepted, setActiveCall, setIncomingCall, emitJoinGroupCall, addToast, currentUserName],
-  );
-
-  const rejectCall = useCallback(() => {
-    if (!incomingCall) return;
-
-    if (incomingCall.isGroupCall) {
-      setIncomingCall(null);
-      return;
+    if (user?.id) {
+      useCallStore.getState().setCurrentUserId(String(user.id));
+    } else {
+      useCallStore.getState().setCurrentUserId(null);
     }
-
-    const conversationId = incomingCall.conversationId || incomingCall.roomId;
-    emitCallDeclined({
-      ...incomingCall,
-      conversationId,
-      receiverId: incomingCall.receiverId || currentUserId,
-      to: String(incomingCall.callerId || ""),
-      callerId: String(incomingCall.callerId || ""),
-      from: currentUserId,
-    });
-
-    setIncomingCall(null);
-  }, [incomingCall, currentUserId, emitCallDeclined, setIncomingCall]);
+  }, [user?.id]);
 
   /**
-   * endCall - Chỉ emit tín hiệu kết thúc lên Server, KHÔNG tự ý unmount UI.
-   * Server sẽ quyết định khi nào TẤT CẢ clients cùng unmount.
-   * 
-   * Race Condition Fix: Nếu Frontend tự gọi setActiveCall(null) trước khi
-   * Zego cleanup xong → crash "Cannot read properties of null (reading 'createSpan')"
-   * 
-   * → Chỉ khi nhận được 'call-ended' từ Server thì mới gọi gracefulLeave() và setActiveCall(null)
+   * Start an outgoing direct call.
+   * 1. POST /api/calls/start → { call, token }
+   * 2. Queue token for RTC lifecycle join
+   * 3. Transition callStore to "outgoing"
    */
-  const endCall = useCallback(() => {
-    if (!currentUserId) return;
+  const startCall = useCallback(
+    async (conversationId: string, callType: CallType): Promise<void> => {
+      try {
+        // Guard: don't start if already in a call
+        const currentPhase = useCallStore.getState().phase;
+        if (currentPhase !== "idle") {
+          addToast("Bạn đang trong cuộc gọi khác", "error");
+          return;
+        }
 
-    // ✅ TRƯỜNG HỢP 1: ĐÃ VÀO PHÒNG - Cuộc gọi đang diễn ra
-    // CHỈ emit, KHÔNG setActiveCall(null) ở đây
-    if (activeCall) {
-      if (activeCall.isGroupCall) {
-        emitLeaveGroupCall(activeCall.roomId, currentUserId, activeCall.conversationId);
-      } else {
-        emitEndCall({
-          conversationId: activeCall.conversationId,
-          roomId: activeCall.roomId,
-          callerId: currentUserId,
-          callerName: currentUserName,
-          receiverId: activeCall.remoteUserId,
-          to: activeCall.remoteUserId,
-          from: currentUserId,
-          isGroupCall: false,
-        });
+        const response = await callApi.startCall(conversationId, callType);
+
+        // Build call window URL with token + call info
+        const remoteName =
+          (response.call as any).recipientName || "Đối phương";
+        const url = buildCallWindowUrl(
+          response.token,
+          response.call,
+          remoteName,
+          true,
+        );
+
+        // Try to open pop-out call window (from user gesture — should succeed)
+        const popup = openCallWindow(url);
+
+        if (popup) {
+          // Popup opened — it will own the Agora lifecycle
+          useCallStore.getState().setCallWindowOpening(true);
+          // Do NOT consumeRtcToken — the popup joins Agora directly
+        } else {
+          // Popup blocked by browser — fall back to inline Agora (floating window)
+          useCallStore.getState().setPendingCallWindowUrl(url);
+          consumeRtcToken(response.token, callType === "video");
+          addToast(
+            "Cửa sổ bị chặn. Sử dụng cửa sổ nổi.",
+            "info",
+          );
+        }
+
+        // Transition to outgoing phase
+        useCallStore.getState().setOutgoing(response.call);
+      } catch (err: unknown) {
+        const msg =
+          err instanceof Error ? err.message : "Không thể bắt đầu cuộc gọi";
+        useCallStore.getState().setError(msg);
+        addToast(msg, "error");
+        // Reset to idle after a brief delay so error is visible
+        setTimeout(() => useCallStore.getState().reset(), 2000);
       }
-      // ❌ KHÔNG gọi setActiveCall(null) ở đây
-      // Server sẽ emit 'call-ended' → useCallManager onEndCall sẽ gọi gracefulLeave + setActiveCall(null)
-      return;
-    }
-
-    // ✅ TRƯỜNG HỢP 2: CHƯA VÀO PHÒNG - Caller hủy khi đối phương chưa nhấc máy
-    // OutgoingCall không cần gracefulLeave vì VideoCallRoom chưa mount
-    if (outgoingCall) {
-      if (socket) {
-        socket.emit("call-cancel", {
-          conversationId: outgoingCall.conversationId,
-          roomId: outgoingCall.roomId,
-          callerId: currentUserId,
-          callerName: currentUserName,
-          receiverId: outgoingCall.receiverId,
-          to: outgoingCall.receiverId,
-          from: currentUserId,
-          isGroupCall: outgoingCall.isGroupCall,
-        });
-      }
-      setOutgoingCall(null);
-      return;
-    }
-  }, [
-    activeCall,
-    outgoingCall,
-    currentUserId,
-    currentUserName,
-    emitEndCall,
-    emitLeaveGroupCall,
-    setActiveCall,
-    setOutgoingCall,
-    socket,
-  ]);
-
-  const joinGroupCall = useCallback(
-    (roomId: string, callType: string = "video") => {
-      if (!currentUserId) return;
-
-      const conversationId = selectedGroup
-        ? groupConversationId(selectedGroup.groupId)
-        : roomId;
-
-      // Lấy token để tham gia phòng video
-      apiClient
-        .get<{ appID: number; token: string }>("/api/calls/token", {
-          params: { userID: currentUserId },
-        })
-        .then((response) => {
-          setActiveCall({
-            roomId: normalizeRoomId(roomId),
-            token: String(response.data.token),
-            appId: Number(response.data.appID),
-            conversationId,
-            remoteUserId: selectedGroup ? String(selectedGroup.groupId) : "",
-            remoteUserName: groupName || "Nhom",
-            isGroupCall: true,
-            callType: callType === "audio" ? "audio" : "video",
-          });
-          emitJoinGroupCall(normalizeRoomId(roomId), currentUserId, conversationId);
-        })
-        .catch(() => {
-          addToast("Khong the tham gia cuoc goi", "error");
-        });
     },
-    [currentUserId, selectedGroup, groupName, emitJoinGroupCall, addToast]
+    [addToast],
   );
 
+  /**
+   * Accept an incoming call.
+   * 1. POST /api/calls/:callId/accept → { call, token }
+   * 2. Queue token for RTC lifecycle join
+   * 3. Transition callStore to "connecting"
+   */
+  const acceptCall = useCallback(async (): Promise<void> => {
+    const callId = useCallStore.getState().getCallId();
+    if (!callId) return;
+
+    try {
+      const response = await callApi.acceptCall(callId);
+
+      const callType = response.call.callType;
+
+      // Build call window URL with token + call info
+      const remoteName =
+        (response.call as any).initiatorName || "Đối phương";
+      const url = buildCallWindowUrl(
+        response.token,
+        response.call,
+        remoteName,
+        false,
+      );
+
+      // Try to open pop-out call window (from user gesture)
+      const popup = openCallWindow(url);
+
+      if (popup) {
+        useCallStore.getState().setCallWindowOpening(true);
+      } else {
+        useCallStore.getState().setPendingCallWindowUrl(url);
+        consumeRtcToken(response.token, callType === "video");
+        addToast(
+          "Cửa sổ bị chặn. Sử dụng cửa sổ nổi.",
+          "info",
+        );
+      }
+
+      // Transition to connecting phase
+      useCallStore.getState().setConnecting(response.call);
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Không thể chấp nhận cuộc gọi";
+      useCallStore.getState().setError(msg);
+      addToast(msg, "error");
+    }
+  }, [addToast]);
+
+  /**
+   * Reject an incoming call.
+   * 1. POST /api/calls/:callId/reject
+   * 2. Reset callStore to idle
+   */
+  const rejectCall = useCallback(async (): Promise<void> => {
+    const callId = useCallStore.getState().getCallId();
+    if (!callId) return;
+
+    try {
+      await callApi.rejectCall(callId);
+    } catch {
+      // Ignore — the socket event will handle the ended state
+    } finally {
+      useCallStore.getState().reset();
+    }
+  }, []);
+
+  /**
+   * Cancel an outgoing call (before it's accepted).
+   * 1. POST /api/calls/:callId/cancel
+   * 2. Reset callStore to idle
+   */
+  const cancelCall = useCallback(async (): Promise<void> => {
+    const callId = useCallStore.getState().getCallId();
+    if (!callId) return;
+
+    try {
+      await callApi.cancelCall(callId);
+    } catch {
+      // Ignore — the socket event will handle the ended state
+    } finally {
+      useCallStore.getState().reset();
+    }
+  }, []);
+
+  /**
+   * End an active call.
+   * 1. POST /api/calls/:callId/end
+   * 2. Transition to "ended" briefly, then reset
+   */
+  const endCall = useCallback(async (): Promise<void> => {
+    const callId = useCallStore.getState().getCallId();
+    if (!callId) return;
+
+    try {
+      const response = await callApi.endCall(callId);
+      useCallStore.getState().setEnded(response.call);
+    } catch {
+      // Still transition to ended even if API fails
+      const session = useCallStore.getState().callSession;
+      if (session) {
+        useCallStore.getState().setEnded(session);
+      } else {
+        useCallStore.getState().reset();
+      }
+    }
+  }, []);
+
+  /**
+   * Dismiss the ended state and reset to idle.
+   */
+  const dismissEnded = useCallback(() => {
+    useCallStore.getState().reset();
+  }, []);
+
+  /**
+   * Retry opening the call window popup (when initial open was blocked).
+   * Only works during outgoing/incoming phase before Agora joins.
+   */
+  const openCallWindowManually = useCallback(() => {
+    const url = useCallStore.getState().pendingCallWindowUrl;
+    if (!url) return;
+
+    const popup = openCallWindow(url);
+    if (popup) {
+      useCallStore.getState().setCallWindowOpening(true);
+      useCallStore.getState().setPendingCallWindowUrl(null);
+      // consumeRtcToken may have been called — useCallRtcLifecycle will
+      // see callWindowOpening=true and skip the join
+    } else {
+      addToast("Không thể mở cửa sổ. Vui lòng cho phép popup.", "error");
+    }
+  }, [addToast]);
+
+  /**
+   * Clear the current error.
+   */
+  const clearError = useCallback(() => {
+    useCallStore.getState().clearError();
+  }, []);
+
   return {
-    currentUser,
-    incomingCall,
-    activeCall,
-    outgoingCall,
+    // State
+    phase,
+    callSession,
+    isInitiator,
+    errorMessage,
+    errorCode,
+
+    // Actions
     startCall,
     acceptCall,
     rejectCall,
+    cancelCall,
     endCall,
-    joinGroupCall,
+    dismissEnded,
+    clearError,
+    openCallWindowManually,
   };
 }

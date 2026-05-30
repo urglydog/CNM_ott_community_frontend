@@ -1,61 +1,6 @@
 import apiClient from "../../lib/axios";
 import type { DirectMessageItem } from "../../types";
 
-export interface GenerateCallTokenParams {
-  callerId: string | number;
-  receiverId: string | number;
-  roomId?: string;
-  expiredInSeconds?: number;
-}
-
-interface GenerateCallTokenApiResponse {
-  appID: number;
-  token: string;
-  userID: string;
-  expiredIn: number;
-}
-
-export interface GenerateCallTokenResult {
-  appId: number;
-  token: string;
-  roomId: string;
-  userId: string;
-  expiredIn: number;
-}
-
-export function buildOneToOneCallRoomId(
-  callerId: string | number,
-  receiverId: string | number,
-): string {
-  const sorted = [String(callerId), String(receiverId)].sort();
-  return `call_dm_${sorted[0]}_${sorted[1]}`;
-}
-
-export async function generateCallToken(
-  params: GenerateCallTokenParams,
-): Promise<GenerateCallTokenResult> {
-  const response = await apiClient.get<GenerateCallTokenApiResponse>(
-    "/api/calls/token",
-    {
-      params: {
-        userID: String(params.callerId),
-        roomId: params.roomId,
-        expired_ts: params.expiredInSeconds,
-      },
-    },
-  );
-
-  const data = response.data;
-
-  return {
-    appId: Number(data.appID),
-    token: String(data.token),
-    roomId: buildOneToOneCallRoomId(params.callerId, params.receiverId),
-    userId: String(data.userID),
-    expiredIn: Number(data.expiredIn),
-  };
-}
-
 export async function getDirectMessages(
   conversationId: string,
 ): Promise<DirectMessageItem[]> {
@@ -155,6 +100,70 @@ export async function askBot(message: string): Promise<BotChatResponse> {
     message,
   });
   return response.data;
+}
+
+export type ReminderRepeat = "none" | "daily" | "weekly" | "monthly";
+
+export interface CreateReminderPayload {
+  conversationId: string;
+  content: string;
+  remindAt: string;
+  repeat: ReminderRepeat;
+}
+
+export interface ReminderItem {
+  reminderId: string;
+  conversationId: string;
+  creatorId: string;
+  content: string;
+  remindAt: string;
+  repeat: ReminderRepeat;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  messageId?: string | null;
+}
+
+export interface CreateReminderResponse {
+  data: {
+    reminder: ReminderItem;
+    message: DirectMessageItem;
+  };
+}
+
+export async function createReminder(
+  payload: CreateReminderPayload,
+): Promise<CreateReminderResponse["data"]> {
+  const response = await apiClient.post<CreateReminderResponse>(
+    "/api/reminders",
+    payload,
+  );
+  return response.data.data;
+}
+
+export interface CreateNotePayload {
+  conversationId: string;
+  content: string;
+  pinToTop: boolean;
+}
+
+export interface CreateNoteResponse {
+  data: {
+    note: DirectMessageItem;
+    message: DirectMessageItem;
+    pinnedMessages?: unknown[] | null;
+    pinError?: string | null;
+  };
+}
+
+export async function createNote(
+  payload: CreateNotePayload,
+): Promise<CreateNoteResponse["data"]> {
+  const response = await apiClient.post<CreateNoteResponse>(
+    "/api/notes",
+    payload,
+  );
+  return response.data.data;
 }
 
 /**

@@ -4,7 +4,5 @@ export {
 	fetchMessagesByChannel,
 	fetchGroups,
 	fetchChannelsByGroup,
-	generateCallToken,
-	buildOneToOneCallRoomId,
 } from "./api";
 export { useChatStore } from "./store/chatStore";

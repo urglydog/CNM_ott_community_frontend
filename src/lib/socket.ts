@@ -7,8 +7,23 @@ const WS_URL =
 
 let socketInstance: Socket | null = null;
 
+/**
+ * Register an externally-created socket (e.g. from SocketContext) so that
+ * `getSocket()` returns the same connected instance used for chat.
+ * This fixes the bug where call event listeners were attached to a
+ * separate, unauthenticated socket and never received call:incoming events.
+ */
+export function setExternalSocket(socket: Socket): void {
+  socketInstance = socket;
+}
+
+/**
+ * Return the shared socket instance.
+ * If SocketContext already registered one via `setExternalSocket`, that is
+ * returned. Otherwise a new socket is created (standalone mode).
+ */
 export function getSocket(token?: string): Socket {
-  if (socketInstance?.connected) {
+  if (socketInstance) {
     return socketInstance;
   }
 

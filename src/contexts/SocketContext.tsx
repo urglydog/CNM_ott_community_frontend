@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "./AuthContext";
+import { useCallSocketListener } from "../features/call";
 import type {
   MessageItem,
   StickerData,
@@ -28,8 +29,7 @@ export interface LiveLocationMessageStoppedPayload {
 import { useToast } from "./ToastContext";
 import { useChatStore } from "../features/chat/store/chatStore";
 import { useGroupsStore } from "../features/groups/store/groupsStore";
-import { useCallSocket } from "../features/call/hooks/useCallSocket";
-
+import { setExternalSocket } from "../lib/socket";
 const WS_URL =
   process.env.NEXT_PUBLIC_WS_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
@@ -95,18 +95,6 @@ interface SocketContextValue {
   emitStartLiveLocation: (roomId: string) => void;
   emitUpdateLiveLocation: (roomId: string, lat: number, lng: number) => void;
   emitStopLiveLocation: (roomId: string) => void;
-  // Call — delegated to useCallSocket
-  emitCallUser: (payload: any) => void;
-  emitCallAccepted: (payload: any) => void;
-  emitCallDeclined: (payload: any) => void;
-  emitCallCancel: (payload: any) => void;
-  emitEndCall: (payload: any) => void;
-  emitJoinGroupCall: (roomId: string, userId: string, conversationId?: string) => void;
-  emitLeaveGroupCall: (roomId: string, userId: string, conversationId?: string) => void;
-  onIncomingCall: (handler: (data: any) => void) => () => void;
-  onCallAccepted: (handler: (data: any) => void) => () => void;
-  onCallDeclined: (handler: (data: any) => void) => () => void;
-  onEndCall: (handler: (data: any) => void) => () => void;
   // Event listeners
   onReceiveMessage: (handler: (message: MessageItem) => void) => () => void;
   onRoomJoined: (handler: (data: { roomId: string }) => void) => () => void;
@@ -138,7 +126,7 @@ interface SocketContextValue {
 const SocketContext = createContext<SocketContextValue | null>(null);
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { addToast } = useToast();
   const { addGroup, removeGroup } = useGroupsStore();
 
@@ -150,6 +138,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SocketStatus>("disconnected");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [socketInstance, setSocketInstance] = useState<Socket | null>(null);
+
+  // ── Call signaling: register call socket event listeners ──────────────────
+  // Pass socketInstance so call listeners are registered on the SAME socket
+  // that SocketContext created — not a separate unauthenticated one.
+  useCallSocketListener(resolvedUserId || null, socketInstance);
 
   // ── Socket connection ────────────────────────────────────────────────────────
 
@@ -174,6 +167,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socketRef.current = socket;
     setSocketInstance(socket);
 
+    // ── Share this socket with callSocket.ts / lib/socket.ts ──────────────
+    // Without this, call event listeners register on a SEPARATE, unauthenticated
+    // socket created by lib/socket.ts → getSocket(), and the receiver never
+    // gets call:incoming events.
+    setExternalSocket(socket);
+
     socket.on("connect", () => {
       setStatus("connected");
       setErrorMessage(null);
@@ -182,6 +181,29 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socket.on("connect_error", (err) => {
       setStatus("error");
       setErrorMessage(err.message || "Kết nối thất bại");
+    });
+
+    // Sync profile/avatar in real-time when updated from another client (e.g. Mobile)
+    socket.on("profile_updated", (data: any) => {
+      console.log("[Socket] profile_updated received:", data);
+      if (data) {
+        updateUser({
+          username: data.username,
+          displayName: data.display_name || data.fullName || data.displayName,
+          avatarUrl: data.avatar_url || data.avatarUrl,
+          coverUrl: data.cover_url || data.coverUrl,
+          phone: data.phoneNumber || data.phone,
+        });
+      }
+    });
+
+    // ── Temporary debug: log every incoming event ────────────────────────
+    // Helps diagnose which call events actually arrive at the receiver.
+    // Remove after confirming the call flow works end-to-end.
+    socket.onAny((eventName: string, ...args: unknown[]) => {
+      if (eventName.startsWith("call:") || eventName.startsWith("chat_") || eventName === "message_read") {
+        console.log(`[socket:onAny] ${eventName}`, args.length > 0 ? args[0] : "");
+      }
     });
 
     return () => {
@@ -238,10 +260,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off("group:deleted", handleGroupDeleted);
     };
   }, [addToast, addGroup, removeGroup]);
-
-  // ── Call socket (extracted) ───────────────────────────────────────────────────
-
-  const callSocket = useCallSocket(socketInstance, resolvedUserId);
 
   // ── Emit helpers ─────────────────────────────────────────────────────────────
 
@@ -529,18 +547,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         emitStartLiveLocation,
         emitUpdateLiveLocation,
         emitStopLiveLocation,
-        // Call
-        emitCallUser: callSocket.emitCallUser,
-        emitCallAccepted: callSocket.emitCallAccepted,
-        emitCallDeclined: callSocket.emitCallDeclined,
-        emitCallCancel: callSocket.emitCallCancel,
-        emitEndCall: callSocket.emitEndCall,
-        emitJoinGroupCall: callSocket.emitJoinGroupCall,
-        emitLeaveGroupCall: callSocket.emitLeaveGroupCall,
-        onIncomingCall: callSocket.onIncomingCall,
-        onCallAccepted: callSocket.onCallAccepted,
-        onCallDeclined: callSocket.onCallDeclined,
-        onEndCall: callSocket.onEndCall,
         // Remaining
         onReceiveMessage,
         onRoomJoined,

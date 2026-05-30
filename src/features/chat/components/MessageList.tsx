@@ -9,6 +9,7 @@ import { GroupMessageBubble } from "./GroupMessageBubble";
 import { PrivateMessageBubble } from "./PrivateMessageBubble";
 import { SystemMessageBubble } from "./GroupMessageBubble";
 import { PollMessageBubble } from "./PollMessageBubble";
+import ReminderMessageBubble, { isReminderMessage } from "./ReminderMessageBubble";
 import { getMessageDomId } from "../utils/messageSearch";
 
 interface MessageListProps {
@@ -115,6 +116,14 @@ export function MessageList({
         }
 
         // Poll message — centered layout with voting UI
+        if (isReminderMessage(msg)) {
+          return (
+            <div key={`reminder-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
+              <ReminderMessageBubble msg={msg} currentUserId={currentUserId} />
+            </div>
+          );
+        }
+
         if (msg.contentType === "poll" && msg.pollData) {
           return (
             <div key={`poll-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>

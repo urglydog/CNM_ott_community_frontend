@@ -1433,6 +1433,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         onSearchMessages={() => setSearchOpen(true)}
         onBackgroundChange={(url) => setChatBgUrl(url)}
         resolveDisplayAvatar={resolveDisplayAvatar}
+        onJumpToMessage={handleJumpToMessage}
       />
 
 

@@ -679,10 +679,17 @@ export interface PostItem {
   content: string;
   media: PostMedia[];
   likes: string[];
+  likeUsers?: ReactionUser[];
   likeCount: number;
   commentCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ReactionUser {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
 }
 
 export interface CommentItem {
@@ -692,6 +699,11 @@ export interface CommentItem {
   authorName: string;
   authorAvatar: string | null;
   content: string;
+  parentCommentId?: string | null;
+  rootCommentId?: string;
+  likes: string[];
+  likeCount: number;
+  likeUsers?: ReactionUser[];
   createdAt: string;
 }
 
@@ -721,11 +733,11 @@ export async function getPostById(postId: string): Promise<PostItem> {
   return handleJson<PostItem>(res);
 }
 
-export async function toggleLikePost(postId: string): Promise<{ liked: boolean; likeCount: number; likes: string[] }> {
+export async function toggleLikePost(postId: string): Promise<{ liked: boolean; likeCount: number; likes: string[]; likeUsers: ReactionUser[] }> {
   const res = await authFetch(`${API_BASE}/api/posts/${encodeURIComponent(postId)}/like`, {
     method: "PUT",
   });
-  return handleJson<{ liked: boolean; likeCount: number; likes: string[] }>(res);
+  return handleJson<{ liked: boolean; likeCount: number; likes: string[]; likeUsers: ReactionUser[] }>(res);
 }
 
 export async function deletePost(postId: string): Promise<{ deleted: boolean }> {
@@ -735,9 +747,24 @@ export async function deletePost(postId: string): Promise<{ deleted: boolean }> 
   return handleJson<{ deleted: boolean }>(res);
 }
 
-export async function createComment(postId: string, content: string): Promise<CommentItem> {
+export async function createComment(postId: string, content: string, parentCommentId?: string | null): Promise<CommentItem> {
   const res = await authFetch(`${API_BASE}/api/posts/${encodeURIComponent(postId)}/comments`, {
     method: "POST",
+    body: JSON.stringify({ content, parentCommentId }),
+  });
+  return handleJson<CommentItem>(res);
+}
+
+export async function toggleLikeComment(commentId: string): Promise<{ liked: boolean; likeCount: number; likes: string[]; likeUsers: ReactionUser[] }> {
+  const res = await authFetch(`${API_BASE}/api/posts/comments/${encodeURIComponent(commentId)}/like`, {
+    method: "PUT",
+  });
+  return handleJson<{ liked: boolean; likeCount: number; likes: string[]; likeUsers: ReactionUser[] }>(res);
+}
+
+export async function updateComment(commentId: string, content: string): Promise<CommentItem> {
+  const res = await authFetch(`${API_BASE}/api/posts/comments/${encodeURIComponent(commentId)}`, {
+    method: "PUT",
     body: JSON.stringify({ content }),
   });
   return handleJson<CommentItem>(res);
@@ -748,10 +775,10 @@ export async function getComments(postId: string, limit = 50): Promise<{ comment
   return handleJson<{ comments: CommentItem[]; count: number }>(res);
 }
 
-export async function deleteComment(commentId: string): Promise<{ deleted: boolean }> {
+export async function deleteComment(commentId: string): Promise<{ deleted: boolean; deletedCommentIds?: string[] }> {
   const res = await authFetch(`${API_BASE}/api/posts/comments/${encodeURIComponent(commentId)}`, {
     method: "DELETE",
   });
-  return handleJson<{ deleted: boolean }>(res);
+  return handleJson<{ deleted: boolean; deletedCommentIds?: string[] }>(res);
 }
 

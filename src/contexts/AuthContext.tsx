@@ -216,6 +216,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           u.phone || u.phone_number || u.phoneNumber || form.phone || "";
         const resolvedAvatar =
           u.avatarUrl || u.avatar_url || null;
+        const resolvedCover =
+          u.coverImage || u.cover_url || u.coverUrl || null;
         const resolvedEmailVerified = Boolean(
           u.emailVerified ?? u.email_verified ?? false
         );
@@ -231,6 +233,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: u.email,
           phone: resolvedPhone,
           avatarUrl: resolvedAvatar,
+          coverUrl: resolvedCover,
           emailVerified: resolvedEmailVerified,
           phoneVerified: resolvedPhoneVerified,
           token: resolvedToken,

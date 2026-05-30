@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { UserPlus, MessageCircle, Search, Users, CircleUserRound, QrCode } from "lucide-react";
+import { UserPlus, MessageCircle, Search, Users, CircleUserRound, QrCode, Newspaper } from "lucide-react";
 import { useChatStore } from "../../../features/chat/store/chatStore";
 import SearchUsersModal from "../../../features/contacts/components/AddFriendModal";
 import FriendRequestsModal from "../../../features/contacts/components/FriendRequestsModal";
@@ -104,6 +104,16 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
             aria-label="Nhóm chat"
           >
             <Users className="text-white w-6 h-6" />
+          </button>
+
+          {/* Tường nhà (Nhật ký) */}
+          <button
+            onClick={() => router.push("/profile?tab=timeline")}
+            className={navButtonClass(isProfileActive && typeof window !== 'undefined' && window.location.search.includes("tab=timeline"))}
+            title="Tường nhà (Nhật ký)"
+            aria-label="Tường nhà (Nhật ký)"
+          >
+            <Newspaper className="text-white w-6 h-6" />
           </button>
         </div>
         <div className="flex flex-col items-center gap-4 w-full">

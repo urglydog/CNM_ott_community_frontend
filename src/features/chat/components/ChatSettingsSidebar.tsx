@@ -79,6 +79,7 @@ interface ChatSettingsSidebarProps {
   onBackgroundChange?: (bgUrl: string | null) => void;
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
   onOpenGroupSettings?: () => void;
+  onJumpToMessage?: (messageId: string | number) => void;
 }
 
 
@@ -96,6 +97,7 @@ export default function ChatSettingsSidebar({
   onBackgroundChange,
   resolveDisplayAvatar,
   onOpenGroupSettings,
+  onJumpToMessage,
 }: ChatSettingsSidebarProps) {
 
   const router = useRouter();
@@ -169,6 +171,38 @@ export default function ChatSettingsSidebar({
   const [localSettings, setLocalSettings] = useState<LocalSettings>({});
   const [nicknameEditing, setNicknameEditing] = useState(false);
   const [nicknameValue, setNicknameValue] = useState("");
+  
+  // ── Web Lightbox và Web Media Gallery Modal states ──────────────────
+  const [webViewerImage, setWebViewerImage] = useState<any | null>(null);
+  const [showWebGallery, setShowWebGallery] = useState(false);
+  const [galleryTab, setGalleryTab] = useState<'Ảnh' | 'File' | 'Link'>('Ảnh');
+
+  // Lọc link items cho Web giống mobile
+  const groupLinkItems = groupMessages.filter((m) => {
+    const type = m.contentType;
+    if (type === "text" && m.content) {
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      return urlRegex.test(m.content);
+    }
+    return false;
+  }).flatMap((m) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const match = m.content.match(urlRegex) || [];
+    return match.map((url) => {
+      let domain = "LINK";
+      try {
+        domain = new URL(url).hostname.toUpperCase();
+      } catch {}
+      return {
+        id: `${m.id}-${url}`,
+        url,
+        name: m.content.length > 60 ? m.content.substring(0, 60) + "..." : m.content,
+        senderName: m.senderDisplayName || "Thành viên",
+        createdAt: m.createdAt,
+        linkDomain: domain,
+      };
+    });
+  });
   const [nicknameSaving, setNicknameSaving] = useState(false);
   const [showBgPicker, setShowBgPicker] = useState(false);
   const [currentBgUrl, setCurrentBgUrl] = useState<string | null>(null);
@@ -603,7 +637,7 @@ export default function ChatSettingsSidebar({
             <div className="mt-2 bg-white border-y border-gray-200">
               <div className="px-4 pt-4 pb-2 flex items-center justify-between">
                 <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Ảnh/Video</p>
-                <button type="button" onClick={() => addToast("Mở thư viện ảnh/video nhóm", "info")} className="text-[12px] text-blue-600 font-medium" disabled={isGroupMessagesLoading || groupMediaItems.length === 0}>Xem thêm</button>
+                <button type="button" onClick={() => { setShowWebGallery(true); setGalleryTab('Ảnh'); }} className="text-[12px] text-blue-600 font-medium hover:underline" disabled={isGroupMessagesLoading || groupMediaItems.length === 0}>Xem thêm</button>
               </div>
               <div className="px-4 pb-4">
                 {isGroupMessagesLoading ? (
@@ -621,28 +655,35 @@ export default function ChatSettingsSidebar({
                       const media = getGroupMediaPreview(message);
 
                       return (
-                        <a
+                        <button
                           key={String(message.id)}
-                          href={media.mediaUrl || media.previewUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="group relative aspect-square overflow-hidden rounded-xl border border-gray-200 bg-gray-100"
+                          type="button"
+                          onClick={() => {
+                            const media = getGroupMediaPreview(message);
+                            setWebViewerImage({
+                              url: media.mediaUrl || media.previewUrl,
+                              fileName: media.fileName,
+                              id: message.id,
+                              message,
+                            });
+                          }}
+                          className="group relative aspect-square overflow-hidden rounded-xl border border-gray-200 bg-gray-100 cursor-pointer text-left w-full"
                         >
                           {media.previewUrl ? (
                             <img
                               src={media.previewUrl}
                               alt={media.fileName}
-                              className="h-full w-full object-cover"
+                              className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200"
                             />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center bg-gray-200 text-gray-500 text-xs font-medium">
                               {media.type === "video" ? "Video" : "Ảnh"}
                             </div>
                           )}
-                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent px-2 py-1.5">
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent px-2 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                             <p className="truncate text-[10px] font-medium text-white">{media.fileName}</p>
                           </div>
-                        </a>
+                        </button>
                       );
                     })}
                   </div>
@@ -1016,7 +1057,7 @@ export default function ChatSettingsSidebar({
           <div className="mt-2 bg-white border-y border-gray-200">
             <div className="px-4 pt-4 pb-2 flex items-center justify-between">
               <p className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Ảnh/Video</p>
-              <button type="button" onClick={() => addToast("Mở thư viện ảnh/video", "info")} className="text-[12px] text-blue-600 font-medium" disabled={isGroupMessagesLoading || groupMediaItems.length === 0}>Xem thêm</button>
+              <button type="button" onClick={() => { setShowWebGallery(true); setGalleryTab('Ảnh'); }} className="text-[12px] text-blue-600 font-medium hover:underline" disabled={isGroupMessagesLoading || groupMediaItems.length === 0}>Xem thêm</button>
             </div>
             <div className="px-4 pb-4">
               {isGroupMessagesLoading ? (
@@ -1034,28 +1075,35 @@ export default function ChatSettingsSidebar({
                     const media = getGroupMediaPreview(message);
 
                     return (
-                      <a
+                      <button
                         key={String(message.id)}
-                        href={media.mediaUrl || media.previewUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="group relative aspect-square overflow-hidden rounded-xl border border-gray-200 bg-gray-100"
+                        type="button"
+                        onClick={() => {
+                          const media = getGroupMediaPreview(message);
+                          setWebViewerImage({
+                            url: media.mediaUrl || media.previewUrl,
+                            fileName: media.fileName,
+                            id: message.id,
+                            message,
+                          });
+                        }}
+                        className="group relative aspect-square overflow-hidden rounded-xl border border-gray-200 bg-gray-100 cursor-pointer text-left w-full"
                       >
                         {media.previewUrl ? (
                           <img
                             src={media.previewUrl}
                             alt={media.fileName}
-                            className="h-full w-full object-cover"
+                            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200"
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center bg-gray-200 text-gray-500 text-xs font-medium">
                             {media.type === "video" ? "Video" : "Ảnh"}
                           </div>
                         )}
-                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent px-2 py-1.5">
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent px-2 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                           <p className="truncate text-[10px] font-medium text-white">{media.fileName}</p>
                         </div>
-                      </a>
+                      </button>
                     );
                   })}
                 </div>
@@ -1136,6 +1184,234 @@ export default function ChatSettingsSidebar({
           </div>
         </div>
       </div>
+      {/* ── Web Full-Screen Lightbox Image Viewer Modal ── */}
+      {webViewerImage && (
+        <div className="fixed inset-0 bg-black/95 z-[999] flex flex-col items-center justify-center animate-fade-in">
+          {/* Header */}
+          <div className="absolute top-0 inset-x-0 h-16 bg-gradient-to-b from-black/60 to-transparent flex items-center justify-between px-6 z-10">
+            <span className="text-white font-medium text-sm truncate max-w-lg">{webViewerImage.fileName}</span>
+            <div className="flex items-center gap-4">
+              {/* Go to message option */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (webViewerImage.id) {
+                    onJumpToMessage?.(webViewerImage.id);
+                    setWebViewerImage(null);
+                    setShowWebGallery(false);
+                    onClose();
+                  }
+                }}
+                className="text-white hover:text-yellow-400 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+              >
+                Xem tin nhắn gốc
+              </button>
+
+              {/* Copy link option */}
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(webViewerImage.url);
+                  addToast("Đã sao chép liên kết hình ảnh!", "success");
+                }}
+                className="text-white hover:text-blue-400 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+              >
+                Chuyển tiếp (Copy Link)
+              </button>
+
+              {/* Download option */}
+              <a
+                href={webViewerImage.url}
+                download={webViewerImage.fileName}
+                target="_blank"
+                rel="noreferrer"
+                className="text-white hover:text-green-400 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+              >
+                Tải xuống
+              </a>
+
+              {/* Close */}
+              <button
+                type="button"
+                onClick={() => setWebViewerImage(null)}
+                className="p-1.5 bg-white/15 hover:bg-white/25 rounded-full text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Image content */}
+          <div className="relative w-full h-[80%] flex items-center justify-center p-4">
+            <img
+              src={webViewerImage.url}
+              alt={webViewerImage.fileName}
+              className="max-w-full max-h-full object-contain shadow-2xl rounded-lg"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Web Media Archive (Gallery) Modal ── */}
+      {showWebGallery && (
+        <div className="fixed inset-0 bg-black/50 z-[990] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-scale-up">
+            {/* Header */}
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">Kho lưu trữ trò chuyện</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Tổng hợp ảnh, tệp tin và liên kết đã chia sẻ</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowWebGallery(false)}
+                className="p-2 hover:bg-gray-150 rounded-full text-gray-500 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Tab Bar */}
+            <div className="flex border-b border-gray-100 bg-white shrink-0">
+              {(['Ảnh', 'File', 'Link'] as const).map((tab) => {
+                const count = tab === 'Ảnh' ? groupMediaItems.length : tab === 'File' ? groupFileItems.length : groupLinkItems.length;
+                const isActive = galleryTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setGalleryTab(tab)}
+                    className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-all flex items-center justify-center gap-1.5 ${
+                      isActive ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    {tab}
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isActive ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Content Container */}
+            <div className="flex-1 overflow-y-auto p-6 bg-[#f8fafc]">
+              {galleryTab === 'Ảnh' && (
+                groupMediaItems.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                    <ImageIcon className="w-12 h-12 mb-2 stroke-1" />
+                    <span className="text-sm">Chưa có hình ảnh hay video nào được gửi</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-3">
+                    {groupMediaItems.map((message) => {
+                      const media = getGroupMediaPreview(message);
+                      return (
+                        <button
+                          key={String(message.id)}
+                          type="button"
+                          onClick={() => {
+                            setWebViewerImage({
+                              url: media.mediaUrl || media.previewUrl,
+                              fileName: media.fileName,
+                              id: message.id,
+                              message,
+                            });
+                          }}
+                          className="group relative aspect-square overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer"
+                        >
+                          <img
+                            src={media.previewUrl}
+                            alt={media.fileName}
+                            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200"
+                          />
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <p className="truncate text-[10px] font-medium text-white">{media.fileName}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+
+              {galleryTab === 'File' && (
+                groupFileItems.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                    <Database className="w-12 h-12 mb-2 stroke-1" />
+                    <span className="text-sm">Chưa có tệp tài liệu nào được gửi</span>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {groupFileItems.map((message) => {
+                      const file = getGroupFileDetails(message);
+                      return (
+                        <a
+                          key={String(message.id)}
+                          href={file.url}
+                          download={file.name}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-3 p-3.5 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-md hover:border-blue-100 transition-all group"
+                        >
+                          <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center shrink-0 text-blue-600 font-bold text-xs uppercase group-hover:bg-blue-100 transition-colors">
+                            FILE
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-gray-800 truncate group-hover:text-blue-600 transition-colors">{file.name}</p>
+                            <p className="text-xs text-gray-400 mt-1">{file.size}</p>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )
+              )}
+
+              {galleryTab === 'Link' && (
+                groupLinkItems.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                    <ArrowRight className="w-12 h-12 mb-2 stroke-1" />
+                    <span className="text-sm">Chưa có liên kết chia sẻ nào</span>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {groupLinkItems.map((item) => (
+                      <a
+                        key={item.id}
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-3 p-3.5 rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-md hover:border-blue-100 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-xl bg-green-50 flex items-center justify-center shrink-0 text-green-600 font-bold text-xs uppercase group-hover:bg-green-100 transition-colors">
+                          LINK
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">{item.linkDomain}</span>
+                          <p className="text-sm font-semibold text-gray-800 truncate mt-0.5 group-hover:text-blue-600 transition-colors">{item.name}</p>
+                          <p className="text-xs text-gray-400 mt-1 truncate">{item.url}</p>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                )
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowWebGallery(false)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-semibold rounded-xl transition-colors"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -658,3 +658,100 @@ export async function sendFriendRequestByQR(
   return handleJson<{ message: string; data: any }>(res);
 }
 
+// ── Posts & Timeline API ───────────────────────────────────────────────────────
+
+export function buildPublicS3Url(key: string, bucket: string): string {
+  const AWS_REGION = process.env.AWS_REGION || "ap-southeast-2";
+  return `https://${bucket}.s3.${AWS_REGION}.amazonaws.com/${key}`;
+}
+
+export interface PostMedia {
+  url: string;
+  type: "image" | "video";
+  name?: string;
+}
+
+export interface PostItem {
+  postId: string;
+  userId: string;
+  authorName: string;
+  authorAvatar: string | null;
+  content: string;
+  media: PostMedia[];
+  likes: string[];
+  likeCount: number;
+  commentCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CommentItem {
+  commentId: string;
+  postId: string;
+  userId: string;
+  authorName: string;
+  authorAvatar: string | null;
+  content: string;
+  createdAt: string;
+}
+
+export async function createPost(payload: {
+  content: string;
+  media?: PostMedia[];
+}): Promise<PostItem> {
+  const res = await authFetch(`${API_BASE}/api/posts`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return handleJson<PostItem>(res);
+}
+
+export async function getFeedPosts(limit = 20): Promise<{ posts: PostItem[]; count: number }> {
+  const res = await authFetch(`${API_BASE}/api/posts/feed?limit=${limit}`);
+  return handleJson<{ posts: PostItem[]; count: number }>(res);
+}
+
+export async function getUserPosts(userId: string, limit = 20): Promise<{ posts: PostItem[]; count: number }> {
+  const res = await authFetch(`${API_BASE}/api/posts/user/${encodeURIComponent(userId)}?limit=${limit}`);
+  return handleJson<{ posts: PostItem[]; count: number }>(res);
+}
+
+export async function getPostById(postId: string): Promise<PostItem> {
+  const res = await authFetch(`${API_BASE}/api/posts/${encodeURIComponent(postId)}`);
+  return handleJson<PostItem>(res);
+}
+
+export async function toggleLikePost(postId: string): Promise<{ liked: boolean; likeCount: number; likes: string[] }> {
+  const res = await authFetch(`${API_BASE}/api/posts/${encodeURIComponent(postId)}/like`, {
+    method: "PUT",
+  });
+  return handleJson<{ liked: boolean; likeCount: number; likes: string[] }>(res);
+}
+
+export async function deletePost(postId: string): Promise<{ deleted: boolean }> {
+  const res = await authFetch(`${API_BASE}/api/posts/${encodeURIComponent(postId)}`, {
+    method: "DELETE",
+  });
+  return handleJson<{ deleted: boolean }>(res);
+}
+
+export async function createComment(postId: string, content: string): Promise<CommentItem> {
+  const res = await authFetch(`${API_BASE}/api/posts/${encodeURIComponent(postId)}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+  return handleJson<CommentItem>(res);
+}
+
+export async function getComments(postId: string, limit = 50): Promise<{ comments: CommentItem[]; count: number }> {
+  const res = await authFetch(`${API_BASE}/api/posts/${encodeURIComponent(postId)}/comments?limit=${limit}`);
+  return handleJson<{ comments: CommentItem[]; count: number }>(res);
+}
+
+export async function deleteComment(commentId: string): Promise<{ deleted: boolean }> {
+  const res = await authFetch(`${API_BASE}/api/posts/comments/${encodeURIComponent(commentId)}`, {
+    method: "DELETE",
+  });
+  return handleJson<{ deleted: boolean }>(res);
+}
+

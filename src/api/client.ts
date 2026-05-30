@@ -692,6 +692,27 @@ export interface ReactionUser {
   avatarUrl: string | null;
 }
 
+export interface StoryItem {
+  storyId: string;
+  userId: string;
+  authorName: string;
+  authorAvatar: string | null;
+  type: "image" | "text";
+  text: string;
+  mediaUrl: string | null;
+  backgroundColor: string;
+  textX?: number;
+  textY?: number;
+  textScale?: number;
+  textRotation?: number;
+  isHighlighted: boolean;
+  highlightedAt?: string | null;
+  createdAt: string;
+  expiresAt: string;
+  likes: string[];
+  likeCount: number;
+}
+
 export interface CommentItem {
   commentId: string;
   postId: string;
@@ -733,6 +754,14 @@ export async function getPostById(postId: string): Promise<PostItem> {
   return handleJson<PostItem>(res);
 }
 
+export async function updatePost(postId: string, content: string): Promise<PostItem> {
+  const res = await authFetch(`${API_BASE}/api/posts/${encodeURIComponent(postId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+  return handleJson<PostItem>(res);
+}
+
 export async function toggleLikePost(postId: string): Promise<{ liked: boolean; likeCount: number; likes: string[]; likeUsers: ReactionUser[] }> {
   const res = await authFetch(`${API_BASE}/api/posts/${encodeURIComponent(postId)}/like`, {
     method: "PUT",
@@ -760,6 +789,48 @@ export async function toggleLikeComment(commentId: string): Promise<{ liked: boo
     method: "PUT",
   });
   return handleJson<{ liked: boolean; likeCount: number; likes: string[]; likeUsers: ReactionUser[] }>(res);
+}
+
+// ── Stories ────────────────────────────────────────────────────────────────
+
+export async function createStory(payload: {
+  type: "image" | "text";
+  text?: string;
+  mediaUrl?: string;
+  backgroundColor?: string;
+}): Promise<StoryItem> {
+  const res = await authFetch(`${API_BASE}/api/stories`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return handleJson<StoryItem>(res);
+}
+
+export async function getStoryFeed(): Promise<{ stories: StoryItem[]; count: number }> {
+  const res = await authFetch(`${API_BASE}/api/stories/feed`);
+  return handleJson<{ stories: StoryItem[]; count: number }>(res);
+}
+
+export async function toggleLikeStory(storyId: string): Promise<StoryItem & { liked: boolean }> {
+  const res = await authFetch(`${API_BASE}/api/stories/${encodeURIComponent(storyId)}/like`, {
+    method: "PUT",
+  });
+  return handleJson<StoryItem & { liked: boolean }>(res);
+}
+
+export async function toggleHighlightStory(storyId: string): Promise<StoryItem> {
+  const res = await authFetch(`${API_BASE}/api/stories/${encodeURIComponent(storyId)}/highlight`, {
+    method: "PUT",
+  });
+  return handleJson<StoryItem>(res);
+}
+
+export async function replyToStory(storyId: string, content: string): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/stories/${encodeURIComponent(storyId)}/reply`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+  await handleJson(res);
 }
 
 export async function updateComment(commentId: string, content: string): Promise<CommentItem> {

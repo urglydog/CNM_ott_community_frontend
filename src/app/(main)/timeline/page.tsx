@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
+  Bookmark,
   Edit2,
-  Flame,
   FolderOpen,
   Heart,
   ImageIcon,
@@ -20,17 +20,26 @@ import {
   User,
   Users,
   Video,
+  X,
 } from "lucide-react";
 import {
   createComment,
   createPost,
+  createStory,
   deletePost,
   getComments,
   getFeedPosts,
   getFriendsList,
   getPresignedViewUrl,
+  getStoryFeed,
+  replyToStory,
+  toggleHighlightStory,
+  toggleLikeStory,
   toggleLikePost,
+  updatePost,
+  uploadFileDirect,
 } from "../../../api/client";
+import type { StoryItem } from "../../../api/client";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../contexts/ToastContext";
 import { formatPostTime } from "../../../utils/postTime";
@@ -149,6 +158,37 @@ function SafePostImage({ url }: { url?: string | null }) {
   );
 }
 
+function SafeStoryImage({ url, className = "" }: { url?: string | null; className?: string }) {
+  const [resolved, setResolved] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!url?.trim()) {
+      setResolved(null);
+      return;
+    }
+    getPresignedViewUrl({ url })
+      .then((result) => {
+        if (mounted) setResolved(result.viewUrl || url);
+      })
+      .catch(() => {
+        if (mounted) setResolved(url);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [url]);
+
+  return resolved ? <img src={resolved} alt="story" className={className} /> : null;
+}
+
+function formatStoryAge(createdAt: string) {
+  const minutes = Math.floor((Date.now() - new Date(createdAt).getTime()) / (60 * 1000));
+  if (minutes <= 0) return "Vừa xong";
+  if (minutes < 60) return `${minutes} phút trước`;
+  return `${Math.floor(minutes / 60)}h trước`;
+}
+
 export default function TimelinePage() {
   const { user } = useAuth();
   const { addToast } = useToast();
@@ -165,6 +205,16 @@ export default function TimelinePage() {
   const [replyTargetCommentId, setReplyTargetCommentId] = useState<string | null>(null);
   const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
   const [reactionUsers, setReactionUsers] = useState<{ userId: string; displayName: string; avatarUrl: string | null }[] | null>(null);
+  const [stories, setStories] = useState<StoryItem[]>([]);
+  const [activeStory, setActiveStory] = useState<StoryItem | null>(null);
+  const [showStoryComposer, setShowStoryComposer] = useState(false);
+  const [storyText, setStoryText] = useState("");
+  const [storyImageFile, setStoryImageFile] = useState<File | null>(null);
+  const [storyImagePreview, setStoryImagePreview] = useState("");
+  const [isCreatingStory, setIsCreatingStory] = useState(false);
+  const [storyReplyText, setStoryReplyText] = useState("");
+  const [isUpdatingStory, setIsUpdatingStory] = useState(false);
+  const storyFileInputRef = useRef<HTMLInputElement>(null);
   const [, setClock] = useState(Date.now());
 
   useEffect(() => {
@@ -188,6 +238,106 @@ export default function TimelinePage() {
       mounted = false;
     };
   }, [user?.id]);
+
+  const loadStories = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const result = await getStoryFeed();
+      setStories(result.stories || []);
+    } catch (error) {
+      console.error("Failed to load stories:", error);
+      setStories([]);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadStories();
+  }, [loadStories]);
+
+  const closeStoryComposer = () => {
+    setShowStoryComposer(false);
+    setStoryText("");
+    setStoryImageFile(null);
+    setStoryImagePreview("");
+  };
+
+  const handleStoryImagePick = (file?: File) => {
+    if (!file) return;
+    setStoryImageFile(file);
+    setStoryImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleCreateStory = async () => {
+    if (!storyImageFile && !storyText.trim()) return;
+    setIsCreatingStory(true);
+    try {
+      let mediaUrl: string | undefined;
+      if (storyImageFile) {
+        const upload = await uploadFileDirect(storyImageFile, "stories");
+        mediaUrl = upload.url;
+      }
+      const created = await createStory({
+        type: mediaUrl ? "image" : "text",
+        text: storyText.trim(),
+        mediaUrl,
+        backgroundColor: "#2563EB",
+      });
+      setStories((current) => [created, ...current]);
+      closeStoryComposer();
+      addToast("Đã đăng story", "success");
+    } catch (error: any) {
+      addToast(error.message || "Không thể đăng story", "error");
+    } finally {
+      setIsCreatingStory(false);
+    }
+  };
+
+  const updateActiveStory = (updated: StoryItem) => {
+    setActiveStory(updated);
+    setStories((current) => current.map((story) => story.storyId === updated.storyId ? updated : story));
+  };
+
+  const handleToggleStoryLike = async () => {
+    if (!activeStory || isUpdatingStory) return;
+    setIsUpdatingStory(true);
+    try {
+      updateActiveStory(await toggleLikeStory(activeStory.storyId));
+    } catch (error: any) {
+      addToast(error.message || "Không thể thả tim story", "error");
+    } finally {
+      setIsUpdatingStory(false);
+    }
+  };
+
+  const handleToggleStoryHighlight = async () => {
+    if (!activeStory || isUpdatingStory) return;
+    setIsUpdatingStory(true);
+    try {
+      const updated = await toggleHighlightStory(activeStory.storyId);
+      updateActiveStory(updated);
+      addToast(
+        updated.isHighlighted
+          ? "Đã lưu vào Tin nổi bật trên trang cá nhân mobile"
+          : "Đã bỏ story khỏi Tin nổi bật",
+        "success"
+      );
+    } catch (error: any) {
+      addToast(error.message || "Không thể lưu story", "error");
+    } finally {
+      setIsUpdatingStory(false);
+    }
+  };
+
+  const handleReplyToStory = async () => {
+    if (!activeStory || !storyReplyText.trim()) return;
+    try {
+      await replyToStory(activeStory.storyId, storyReplyText.trim());
+      setStoryReplyText("");
+      addToast("Đã gửi phản hồi story", "success");
+    } catch (error: any) {
+      addToast(error.message || "Không thể gửi phản hồi", "error");
+    }
+  };
 
   const mapPost = useCallback(
     (post: any): TimelinePost => {
@@ -297,12 +447,17 @@ export default function TimelinePage() {
     setEditingContent(post.content);
   };
 
-  const handleSaveEditedPost = (postId: string) => {
+  const handleSaveEditedPost = async (postId: string) => {
     if (!editingContent.trim()) return;
-    persistPosts(posts.map((post) => (post.id === postId ? { ...post, content: editingContent.trim() } : post)));
-    setEditingPostId(null);
-    setEditingContent("");
-    addToast("Đã cập nhật bài viết!", "success");
+    try {
+      const updated = mapPost(await updatePost(postId, editingContent.trim()));
+      persistPosts(posts.map((post) => (post.id === postId ? updated : post)));
+      setEditingPostId(null);
+      setEditingContent("");
+      addToast("Đã cập nhật bài viết!", "success");
+    } catch (error: any) {
+      addToast(`Cập nhật bài viết thất bại: ${error.message || "Lỗi hệ thống"}`, "error");
+    }
   };
 
   const handleDeletePost = async (postId: string) => {
@@ -402,13 +557,6 @@ export default function TimelinePage() {
     setReplyTargetCommentId(null);
   };
 
-  const stories = [
-    { id: "create", name: "Tạo mới", isCreate: true, avatar: user?.avatarUrl || null },
-    { id: "1", name: "Phước Nguyện", avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150" },
-    { id: "2", name: "Phạm Dương", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150" },
-    { id: "3", name: "Quế Anh", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150" },
-  ];
-
   return (
     <div className="h-screen flex-1 overflow-y-auto bg-[#f2f5fa] px-6 py-6">
       <main className="mx-auto max-w-3xl space-y-5">
@@ -417,31 +565,26 @@ export default function TimelinePage() {
             <h1 className="text-xl font-bold text-slate-900">Tường nhà</h1>
             <p className="mt-1 text-xs text-slate-500">Bảng tin cộng đồng và nhật ký hoạt động</p>
           </div>
-          <div className="flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
-            <Flame className="h-4 w-4 fill-current text-indigo-500" />
-            <span>Video mới</span>
-          </div>
         </div>
 
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-          <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Cập nhật trạng thái 24 giờ</p>
+          <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Tin 24 giờ</p>
           <div className="flex items-center gap-4 overflow-x-auto pb-1">
-            {stories.map((story) => (
-              <div key={story.id} className="group flex w-16 shrink-0 cursor-pointer flex-col items-center">
-                {story.isCreate ? (
-                  <div className="relative">
-                    <SafeAvatar url={story.avatar} name={story.name} className="h-12 w-12 rounded-full border-2 border-white" />
-                    <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-blue-600 text-xs font-bold text-white">
-                      +
-                    </div>
-                  </div>
-                ) : (
-                  <div className="h-13 w-13 rounded-full border-2 border-blue-500 p-0.5 transition group-hover:scale-105">
-                    <img src={story.avatar || ""} alt={story.name} className="h-full w-full rounded-full border border-white object-cover" />
-                  </div>
-                )}
-                <span className="mt-2 w-full truncate text-center text-[10px] font-semibold text-slate-600">{story.name}</span>
+            <button onClick={() => setShowStoryComposer(true)} className="group flex w-16 shrink-0 flex-col items-center">
+              <div className="relative">
+                <SafeAvatar url={user?.avatarUrl} name="Tạo mới" className="h-12 w-12 rounded-full border-2 border-white" />
+                <div className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-blue-600 text-xs font-bold text-white">+</div>
               </div>
+              <span className="mt-2 w-full truncate text-center text-[10px] font-semibold text-slate-600">Tạo mới</span>
+            </button>
+            {stories.map((story) => (
+              <button key={story.storyId} onClick={() => setActiveStory(story)} className="group flex w-16 shrink-0 flex-col items-center">
+                <div className="h-13 w-13 rounded-full border-2 border-blue-500 p-0.5 transition group-hover:scale-105">
+                  <SafeAvatar url={story.authorAvatar} name={story.authorName} className="h-full w-full rounded-full border border-white" />
+                </div>
+                <span className="mt-2 w-full truncate text-center text-[10px] font-semibold text-slate-600">{story.authorName}</span>
+                <span className="w-full truncate text-center text-[9px] text-slate-400">{formatStoryAge(story.createdAt)}</span>
+              </button>
             ))}
           </div>
         </div>
@@ -614,6 +757,58 @@ export default function TimelinePage() {
           )}
         </div>
       </main>
+      {showStoryComposer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900">Tạo story</h2>
+              <button onClick={closeStoryComposer}><X className="h-5 w-5 text-slate-500" /></button>
+            </div>
+            {storyImagePreview ? <img src={storyImagePreview} alt="preview" className="mb-3 max-h-64 w-full rounded-xl object-cover" /> : null}
+            <textarea value={storyText} onChange={(event) => setStoryText(event.target.value)} placeholder="Nhập nội dung story..." className="h-28 w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-blue-500" />
+            <input ref={storyFileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleStoryImagePick(event.target.files?.[0])} />
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <button onClick={() => storyFileInputRef.current?.click()} className="flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">
+                <ImageIcon className="h-4 w-4 text-green-500" /> Chọn ảnh
+              </button>
+              <button disabled={isCreatingStory || (!storyImageFile && !storyText.trim())} onClick={handleCreateStory} className="rounded-full bg-blue-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-50">
+                {isCreatingStory ? "Đang đăng..." : "Chia sẻ"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {activeStory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
+          <button onClick={() => setActiveStory(null)} className="absolute right-5 top-5 rounded-full bg-black/40 p-2 text-white"><X className="h-6 w-6" /></button>
+          <div className="relative flex h-[78vh] w-full max-w-md items-center justify-center overflow-hidden rounded-2xl text-white" style={{ backgroundColor: activeStory.backgroundColor || "#111827" }}>
+            {activeStory.type === "image" ? <SafeStoryImage url={activeStory.mediaUrl} className="h-full w-full object-contain" /> : null}
+            {activeStory.text ? <p className="absolute inset-x-6 text-center text-2xl font-bold drop-shadow" style={{ transform: `translate(${activeStory.textX || 0}px, ${activeStory.textY || 0}px) scale(${activeStory.textScale || 1}) rotate(${activeStory.textRotation || 0}deg)` }}>{activeStory.text}</p> : null}
+            <div className="absolute left-4 top-4">
+              <p className="font-bold">{activeStory.authorName}</p>
+              <p className="text-xs text-white/80">{formatStoryAge(activeStory.createdAt)}</p>
+            </div>
+            <div className="absolute inset-x-4 bottom-4 flex items-center gap-2">
+              {String(activeStory.userId) !== String(user?.id) && (
+                <div className="flex flex-1 items-center gap-2 rounded-full border border-white/70 bg-black/20 px-4 py-2">
+                  <input value={storyReplyText} onChange={(event) => setStoryReplyText(event.target.value)} onKeyDown={(event) => event.key === "Enter" && handleReplyToStory()} placeholder="Gửi tin nhắn..." className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/70" />
+                  {!!storyReplyText.trim() && <button onClick={handleReplyToStory}><Send className="h-4 w-4" /></button>}
+                </div>
+              )}
+              <button onClick={handleToggleStoryLike} disabled={isUpdatingStory} className="flex flex-col items-center text-xs text-white">
+                <Heart className={`h-7 w-7 ${activeStory.likes?.some((id) => String(id) === String(user?.id)) ? "fill-red-500 text-red-500" : ""}`} />
+                {!!activeStory.likeCount && <span>{activeStory.likeCount}</span>}
+              </button>
+              {String(activeStory.userId) === String(user?.id) && (
+                <button onClick={handleToggleStoryHighlight} disabled={isUpdatingStory} className="flex flex-col items-center text-[10px] text-white">
+                  <Bookmark className={`h-7 w-7 ${activeStory.isHighlighted ? "fill-white" : ""}`} />
+                  <span>{activeStory.isHighlighted ? "Đã lưu" : "Bộ sưu tập"}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {commentsPostId && (
         <CommentsModal
           postId={commentsPostId}

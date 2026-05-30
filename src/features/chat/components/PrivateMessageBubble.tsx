@@ -154,6 +154,15 @@ export function PrivateMessageBubble({
         </button>
 
         {/* ── Reply Reference — nested inside bubble at the top ── */}
+        {msg.storyReply && (
+          <div className={`mb-2 rounded-lg border-l-4 border-violet-400 px-2 py-1.5 ${isOwn ? "bg-white/20" : "bg-violet-50"}`}>
+            <p className="text-[11px] font-semibold text-violet-600">Bạn đã trả lời tin của họ</p>
+            <p className="line-clamp-2 text-xs opacity-80">
+              {msg.storyReply.text || (msg.storyReply.type === "image" ? "[Ảnh story]" : "[Story]")}
+            </p>
+          </div>
+        )}
+
         {msg.replyToMessage && (
           <ReplyReference
             replyToMessage={msg.replyToMessage}

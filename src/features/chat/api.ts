@@ -141,6 +141,31 @@ export async function createReminder(
   return response.data.data;
 }
 
+export interface CreateNotePayload {
+  conversationId: string;
+  content: string;
+  pinToTop: boolean;
+}
+
+export interface CreateNoteResponse {
+  data: {
+    note: DirectMessageItem;
+    message: DirectMessageItem;
+    pinnedMessages?: unknown[] | null;
+    pinError?: string | null;
+  };
+}
+
+export async function createNote(
+  payload: CreateNotePayload,
+): Promise<CreateNoteResponse["data"]> {
+  const response = await apiClient.post<CreateNoteResponse>(
+    "/api/notes",
+    payload,
+  );
+  return response.data.data;
+}
+
 /**
  * Lấy lịch sử tin nhắn nhóm.
  * Backend sử dụng conversationId = groupId nên dùng chung endpoint với DM.

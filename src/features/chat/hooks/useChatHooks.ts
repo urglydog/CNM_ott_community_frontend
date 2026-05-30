@@ -102,6 +102,9 @@ function getPreviewContent(
   if (message.contentType === "reminder_due") {
     return "Đến giờ nhắc hẹn";
   }
+  if (message.contentType === "note") {
+    return "[Ghi chú]";
+  }
   if (Array.isArray(message.attachments) && message.attachments.length > 0) {
     const hasImage = message.attachments.some((a) => a?.type === "image");
     const hasVideo = message.attachments.some((a) => a?.type === "video");

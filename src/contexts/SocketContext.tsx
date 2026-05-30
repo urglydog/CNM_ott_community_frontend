@@ -126,7 +126,7 @@ interface SocketContextValue {
 const SocketContext = createContext<SocketContextValue | null>(null);
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { addToast } = useToast();
   const { addGroup, removeGroup } = useGroupsStore();
 
@@ -181,6 +181,20 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socket.on("connect_error", (err) => {
       setStatus("error");
       setErrorMessage(err.message || "Kết nối thất bại");
+    });
+
+    // Sync profile/avatar in real-time when updated from another client (e.g. Mobile)
+    socket.on("profile_updated", (data: any) => {
+      console.log("[Socket] profile_updated received:", data);
+      if (data) {
+        updateUser({
+          username: data.username,
+          displayName: data.display_name || data.fullName || data.displayName,
+          avatarUrl: data.avatar_url || data.avatarUrl,
+          coverUrl: data.cover_url || data.coverUrl,
+          phone: data.phoneNumber || data.phone,
+        });
+      }
     });
 
     // ── Temporary debug: log every incoming event ────────────────────────

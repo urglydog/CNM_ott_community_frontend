@@ -36,6 +36,7 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
 
   const isProfileActive = pathname === "/profile";
   const isChatActive = pathname === "/chat";
+  const isTimelineActive = pathname === "/timeline";
 
   const navButtonClass = (active: boolean) =>
     `w-full flex justify-center py-3 cursor-pointer transition-colors ${
@@ -108,8 +109,8 @@ export default function MainSidebar({ pendingFriendCount, onPendingCountChange, 
 
           {/* Tường nhà (Nhật ký) */}
           <button
-            onClick={() => router.push("/profile?tab=timeline")}
-            className={navButtonClass(isProfileActive && typeof window !== 'undefined' && window.location.search.includes("tab=timeline"))}
+            onClick={() => router.push("/timeline")}
+            className={navButtonClass(isTimelineActive)}
             title="Tường nhà (Nhật ký)"
             aria-label="Tường nhà (Nhật ký)"
           >

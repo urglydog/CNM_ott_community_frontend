@@ -22,7 +22,6 @@ import {
   Heart,
   Share2,
   ImageIcon,
-  Flame,
   Music,
   FolderOpen,
   Users as UsersIcon,
@@ -60,6 +59,7 @@ import {
   createComment,
   getComments,
   deleteComment,
+  updatePost,
 } from "../../../api/client";
 import ForgotPasswordModal from "../../../components/auth/ForgotPasswordModal";
 
@@ -471,19 +471,19 @@ export default function ProfilePage() {
     setEditingContent(post.content);
   };
 
-  const handleSaveEditedPost = (postId: string) => {
+  const handleSaveEditedPost = async (postId: string) => {
     if (!editingContent.trim()) return;
-    const updated = timelinePosts.map(p => {
-      if (p.id === postId) {
-        return { ...p, content: editingContent.trim() };
-      }
-      return p;
-    });
-    setTimelinePosts(updated);
-    localStorage.setItem("app_timeline_posts", JSON.stringify(updated));
-    setEditingPostId(null);
-    setEditingContent("");
-    addToast("Đã cập nhật bài viết!", "success");
+    try {
+      const updatedPost = mapBackendPostToTimeline(await updatePost(postId, editingContent.trim()));
+      const updated = timelinePosts.map(p => p.id === postId ? updatedPost : p);
+      setTimelinePosts(updated);
+      localStorage.setItem("app_timeline_posts", JSON.stringify(updated));
+      setEditingPostId(null);
+      setEditingContent("");
+      addToast("Đã cập nhật bài viết!", "success");
+    } catch (err: any) {
+      addToast(`Cập nhật bài viết thất bại: ${err.message || "Lỗi hệ thống"}`, "error");
+    }
   };
 
   const handleDeletePost = async (postId: string) => {
@@ -901,13 +901,6 @@ export default function ProfilePage() {
 
   const hasSideWidgets = activeOption === "profile" || activeOption === "manage_posts";
 
-  const webStories = [
-    { id: 'create', name: 'Tạo mới', isCreate: true, avatar: resolvedAvatarUrl },
-    { id: '1', name: 'Phước Nguyện', avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150' },
-    { id: '2', name: 'Phạm Dương', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150' },
-    { id: '3', name: 'Quế Anh', avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150' },
-  ];
-
   return (
     <div className="flex-1 h-screen overflow-y-auto bg-[#f2f5fa] px-6 py-6">
       <div className="mx-auto max-w-7xl">
@@ -1175,38 +1168,6 @@ export default function ProfilePage() {
               <div className="space-y-5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xl font-bold text-slate-900 font-sans">Bảng tin cộng đồng</h2>
-                  <div className="flex items-center gap-1.5 bg-indigo-50 px-3 py-1 rounded-full text-indigo-700 font-semibold text-xs border border-indigo-200">
-                    <Flame className="w-4 h-4 text-indigo-500 fill-current animate-pulse" />
-                    <span>Video Mới</span>
-                  </div>
-                </div>
-
-                {/* Khung Story 24h nằm ngang */}
-                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
-                  <p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">Cập nhật trạng thái 24 giờ</p>
-                  <div className="flex items-center gap-4 overflow-x-auto pb-1 scrollbar-thin">
-                    {webStories.map((story) => (
-                      <div key={story.id} className="flex flex-col items-center shrink-0 w-16 cursor-pointer group">
-                        {story.isCreate ? (
-                          <div className="relative w-12 h-12 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center">
-                            {story.avatar ? (
-                              <img src={story.avatar} alt="avatar" className="w-full h-full rounded-full object-cover" />
-                            ) : (
-                              <User className="w-6 h-6 text-slate-400" />
-                            )}
-                            <div className="absolute -bottom-1 -right-1 bg-blue-600 w-5 h-5 rounded-full flex items-center justify-center border-2 border-white text-white">
-                              <span className="text-xs font-bold -mt-0.5">+</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="w-13 h-13 rounded-full border-2 border-blue-500 p-0.5 group-hover:scale-105 transition">
-                            <img src={story.avatar || ""} alt={story.name} className="w-full h-full rounded-full object-cover border border-white" />
-                          </div>
-                        )}
-                        <span className="text-[10px] font-semibold text-slate-600 mt-2 truncate w-full text-center">{story.name}</span>
-                      </div>
-                    ))}
-                  </div>
                 </div>
 
                 {/* Khung đăng bài chuẩn mạng xã hội */}

@@ -21,6 +21,7 @@ interface ChatHeaderProps {
   onOpenSettings?: () => void;
   onStartAudioCall?: () => void;
   onStartVideoCall?: () => void;
+  onStartGroupVideoCall?: () => void;
   activeConversationId?: string | null;
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
 }
@@ -40,6 +41,7 @@ export function ChatHeader({
   onOpenSettings,
   onStartAudioCall,
   onStartVideoCall,
+  onStartGroupVideoCall,
   activeConversationId,
   resolveDisplayAvatar,
 
@@ -122,6 +124,29 @@ export function ChatHeader({
 
       {/* Action buttons */}
       <div className="flex items-center gap-1">
+        {/* Group video call button — group conversations only */}
+        {(() => {
+          console.log("[group-call-button] render check", {
+            isGroup,
+            isAiChatOpen,
+            activeConversationId,
+            hasOnStartGroupVideoCall: !!onStartGroupVideoCall,
+          });
+          return null;
+        })()}
+        {isGroup && !isAiChatOpen && activeConversationId && (
+          <button
+            type="button"
+            className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
+            title="Gọi video nhóm"
+            onClick={() => {
+              console.log("[group-call-button] clicked", { onStartGroupVideoCall: !!onStartGroupVideoCall });
+              onStartGroupVideoCall?.();
+            }}
+          >
+            <Video className="w-5 h-5" />
+          </button>
+        )}
         {/* Audio call button — direct conversations only */}
         {!isGroup && !isAiChatOpen && activeConversationId && (
           <button

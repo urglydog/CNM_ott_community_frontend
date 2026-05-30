@@ -7,6 +7,8 @@
  * so it lives as long as the socket connection.
  *
  * No Agora SDK imports — pure transport → state bridge.
+ *
+ * NOTE: Group call events are temporarily excluded (1-1 only).
  */
 
 "use client";
@@ -17,14 +19,11 @@ import { useCallStore } from "../callStore";
 import { registerCallListeners, type CallEventHandlers } from "../callSocket";
 import type {
   CallIncomingPayload,
-  CallRingingPayload,
   CallAcceptedPayload,
   CallRejectedPayload,
   CallCancelledPayload,
   CallEndedPayload,
   CallMissedPayload,
-  CallParticipantJoinedPayload,
-  CallParticipantLeftPayload,
   CallParticipantDisconnectedPayload,
   CallParticipantReconnectedPayload,
   CallStateUpdatedPayload,
@@ -89,56 +88,38 @@ export function useCallSocketListener(
 
     const handlers: CallEventHandlers = {
       onIncoming: (payload: CallIncomingPayload) => {
-        console.log("[call-socket] call:incoming", payload.callId);
+        console.log("[call-socket] direct-call:incoming", payload.callId);
         actionsRef.current.setIncoming(payload.callSession);
       },
 
-      onRinging: (payload: CallRingingPayload) => {
-        console.log("[call-socket] call:ringing", payload.callId);
-        // Update session — phase stays "outgoing"
-        actionsRef.current.updateSession(payload.callSession);
-      },
-
       onAccepted: (payload: CallAcceptedPayload) => {
-        console.log("[call-socket] call:accepted", payload.callId, "by", payload.userId);
-        // Update session — auto-transitions to "active" if status is "active"
+        console.log("[call-socket] direct-call:accepted", payload.callId, "by", payload.userId);
         actionsRef.current.updateSession(payload.callSession);
       },
 
       onRejected: (payload: CallRejectedPayload) => {
-        console.log("[call-socket] call:rejected", payload.callId, "by", payload.userId);
+        console.log("[call-socket] direct-call:rejected", payload.callId, "by", payload.userId);
         actionsRef.current.updateSession(payload.callSession);
       },
 
       onCancelled: (payload: CallCancelledPayload) => {
-        console.log("[call-socket] call:cancelled", payload.callId, "by", payload.cancelledBy);
+        console.log("[call-socket] direct-call:ended (cancelled)", payload.callId, "by", payload.cancelledBy);
         actionsRef.current.setEnded(payload.callSession);
       },
 
       onEnded: (payload: CallEndedPayload) => {
-        console.log("[call-socket] call:ended", payload.callId, "reason:", payload.reason);
+        console.log("[call-socket] direct-call:ended", payload.callId, "reason:", payload.reason);
         actionsRef.current.setEnded(payload.callSession);
       },
 
       onMissed: (payload: CallMissedPayload) => {
         console.log("[call-socket] call:missed", payload.callId, "user", payload.userId);
-        // If the missed user is us, transition to "ended" to close the incoming modal
         const store = useCallStore.getState();
         if (String(payload.userId) === String(store.currentUserId)) {
           actionsRef.current.setEnded(payload.callSession);
         } else {
           actionsRef.current.updateSession(payload.callSession);
         }
-      },
-
-      onParticipantJoined: (payload: CallParticipantJoinedPayload) => {
-        console.log("[call-socket] call:participant-joined", payload.callId, "user", payload.userId);
-        actionsRef.current.updateSession(payload.callSession);
-      },
-
-      onParticipantLeft: (payload: CallParticipantLeftPayload) => {
-        console.log("[call-socket] call:participant-left", payload.callId, "user", payload.userId);
-        actionsRef.current.updateSession(payload.callSession);
       },
 
       onParticipantDisconnected: (payload: CallParticipantDisconnectedPayload) => {
@@ -150,7 +131,6 @@ export function useCallSocketListener(
           "grace",
           payload.graceMs,
         );
-        // If it's the current user who disconnected, set reconnecting phase
         const store = useCallStore.getState();
         if (String(payload.userId) === String(store.currentUserId)) {
           actionsRef.current.setReconnecting(payload.callSession);
@@ -161,14 +141,7 @@ export function useCallSocketListener(
 
       onParticipantReconnected: (payload: CallParticipantReconnectedPayload) => {
         console.log("[call-socket] call:participant-reconnected", payload.callId, "user", payload.userId);
-        // If it's the current user who reconnected, restore active phase
-        const store = useCallStore.getState();
-        if (String(payload.userId) === String(store.currentUserId)) {
-          // Token is in the payload — will be consumed by the Agora RTC layer
-          actionsRef.current.updateSession(payload.callSession);
-        } else {
-          actionsRef.current.updateSession(payload.callSession);
-        }
+        actionsRef.current.updateSession(payload.callSession);
       },
 
       onStateUpdated: (payload: CallStateUpdatedPayload) => {
@@ -179,16 +152,19 @@ export function useCallSocketListener(
       onBusy: (payload: CallBusyPayload) => {
         console.log("[call-socket] call:busy", payload.callId, payload.message);
         actionsRef.current.setError(payload.message, "CALL_BUSY");
-        // Reset to idle — busy means the call attempt is over
         setTimeout(() => {
           useCallStore.getState().reset();
         }, 2000);
       },
 
       onError: (payload: CallErrorPayload) => {
+        // Guard: ignore errors when no direct call is active.
+        // Backend group-call errors can leak via call:error when
+        // callSocketHandler.js has duplicate group-call:* handlers.
+        const directPhase = useCallStore.getState().phase;
+        if (directPhase === "idle") return;
         console.error("[call-socket] call:error", payload.code, payload.message);
         actionsRef.current.setError(payload.message, payload.code);
-        // Reset to idle after showing the error briefly
         setTimeout(() => {
           useCallStore.getState().reset();
         }, 2000);

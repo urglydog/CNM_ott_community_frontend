@@ -53,6 +53,9 @@ import ChatSettingsSidebar from "./ChatSettingsSidebar";
 import { usePinnedMessages } from "../hooks/usePinnedMessages";
 import { useChatBackground } from "../hooks/useChatBackground";
 import { useCallManager } from "../../call/hooks/useCallManager";
+import { useGroupCallManager } from "../../group-call/useGroupCallManager";
+import { getActiveGroupCallForConversation } from "../../group-call/groupCallApi";
+import { useGroupCallStore } from "../../group-call/groupCallStore";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -101,6 +104,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   } = useAudioRecorder();
 
   const callManager = useCallManager();
+  const groupCallManager = useGroupCallManager();
 
   const currentUserId = String((authUser as any)._id || authUser.id || "");
   const currentUserName = authUser.displayName || authUser.username || "User";
@@ -225,6 +229,35 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     if (!selectedFriend?.friend_id) return null;
     return dmConversationId(currentUserId, selectedFriend.friend_id);
   }, [chatMode, currentUserId, selectedFriend?.friend_id, selectedGroup]);
+
+  // ── Active group call banner state ─────────────────────────────────────
+  const [activeGroupCall, setActiveGroupCall] = useState<{ callId: string; channelName: string } | null>(null);
+
+  // Check for active group call when conversation changes
+  useEffect(() => {
+    if (chatMode !== "GROUP" || !activeConversationId) {
+      setActiveGroupCall(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const result = await getActiveGroupCallForConversation(activeConversationId);
+      if (!cancelled) {
+        setActiveGroupCall(result);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [chatMode, activeConversationId]);
+
+  // Clear active group call banner when call ends
+  const groupCallPhase = useGroupCallStore((s) => s.phase);
+  useEffect(() => {
+    if (groupCallPhase === "ended" || groupCallPhase === "idle") {
+      setActiveGroupCall(null);
+    }
+  }, [groupCallPhase]);
 
   // ── Pinned messages state & logic ───────────────────────────────────────
   const initialPinned = useMemo(() => {
@@ -1197,6 +1230,27 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onStartAudioCall={activeConversationId ? () => callManager.startCall(activeConversationId, "audio") : undefined}
         onStartVideoCall={activeConversationId ? () => callManager.startCall(activeConversationId, "video") : undefined}
+        onStartGroupVideoCall={
+          (() => {
+            const hasConvId = !!activeConversationId;
+            const memberCount = groupMembers.length;
+            console.log("[group-call-wiring] eval", { hasConvId, memberCount, chatMode });
+            if (hasConvId && memberCount > 0) {
+              return () => {
+                console.log("[group-call-wiring] onStartGroupVideoCall fired", {
+                  conversationId: activeConversationId,
+                  memberUserIds: groupMembers.map((m) => String(m.userId)),
+                });
+                groupCallManager.startGroupCall(
+                  activeConversationId!,
+                  "video",
+                  groupMembers.map((m) => String(m.userId)),
+                );
+              };
+            }
+            return undefined;
+          })()
+        }
         activeConversationId={activeConversationId}
         resolveDisplayAvatar={resolveDisplayAvatar}
       />
@@ -1254,6 +1308,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           friendName={friendName}
           selectedFriend={selectedFriend}
           groupMembers={resolvedGroupMembers}
+          activeGroupCall={chatMode === "GROUP" ? activeGroupCall : null}
+          onJoinActiveGroupCall={(callId) => groupCallManager.joinExistingGroupCall(callId)}
           focusedMessageId={focusedMessageId}
           activeScrollRef={activeScrollRef as React.RefObject<HTMLDivElement>}
           activeSentinelRef={activeSentinelRef as React.RefObject<HTMLDivElement>}

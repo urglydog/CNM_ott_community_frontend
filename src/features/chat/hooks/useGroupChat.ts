@@ -314,8 +314,9 @@ export function useGroupChat(
       // Bỏ qua tin nhắn của chính mình, NGOẠI TRỪ call_log, group_call_started VÀ poll (cần hiển thị)
       const isCallLog = (newMsg as any).contentType === "call_log" || (newMsg as any).messageType === "call_log";
       const isGroupCallStarted = (newMsg as any).contentType === "group_call_started" || (newMsg as any).messageType === "group_call_started";
+      const isGroupCallActive = (newMsg as any).contentType === "group_call_active" || (newMsg as any).messageType === "group_call_active";
       const isPoll = (newMsg as any).contentType === "poll";
-      if (!isCallLog && !isGroupCallStarted && !isPoll && Number(newMsg.senderId) === Number(user?.id)) return;
+      if (!isCallLog && !isGroupCallStarted && !isGroupCallActive && !isPoll && Number(newMsg.senderId) === Number(user?.id)) return;
 
       // Cập nhật preview để nhóm trồi lên đầu trong ChatListPanel
       setGroupConversationPreview(currentRoomId, {

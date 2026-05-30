@@ -18,6 +18,9 @@ import { useCallRtcLifecycle } from "../../features/call/hooks/useCallRtcLifecyc
 import { IncomingCallModal } from "../../features/call/components/IncomingCallModal";
 import { OutgoingCallModal } from "../../features/call/components/OutgoingCallModal";
 import { DirectCallScreen } from "../../features/call/components/DirectCallScreen";
+import { useGroupCallSocketListener } from "../../features/group-call/useGroupCallSocketListener";
+import { GroupIncomingCallModal } from "../../features/group-call/components/GroupIncomingCallModal";
+import { GroupCallWindow } from "../../features/group-call/components/GroupCallWindow";
 import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
@@ -39,6 +42,12 @@ export default function MainLayout({
 
   // ── Call RTC lifecycle: join/leave Agora based on callStore phase ──
   useCallRtcLifecycle(isAuthenticated);
+
+  // ── Group call socket listener: bridge group:call:* events to groupCallStore ──
+  useGroupCallSocketListener(
+    isAuthenticated ? String(user?.id ?? "") : null,
+    socket,
+  );
 
   const [pendingFriendCount, setPendingFriendCount] = useState(0);
 
@@ -224,6 +233,9 @@ export default function MainLayout({
       <IncomingCallModal />
       <OutgoingCallModal />
       <DirectCallScreen />
+      {/* Group call UI overlay */}
+      <GroupIncomingCallModal />
+      <GroupCallWindow />
       <ToastContainer />
     </div>
   );

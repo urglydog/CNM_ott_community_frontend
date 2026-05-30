@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Loader2, Reply, Phone, PhoneMissed, Video, VideoOff, Users, PhoneCall } from "lucide-react";
+import { FileText, Loader2, Reply, Phone, PhoneMissed, PhoneOff, Video, VideoOff, Users, PhoneCall } from "lucide-react";
 
 import AudioMessage from "./AudioMessage";
 import { ReadByAvatars } from "./ReadByAvatars";
@@ -10,6 +10,9 @@ import type { GroupChatMessage } from "../hooks/useGroupChat";
 import { formatTime, isPureEmoji } from "../utils/messageUtils";
 import LocationMessage from "../../../components/chat/LocationMessage";
 import { useChatStore } from "../store/chatStore";
+import { useState } from "react";
+import { useGroupCallManager } from "../../group-call/useGroupCallManager";
+import { useGroupCallStore } from "../../group-call/groupCallStore";
 
 /** Tin nhắn hệ thống (hiển thị giữa màn hình) */
 export function SystemMessageBubble({ msg }: { msg: GroupChatMessage }) {
@@ -154,6 +157,9 @@ function MessageBubbleContent({
   const isOwn: boolean = isOwnProp ?? false;
   const friends = useChatStore((state) => state.friends || []);
   const isMentioned = Array.isArray(msg.mentions) && (msg.mentions.map(String).includes(String(authUserId)) || msg.mentions.includes("all"));
+  const groupCallManager = useGroupCallManager();
+  const groupCallPhase = useGroupCallStore((s) => s.phase);
+  const [isJoining, setIsJoining] = useState(false);
 
   const handleReplyClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -297,9 +303,82 @@ function MessageBubbleContent({
         <div className="py-1">
           <AudioMessage audioUrl={msg.attachments?.[0]?.url || msg.content} isOwn={isOwn} />
         </div>
+      ) : msg.contentType === "group_call_active" && (msg as any).callData ? (
+        (() => {
+          const callData = (msg as any).callData;
+          const callType = callData?.callType || "video";
+          const isVideo = callType === "video";
+          const isActive = callData?.callStatus === "active";
+          const callId = callData?.callId;
+
+          const handleJoin = async () => {
+            if (!callId || isJoining) return;
+            setIsJoining(true);
+            try {
+              await groupCallManager.joinExistingGroupCall(callId);
+            } finally {
+              setIsJoining(false);
+            }
+          };
+
+          return (
+            <div className="flex items-center gap-3 pr-4 py-2 w-64">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full shrink-0 bg-green-100 text-green-600">
+                {isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />}
+              </div>
+              <div className="flex flex-col flex-1 min-w-0">
+                <span className="font-semibold text-[14px] text-gray-900">
+                  Cuộc gọi nhóm đang diễn ra
+                </span>
+                <span className="text-xs text-gray-500 mt-0.5">
+                  Nhấn để tham gia
+                </span>
+                {isActive && callId && (
+                  <button
+                    type="button"
+                    disabled={isJoining || groupCallPhase !== "idle"}
+                    onClick={(e) => { e.stopPropagation(); handleJoin(); }}
+                    className="mt-2 px-3 py-1.5 bg-green-500 text-white text-xs font-medium rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {isJoining ? "Đang tham gia..." : "Tham gia"}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()
       ) : (msg.contentType === "call_log" || (msg as any).messageType === "call_log") && (msg as any).callData ? (
         (() => {
           const callData = (msg as any).callData;
+          const callMode = callData?.callMode || "direct";
+
+          // ── Group call_log ──────────────────────────────────────────────
+          if (callMode === "group") {
+            const duration = callData?.durationSeconds || 0;
+            const formatDur = (secs: number) => {
+              const m = Math.floor(secs / 60);
+              const s = secs % 60;
+              return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            };
+
+            return (
+              <div className="flex items-center gap-3 pr-4 py-1 w-60">
+                <div className="flex items-center justify-center w-10 h-10 rounded-full shrink-0 bg-red-100 text-red-500">
+                  <PhoneOff className="w-5 h-5" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-semibold text-[14px] text-red-500">
+                    Cuộc gọi nhóm đã kết thúc
+                  </span>
+                  <span className="text-xs text-red-400 mt-0.5">
+                    {duration > 0 ? formatDur(duration) : "Đã kết thúc"}
+                  </span>
+                </div>
+              </div>
+            );
+          }
+
+          // ── Direct call_log (existing logic) ────────────────────────────
           const callType = callData?.callType || "video";
           const status = callData?.status || "missed";
           const duration = callData?.duration || 0;

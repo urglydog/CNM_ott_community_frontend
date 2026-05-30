@@ -33,6 +33,8 @@ import {
 } from "../../../api/client";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useToast } from "../../../contexts/ToastContext";
+import { formatPostTime } from "../../../utils/postTime";
+import { CommentsModal, ReactionModal, reactionSummary } from "./TimelineModals";
 
 interface CommentReply {
   id: string;
@@ -161,6 +163,14 @@ export default function TimelinePage() {
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
   const [replyTargetCommentId, setReplyTargetCommentId] = useState<string | null>(null);
+  const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
+  const [reactionUsers, setReactionUsers] = useState<{ userId: string; displayName: string; avatarUrl: string | null }[] | null>(null);
+  const [, setClock] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -181,8 +191,9 @@ export default function TimelinePage() {
 
   const mapPost = useCallback(
     (post: any): TimelinePost => {
-      const likedBy = Array.isArray(post.likes)
-        ? post.likes.map((id: string) => {
+      const likedBy = Array.isArray(post.likeUsers) && post.likeUsers.length
+        ? post.likeUsers
+        : Array.isArray(post.likes) ? post.likes.map((id: string) => {
             const friend = friends.find((item) => String(item.friend_id || item.userId) === String(id));
             return {
               userId: id,
@@ -193,8 +204,7 @@ export default function TimelinePage() {
               avatarUrl:
                 id === user?.id ? user?.avatarUrl || null : friend?.friend_avatar_url || friend?.avatar_url || null,
             };
-          })
-        : [];
+          }) : [];
       const comments = Array.isArray(post.comments)
         ? post.comments.map((comment: any) => ({
             id: comment.commentId || comment.id,
@@ -267,11 +277,7 @@ export default function TimelinePage() {
           post.id === postId
             ? {
                 ...post,
-                likedBy: res.likes.map((id: string) => ({
-                  userId: id,
-                  displayName: id === user?.id ? user?.displayName || user?.username || "Tôi" : "Một người bạn",
-                  avatarUrl: id === user?.id ? user?.avatarUrl || null : null,
-                })),
+                likedBy: res.likeUsers,
               }
             : post
         )
@@ -508,7 +514,7 @@ export default function TimelinePage() {
                       <SafeAvatar url={post.authorAvatar} name={post.authorName} className="h-10 w-10 rounded-full" />
                       <div>
                         <h2 className="text-sm font-bold text-slate-800">{post.authorName}</h2>
-                        <p className="font-mono text-[11px] font-semibold text-slate-400">{new Date(post.createdAt).toLocaleString("vi-VN")}</p>
+                        <p className="text-[11px] font-semibold text-slate-400">{formatPostTime(post.createdAt)}</p>
                       </div>
                     </div>
                     {isMyPost && (
@@ -546,11 +552,10 @@ export default function TimelinePage() {
                   <SafePostImage url={post.imageUrl} />
 
                   {post.likedBy.length > 0 && (
-                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5 rounded-lg bg-red-50/50 px-3 py-1.5 text-[11px] text-slate-600">
+                    <button onClick={() => setReactionUsers(post.likedBy)} className="mt-2.5 flex w-full flex-wrap items-center gap-1.5 rounded-lg bg-red-50/50 px-3 py-1.5 text-left text-[11px] text-slate-600 hover:bg-red-50">
                       <Heart className="h-3 w-3 fill-current text-red-500" />
-                      <span className="font-semibold">Thả tim bởi:</span>
-                      <span className="font-bold text-slate-800">{post.likedBy.map((like) => like.displayName).join(", ")}</span>
-                    </div>
+                      <span className="font-bold text-slate-800">{reactionSummary(post.likedBy, user?.id ? String(user.id) : undefined)}</span>
+                    </button>
                   )}
 
                   <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-500">
@@ -558,14 +563,14 @@ export default function TimelinePage() {
                       <button onClick={() => handleLikePost(post.id)} className={`flex items-center gap-1.5 font-bold hover:text-red-500 ${post.likedBy.some((like) => like.userId === user?.id) ? "text-red-500" : ""}`}>
                         <Heart className={`h-4 w-4 ${post.likedBy.some((like) => like.userId === user?.id) ? "fill-current" : ""}`} /> Thích ({post.likedBy.length})
                       </button>
-                      <button onClick={() => toggleComments(post.id)} className={`flex items-center gap-1.5 font-bold hover:text-blue-500 ${expandedComments[post.id] ? "text-blue-600" : ""}`}>
+                      <button onClick={() => setCommentsPostId(post.id)} className="flex items-center gap-1.5 font-bold hover:text-blue-500">
                         <MessageSquare className="h-4 w-4" /> Bình luận ({post.commentCount || 0})
                       </button>
                     </div>
                     <button className="flex items-center gap-1.5 font-bold hover:text-blue-500"><Share2 className="h-4 w-4" /> Chia sẻ</button>
                   </div>
 
-                  {expandedComments[post.id] && (
+                  {false && expandedComments[post.id] && (
                     <div className="mt-4 space-y-3 rounded-xl border-t border-slate-50 bg-slate-50/50 p-3">
                       {(commentsByPost[post.id] || []).map((comment) => (
                         <div key={comment.id} className="space-y-1.5">
@@ -609,6 +614,16 @@ export default function TimelinePage() {
           )}
         </div>
       </main>
+      {commentsPostId && (
+        <CommentsModal
+          postId={commentsPostId}
+          currentUserId={user?.id ? String(user.id) : undefined}
+          onClose={() => setCommentsPostId(null)}
+          onCommentAdded={() => setPosts((current) => current.map((post) => post.id === commentsPostId ? { ...post, commentCount: (post.commentCount || 0) + 1 } : post))}
+          onCommentsDeleted={(count) => setPosts((current) => current.map((post) => post.id === commentsPostId ? { ...post, commentCount: Math.max(0, (post.commentCount || 0) - count) } : post))}
+        />
+      )}
+      {reactionUsers && <ReactionModal users={reactionUsers} onClose={() => setReactionUsers(null)} />}
     </div>
   );
 }

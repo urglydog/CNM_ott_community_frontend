@@ -63,7 +63,7 @@ import {
 } from "../../../api/client";
 import ForgotPasswordModal from "../../../components/auth/ForgotPasswordModal";
 
-type OptionKey = "profile" | "password" | "timeline" | "manage_posts";
+type OptionKey = "profile" | "password" | "manage_posts";
 type VerifyType = "email" | "phone" | null;
 
 interface CommentReply {
@@ -285,17 +285,6 @@ export default function ProfilePage() {
   };
 
   const phoneDisplayValue = formatPhoneForDisplay(profileForm.phone);
-
-  // Lắng nghe URL query parameter ?tab=timeline để kích hoạt tab Tường nhà
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const tab = params.get("tab");
-      if (tab === "timeline") {
-        setActiveOption("timeline");
-      }
-    }
-  }, [router]);
 
   // Load danh sách bạn bè thật sự trên web
   useEffect(() => {
@@ -910,7 +899,7 @@ export default function ProfilePage() {
     return timelinePosts.filter(p => p.userId === user?.id);
   }, [timelinePosts, user?.id]);
 
-  const hasSideWidgets = activeOption === "profile" || activeOption === "timeline" || activeOption === "manage_posts";
+  const hasSideWidgets = activeOption === "profile" || activeOption === "manage_posts";
 
   const webStories = [
     { id: 'create', name: 'Tạo mới', isCreate: true, avatar: resolvedAvatarUrl },
@@ -1008,23 +997,10 @@ export default function ProfilePage() {
             
             <button
               onClick={() => {
-                setActiveOption("timeline");
-                router.push("/profile?tab=timeline");
-              }}
-              className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${
-                activeOption === "timeline" ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              <span className="flex items-center gap-2"><Newspaper className="h-4 w-4" /> Nhật ký hoạt động</span>
-              <ChevronRight className="h-4 w-4" />
-            </button>
-
-            <button
-              onClick={() => {
                 setActiveOption("manage_posts");
                 router.push("/profile");
               }}
-              className={`mt-1 flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${
+              className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${
                 activeOption === "manage_posts" ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-50"
               }`}
             >
@@ -1195,7 +1171,7 @@ export default function ProfilePage() {
             )}
 
             {/* TAB: Nhật ký hoạt động (Timeline) */}
-            {activeOption === "timeline" && (
+            {false && (
               <div className="space-y-5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xl font-bold text-slate-900 font-sans">Bảng tin cộng đồng</h2>
@@ -1574,8 +1550,7 @@ export default function ProfilePage() {
                             {isUnder7Days && (
                               <button
                                 onClick={() => {
-                                  setActiveOption("timeline");
-                                  handleEditPost(post);
+                                  router.push("/timeline");
                                 }}
                                 className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-blue-100 transition"
                               >
@@ -1661,8 +1636,7 @@ export default function ProfilePage() {
                   </div>
                   <button
                     onClick={() => {
-                      setActiveOption("timeline");
-                      router.push("/profile?tab=timeline");
+                      router.push("/timeline");
                     }}
                     className="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
                   >

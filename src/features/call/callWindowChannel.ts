@@ -69,6 +69,64 @@ export interface MainCallEndedMsg {
   reason: string;
 }
 
+export interface MainCallAcceptedMsg {
+  type: "main:call-accepted";
+  callId: string;
+}
+
+export interface CallWindowAcceptingMsg {
+  type: "call-window:accepting";
+  callId: string;
+}
+
+export interface CallWindowAcceptedMsg {
+  type: "call-window:accepted";
+  callId: string;
+}
+
+export interface CallWindowRejectedMsg {
+  type: "call-window:rejected";
+  callId: string;
+}
+
+// ── Group call messages ──────────────────────────────────────────────────
+
+export interface MainGroupCredentialsMsg {
+  type: "main:group-credentials";
+  callId: string;
+  credentials: {
+    appId: string;
+    token: string;
+    uid: number;
+    channelName: string;
+  };
+}
+
+export interface MainGroupParticipantJoinedMsg {
+  type: "main:group-participant-joined";
+  callId: string;
+  userId: string;
+  displayName?: string;
+}
+
+export interface MainGroupParticipantLeftMsg {
+  type: "main:group-participant-left";
+  callId: string;
+  userId: string;
+}
+
+export interface MainGroupEndedMsg {
+  type: "main:group-ended";
+  callId: string;
+  reason: string;
+}
+
+export interface MainGroupStateMsg {
+  type: "main:group-state";
+  callId: string;
+  participants: any[];
+}
+
 export type CallWindowMessage =
   | CallWindowOpenedMsg
   | CallWindowClosedMsg
@@ -76,7 +134,16 @@ export type CallWindowMessage =
   | MainLeaveRequestMsg
   | MainTokenPayloadMsg
   | MainCallInfoMsg
-  | MainCallEndedMsg;
+  | MainCallEndedMsg
+  | MainCallAcceptedMsg
+  | CallWindowAcceptingMsg
+  | CallWindowAcceptedMsg
+  | CallWindowRejectedMsg
+  | MainGroupCredentialsMsg
+  | MainGroupParticipantJoinedMsg
+  | MainGroupParticipantLeftMsg
+  | MainGroupEndedMsg
+  | MainGroupStateMsg;
 
 // ── Channel singleton (per browser tab/window) ───────────────────────────
 

@@ -19,8 +19,8 @@ import { IncomingCallModal } from "../../features/call/components/IncomingCallMo
 import { OutgoingCallModal } from "../../features/call/components/OutgoingCallModal";
 import { DirectCallScreen } from "../../features/call/components/DirectCallScreen";
 import { useGroupCallSocketListener } from "../../features/group-call/useGroupCallSocketListener";
+import { useGroupCallPopupSync } from "../../features/group-call/useGroupCallPopupSync";
 import { GroupIncomingCallModal } from "../../features/group-call/components/GroupIncomingCallModal";
-import { GroupCallWindow } from "../../features/group-call/components/GroupCallWindow";
 import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
@@ -48,6 +48,8 @@ export default function MainLayout({
     isAuthenticated ? String(user?.id ?? "") : null,
     socket,
   );
+
+  useGroupCallPopupSync();
 
   const [pendingFriendCount, setPendingFriendCount] = useState(0);
 
@@ -250,9 +252,8 @@ export default function MainLayout({
       <IncomingCallModal />
       <OutgoingCallModal />
       <DirectCallScreen />
-      {/* Group call UI overlay */}
+      {/* Group incoming call modal — no Agora, just notification */}
       <GroupIncomingCallModal />
-      <GroupCallWindow />
       <ToastContainer />
     </div>
   );

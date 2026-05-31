@@ -52,6 +52,12 @@ export function useCallRecovery(enabled: boolean): void {
       if (response.call) {
         console.log("[call-recovery] Found active call:", response.call.callId, "status:", response.call.status);
 
+        // Skip group calls — they are recovered by group-call system separately
+        if (response.call.callId?.startsWith("gc_") || response.call.callMode === "group") {
+          console.log("[call-recovery] Skipping group call:", response.call.callId);
+          return;
+        }
+
         // Determine the current user's participant state
         const store = useCallStore.getState();
         const myId = store.currentUserId;

@@ -220,6 +220,7 @@ export function useGroupCallSocketListener(
             actionsRef.current.setParticipantProfiles(profiles);
           }
         }
+
       },
 
       onAccepted: (payload: any) => {
@@ -244,13 +245,23 @@ export function useGroupCallSocketListener(
       onParticipantJoined: (payload: any) => {
         const callId = payload.sessionId || payload.callId;
         if (!shouldProcessEvent(callId)) return;
-        console.log("[group-call-socket] group-call:participant-joined", callId, "user", payload.joinedUserId);
+        const joinedUserId = payload.userId ?? payload.participantId ?? payload.acceptedBy ?? payload.joinedUserId;
+        if (!joinedUserId) {
+          console.warn("[group-call-socket] group-call:participant-joined — missing userId, full payload:", JSON.stringify(payload));
+          return;
+        }
+        console.log("[group-call-socket] group-call:participant-joined", callId, "user", joinedUserId);
       },
 
       onParticipantLeft: (payload: any) => {
         const callId = payload.sessionId || payload.callId;
         if (!shouldProcessEvent(callId)) return;
-        console.log("[group-call-socket] group-call:participant-left", callId, "user", payload.leftUserId);
+        const leftUserId = payload.userId ?? payload.participantId ?? payload.leftUserId;
+        if (!leftUserId) {
+          console.warn("[group-call-socket] group-call:participant-left — missing userId, full payload:", JSON.stringify(payload));
+          return;
+        }
+        console.log("[group-call-socket] group-call:participant-left", callId, "user", leftUserId);
       },
 
       onState: (payload: any) => {

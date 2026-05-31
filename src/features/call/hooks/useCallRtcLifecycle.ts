@@ -97,6 +97,19 @@ export function useCallRtcLifecycle(enabled: boolean): void {
         enableVideoRef.current = callSession?.callType === "video";
       }
 
+      // ── NOTIFY POPUP: call accepted — tell popup to join Agora ──
+      if (
+        phase === "active" &&
+        prevPhase === "outgoing" &&
+        (state.callWindowOpening || state.callWindowJoined)
+      ) {
+        console.log("[call-lifecycle] Call accepted — notifying popup to join Agora");
+        sendMessage({
+          type: "main:call-accepted",
+          callId: callId || "",
+        });
+      }
+
       // ── LEAVE: call ended (ended/missed/rejected/cancelled) — ALWAYS process ──
       //    Must handle even when popup is open, so we can notify the popup via BroadcastChannel.
       if (phase === "ended") {
@@ -234,12 +247,49 @@ export function useCallRtcLifecycle(enabled: boolean): void {
         }
       }
 
+      if (msg.type === "call-window:accepting") {
+        console.log("[call-lifecycle] Call window accepting — transitioning to connecting");
+        const currentPhase = useCallStore.getState().phase;
+        if (currentPhase === "incoming") {
+          useCallStore.getState().setConnecting(useCallStore.getState().callSession!);
+        }
+      }
+
+      if (msg.type === "call-window:accepted") {
+        console.log("[call-lifecycle] Call window accepted — transitioning to active");
+        const currentSession = useCallStore.getState().callSession;
+        if (currentSession) {
+          useCallStore.getState().setActive(currentSession);
+        }
+      }
+
+      if (msg.type === "call-window:rejected") {
+        console.log("[call-lifecycle] Call window rejected — resetting");
+        useCallStore.getState().reset();
+      }
+
       if (msg.type === "call-window:closed") {
         console.log("[call-lifecycle] Call window closed — cancelling reconnect, ending call");
         // Cancel any pending reconnect immediately
         cancelReconnectTimer();
         useCallStore.getState().setCallWindowJoined(false);
         useCallStore.getState().setCallWindowOpening(false);
+
+        // If popup closed during ringing (before accept), clean up the call
+        const phaseAfterClose = useCallStore.getState().phase;
+        if (phaseAfterClose === "incoming" || phaseAfterClose === "outgoing") {
+          const closeCallId = useCallStore.getState().getCallId();
+          if (closeCallId) {
+            // Incoming = callee closing popup → reject; Outgoing = caller closing → cancel
+            if (phaseAfterClose === "incoming") {
+              callApi.rejectCall(closeCallId).catch(() => {});
+            } else {
+              callApi.cancelCall(closeCallId).catch(() => {});
+            }
+          }
+          useCallStore.getState().reset();
+          return;
+        }
 
         // End the call if still active on the main page
         const currentPhase = useCallStore.getState().phase;

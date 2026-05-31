@@ -29,6 +29,7 @@ import type {
 } from "agora-rtc-sdk-ng";
 import { useGroupCallStore, type GroupCallCredentials } from "./groupCallStore";
 import type { RemoteParticipant } from "./groupCallTypes";
+import { useToast } from "../../contexts/ToastContext";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -57,9 +58,50 @@ export interface UseGroupAgoraRtcActions {
 
 export type UseGroupAgoraRtcReturn = UseGroupAgoraRtcState & UseGroupAgoraRtcActions;
 
+type MediaIssueKind = "microphone" | "camera";
+
+function classifyMediaDeviceError(kind: MediaIssueKind, err: unknown): string {
+  const rawCode = typeof err === "object" && err && "code" in err ? String((err as any).code) : "";
+  const rawName = typeof err === "object" && err && "name" in err ? String((err as any).name) : "";
+  const rawMessage = typeof err === "object" && err && "message" in err ? String((err as any).message) : "";
+  const normalized = `${rawCode} ${rawName} ${rawMessage}`.toUpperCase();
+
+  if (normalized.includes("PERMISSION_DENIED") || normalized.includes("NOTALLOWEDERROR")) {
+    return `Bạn chưa cấp quyền ${kind === "microphone" ? "micro" : "camera"}. Hãy bấm vào biểu tượng ổ khóa cạnh thanh địa chỉ, cho phép truy cập thiết bị rồi thử lại.`;
+  }
+
+  if (normalized.includes("NOT_READABLE") || normalized.includes("DEVICE IN USE") || normalized.includes("NOTREADABLEERROR")) {
+    return `${kind === "microphone" ? "Micro" : "Camera"} đang được ứng dụng hoặc tab khác sử dụng. Hãy đóng ứng dụng đang chiếm thiết bị rồi thử bật lại.`;
+  }
+
+  return `Không thể truy cập ${kind === "microphone" ? "micro" : "camera"}. Hãy kiểm tra quyền trình duyệt và thiết bị rồi thử lại.`;
+}
+
+async function withSuppressedAgoraDeviceError<T>(task: () => Promise<T>): Promise<T> {
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => {
+    const text = args.map((arg) => String(arg ?? "")).join(" ");
+    const normalized = text.toUpperCase();
+    const shouldSuppress =
+      normalized.includes("AGORA-SDK") &&
+      (normalized.includes("PERMISSION_DENIED") || normalized.includes("NOT_READABLE"));
+
+    if (!shouldSuppress) {
+      originalConsoleError(...args);
+    }
+  };
+
+  try {
+    return await task();
+  } finally {
+    console.error = originalConsoleError;
+  }
+}
+
 // ── Hook ────────────────────────────────────────────────────────────────────
 
 export function useGroupAgoraRtc(): UseGroupAgoraRtcReturn {
+  const { addToast } = useToast();
   // ── Refs (not reactive, used for cleanup and async guards) ──────────────
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const audioTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
@@ -253,20 +295,25 @@ export function useGroupAgoraRtc(): UseGroupAgoraRtcReturn {
         let videoTrack: ICameraVideoTrack | null = null;
         let audioUnavailable = false;
         let videoUnavailable = false;
+        const mediaWarnings: string[] = [];
 
         try {
-          audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+          audioTrack = await withSuppressedAgoraDeviceError(() =>
+            AgoraRTC.createMicrophoneAudioTrack(),
+          );
         } catch (err: any) {
-          console.warn("[group-rtc] mic unavailable:", err?.message);
           audioUnavailable = true;
+          mediaWarnings.push(classifyMediaDeviceError("microphone", err));
         }
 
         if (enableVideo) {
           try {
-            videoTrack = await AgoraRTC.createCameraVideoTrack();
+            videoTrack = await withSuppressedAgoraDeviceError(() =>
+              AgoraRTC.createCameraVideoTrack(),
+            );
           } catch (err: any) {
-            console.warn("[group-rtc] camera unavailable:", err?.message);
             videoUnavailable = true;
+            mediaWarnings.push(classifyMediaDeviceError("camera", err));
           }
         }
 
@@ -294,13 +341,9 @@ export function useGroupAgoraRtc(): UseGroupAgoraRtcReturn {
 
         // ── Build media warning ──────────────────────────────────────────
 
-        let warning: string | null = null;
-        if (audioUnavailable && videoUnavailable) {
-          warning = "Không truy cập được micro/camera. Bạn đã vào phòng ở chế độ không âm thanh/hình ảnh.";
-        } else if (audioUnavailable) {
-          warning = "Micro đang được thiết bị/tab khác sử dụng, bạn đã vào phòng ở chế độ không âm thanh.";
-        } else if (videoUnavailable) {
-          warning = "Camera đang được thiết bị/tab khác sử dụng, bạn đã vào phòng ở chế độ không video.";
+        const warning = mediaWarnings.length > 0 ? mediaWarnings.join(" ") : null;
+        if (warning) {
+          addToast(warning, "info", 6000);
         }
 
         // ── Update state ─────────────────────────────────────────────────

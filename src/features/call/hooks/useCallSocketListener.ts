@@ -32,6 +32,36 @@ import type {
 } from "../types";
 
 /**
+ * Build URL for incoming call popup (no token — callee gets token after accept).
+ */
+function buildIncomingCallWindowUrl(
+  callId: string,
+  callType: string,
+  remoteName: string,
+): string {
+  const params = new URLSearchParams({
+    callId,
+    callType: callType || "audio",
+    remoteName: remoteName || "Đối phương",
+    isInitiator: "false",
+    mode: "incoming-ringing",
+  });
+  return `/call/window?${params.toString()}`;
+}
+
+function openCallWindowPopup(url: string): Window | null {
+  try {
+    return window.open(
+      url,
+      "ott-call-window",
+      "width=420,height=640,menubar=no,toolbar=no,status=no,resizable=yes",
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Register call socket event listeners and update the call store.
  *
  * @param currentUserId - The authenticated user's ID. When null, listeners are not registered.
@@ -89,7 +119,29 @@ export function useCallSocketListener(
     const handlers: CallEventHandlers = {
       onIncoming: (payload: CallIncomingPayload) => {
         console.log("[call-socket] direct-call:incoming", payload.callId);
+        
+        // Update store with incoming call session
         actionsRef.current.setIncoming(payload.callSession);
+        
+        // Open /call/window popup as the ringing screen
+        const callerName = (payload as any).initiatorName 
+          || (payload.callSession as any).initiatorName 
+          || "Đối phương";
+        const url = buildIncomingCallWindowUrl(
+          payload.callId,
+          payload.callType,
+          callerName,
+        );
+        
+        const popup = openCallWindowPopup(url);
+        if (popup) {
+          useCallStore.getState().setCallWindowOpening(true);
+          console.log("[call-socket] Opened incoming call popup for", payload.callId);
+        } else {
+          // Popup blocked — IncomingCallModal will show as fallback
+          useCallStore.getState().setPendingCallWindowUrl(url);
+          console.warn("[call-socket] Popup blocked — IncomingCallModal fallback for", payload.callId);
+        }
       },
 
       onAccepted: (payload: CallAcceptedPayload) => {

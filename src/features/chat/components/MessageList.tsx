@@ -39,7 +39,7 @@ interface MessageListProps {
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
   isFocusBlue?: boolean;
   activeGroupCall?: { callId: string; channelName: string } | null;
-  onJoinActiveGroupCall?: (callId: string) => void;
+  onJoinActiveGroupCall?: (activeCall: { callId: string; channelName: string }) => void;
 }
 
 export function MessageList({
@@ -117,7 +117,7 @@ export function MessageList({
           if (isJoining || !onJoinActiveGroupCall) return;
           setIsJoining(true);
           try {
-            await onJoinActiveGroupCall(activeGroupCall.callId);
+            await onJoinActiveGroupCall(activeGroupCall);
           } finally {
             setIsJoining(false);
           }

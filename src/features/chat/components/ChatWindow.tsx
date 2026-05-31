@@ -1417,7 +1417,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           selectedFriend={selectedFriend}
           groupMembers={resolvedGroupMembers}
           activeGroupCall={chatMode === "GROUP" ? activeGroupCall : null}
-          onJoinActiveGroupCall={(callId) => groupCallManager.joinExistingGroupCall(callId)}
+          onJoinActiveGroupCall={(call) => groupCallManager.joinExistingGroupCall(call.callId, call)}
           focusedMessageId={focusedMessageId}
           activeScrollRef={activeScrollRef as React.RefObject<HTMLDivElement>}
           activeSentinelRef={activeSentinelRef as React.RefObject<HTMLDivElement>}

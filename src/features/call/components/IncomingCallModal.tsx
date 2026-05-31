@@ -16,8 +16,12 @@ export function IncomingCallModal() {
   const { phase, callSession, acceptCall, rejectCall, openCallWindowManually } = useCallManager();
   const pendingCallWindowUrl = useCallStore((s) => s.pendingCallWindowUrl);
   const callWindowOpening = useCallStore((s) => s.callWindowOpening);
+  const callWindowJoined = useCallStore((s) => s.callWindowJoined);
 
   if (phase !== "incoming" || !callSession) return null;
+
+  // Don't show modal when call window popup is open — popup handles the ringing UI
+  if (callWindowOpening || callWindowJoined) return null;
 
   const isVideo = callSession.callType === "video";
 

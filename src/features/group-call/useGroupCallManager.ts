@@ -49,6 +49,47 @@ const GROUP_RESPONSE_EVENTS = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+function buildGroupCallWindowUrl(params: {
+  callId: string;
+  callType: string;
+  conversationId: string;
+  channelName: string;
+  remoteName: string;
+  mode: string;
+  isHost?: boolean;
+  appId?: string;
+  token?: string;
+  uid?: number;
+}): string {
+  const sp = new URLSearchParams({
+    callId: params.callId,
+    callType: params.callType,
+    conversationId: params.conversationId,
+    channelName: params.channelName,
+    remoteName: params.remoteName,
+    mode: params.mode,
+    callKind: "group",
+    isInitiator: params.isHost ? "true" : "false",
+    isHost: params.isHost ? "true" : "false",
+  });
+  if (params.appId) sp.set("appId", params.appId);
+  if (params.token) sp.set("token", params.token);
+  if (params.uid != null) sp.set("uid", String(params.uid));
+  return `/group-call/window?${sp.toString()}`;
+}
+
+function openGroupCallPopup(url: string): Window | null {
+  try {
+    return window.open(
+      url,
+      "ott-call-window",
+      "width=420,height=640,menubar=no,toolbar=no,status=no,resizable=yes",
+    );
+  } catch {
+    return null;
+  }
+}
+
 function getActiveSocket(overrideSocket?: Socket): Socket {
   return overrideSocket ?? getSocket();
 }
@@ -219,6 +260,28 @@ export function useGroupCallManager(socketOverride?: Socket) {
         // Host has credentials — go to "joining" (not "ringing").
         setPhase("joining");
         console.log("[group-call-manager] startGroupCall → joining", sessionId);
+
+        // Open /call/window popup for the group call
+        const url = buildGroupCallWindowUrl({
+          callId: sessionId || "",
+          callType: callType || "video",
+          conversationId,
+          channelName: channelName || "",
+          remoteName: "Cuộc gọi nhóm",
+          mode: "host-ringing",
+          isHost: true,
+          appId: (payload.appId as string) || AGORA_APP_ID,
+          token,
+          uid,
+        });
+
+        const popup = openGroupCallPopup(url);
+        if (popup) {
+          console.log("[group-call] Opened group call popup as host");
+          useGroupCallStore.getState().setPopupOpened(true);
+        } else {
+          console.warn("[group-call] Popup blocked — GroupCallWindow fallback");
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Không thể bắt đầu cuộc gọi nhóm";
         console.error("[group-call-manager] startGroupCall failed:", msg);
@@ -267,6 +330,27 @@ export function useGroupCallManager(socketOverride?: Socket) {
 
       setPhase("joining");
       console.log("[group-call-manager] acceptGroupCall → joining", sessionId);
+
+      // Open /call/window popup
+      const url = buildGroupCallWindowUrl({
+        callId: sessionId,
+        callType: "video",
+        conversationId: useGroupCallStore.getState().callSession?.conversationId || "",
+        channelName: channelName || "",
+        remoteName: "Cuộc gọi nhóm",
+        mode: "accepted",
+        appId: (payload.appId as string) || AGORA_APP_ID,
+        token,
+        uid,
+      });
+
+      const popup = openGroupCallPopup(url);
+      if (popup) {
+        console.log("[group-call] Opened group call popup after accept");
+        useGroupCallStore.getState().setPopupOpened(true);
+      } else {
+        console.warn("[group-call] Popup blocked — GroupCallWindow fallback");
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Không thể tham gia cuộc gọi";
       console.error("[group-call-manager] acceptGroupCall failed:", msg);
@@ -279,8 +363,11 @@ export function useGroupCallManager(socketOverride?: Socket) {
   //   accept = trả lời chuông lần đầu (status must be RINGING/INVITED)
   //   join   = vào/rejoin phòng đang diễn ra (works for LEFT, ACCEPTED, etc.)
 
-  const joinExistingGroupCall = useCallback(async (callId: string): Promise<void> => {
-    console.log("[group-call-manager] joinExistingGroupCall", callId);
+  const joinExistingGroupCall = useCallback(async (
+    callId: string,
+    activeCall?: { callId: string; channelName: string } | null,
+  ): Promise<void> => {
+    console.log("[group-call-manager] joinExistingGroupCall", { callId, channelName: activeCall?.channelName });
 
     // Set callId in store so acceptGroupCall can use it
     setCallSession({
@@ -290,7 +377,7 @@ export function useGroupCallManager(socketOverride?: Socket) {
       callMode: "group",
       callType: "video",
       provider: "agora",
-      channelName: "",
+      channelName: activeCall?.channelName || "",
       participants: [],
       status: "active",
       endedReason: null,
@@ -345,6 +432,27 @@ export function useGroupCallManager(socketOverride?: Socket) {
       }
 
       setPhase("joining");
+
+      // Open /call/window popup
+      const url = buildGroupCallWindowUrl({
+        callId,
+        callType: "video",
+        conversationId: useGroupCallStore.getState().callSession?.conversationId || "",
+        channelName: channelName || "",
+        remoteName: "Cuộc gọi nhóm",
+        mode: "rejoin",
+        appId: (ack.appId as string) || AGORA_APP_ID,
+        token,
+        uid,
+      });
+
+      const popup = openGroupCallPopup(url);
+      if (popup) {
+        console.log("[group-call] Opened group call popup after join");
+        useGroupCallStore.getState().setPopupOpened(true);
+      } else {
+        console.warn("[group-call] Popup blocked — GroupCallWindow fallback");
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Không thể tham gia cuộc gọi";
       console.error("[group-call-manager] joinExistingGroupCall failed:", msg);

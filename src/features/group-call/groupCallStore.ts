@@ -56,6 +56,9 @@ interface GroupCallState {
   // — Participant connection states (overlay on callSession) —
   disconnectedUserIds: Set<string>;
 
+  // — Popup state —
+  popupOpened: boolean;
+
   // — Error state —
   lastError: { code: string; message: string } | null;
 }
@@ -89,6 +92,9 @@ interface GroupCallActions {
   markDisconnected: (userId: string) => void;
   markReconnected: (userId: string) => void;
 
+  // — Popup —
+  setPopupOpened: (opened: boolean) => void;
+
   // — Error —
   setError: (error: { code: string; message: string } | null) => void;
 
@@ -109,6 +115,7 @@ const initialState: GroupCallState = {
   userIdToUid: new Map(),
   participantProfiles: new Map(),
   disconnectedUserIds: new Set(),
+  popupOpened: false,
   lastError: null,
 };
 
@@ -185,6 +192,10 @@ export const useGroupCallStore = create<GroupCallState & GroupCallActions>(
       })),
 
     setParticipantProfiles: (profiles) => set({ participantProfiles: profiles }),
+
+    // — Popup —
+
+    setPopupOpened: (opened) => set({ popupOpened: opened }),
 
     // — Disconnect tracking —
 

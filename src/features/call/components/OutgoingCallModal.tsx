@@ -17,6 +17,7 @@ export function OutgoingCallModal() {
   const { phase, callSession, cancelCall, errorMessage, errorCode, clearError, openCallWindowManually } = useCallManager();
   const pendingCallWindowUrl = useCallStore((s) => s.pendingCallWindowUrl);
   const callWindowOpening = useCallStore((s) => s.callWindowOpening);
+  const callWindowJoined = useCallStore((s) => s.callWindowJoined);
 
   // Show error overlay even if phase has already transitioned
   if (errorMessage && errorCode === "CALL_BUSY") {
@@ -43,6 +44,9 @@ export function OutgoingCallModal() {
   }
 
   if (phase !== "outgoing" || !callSession) return null;
+
+  // Don't show modal when call window popup is open — popup handles the ringing UI
+  if (callWindowOpening || callWindowJoined) return null;
 
   const isVideo = callSession.callType === "video";
 

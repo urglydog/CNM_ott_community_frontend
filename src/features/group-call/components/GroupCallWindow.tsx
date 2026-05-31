@@ -38,6 +38,7 @@ export function GroupCallWindow() {
   const credentials = useGroupCallStore((s) => s.credentials);
   const remoteParticipants = useGroupCallStore((s) => s.remoteParticipants);
   const lastError = useGroupCallStore((s) => s.lastError);
+  const popupOpened = useGroupCallStore((s: any) => s.popupOpened);
 
   const manager = useGroupCallManager();
   const rtc = useGroupAgoraRtc();
@@ -122,6 +123,8 @@ export function GroupCallWindow() {
 
   // Don't render if idle or ringing without credentials (host starts with credentials)
   if (phase === "idle") return null;
+  if (popupOpened) return null;
+
   if (phase === "ringing" && !credentials) return null;
 
   // ── Ended state ───────────────────────────────────────────────────────
@@ -172,8 +175,11 @@ export function GroupCallWindow() {
 
       {/* ── Media warning ───────────────────────────────────────────────── */}
       {rtc.localMediaWarning && (
-        <div className="bg-yellow-600/90 text-white text-xs text-center px-3 py-1.5">
-          {rtc.localMediaWarning}
+        <div className="bg-yellow-600/90 text-white text-xs text-center px-3 py-2">
+          <div>{rtc.localMediaWarning}</div>
+          <div className="mt-1 text-[11px] text-yellow-100">
+            Gợi ý: bấm vào biểu tượng ổ khóa cạnh thanh địa chỉ để mở quyền micro/camera, hoặc đóng tab/app khác đang dùng thiết bị.
+          </div>
         </div>
       )}
 

@@ -380,38 +380,60 @@ function MessageBubbleContent({
 
           // ── Direct call_log (existing logic) ────────────────────────────
           const callType = callData?.callType || "video";
-          const status = callData?.status || "missed";
-          const duration = callData?.duration || 0;
+          const endedReason = callData?.endedReason || null;
+          const durationSeconds = callData?.durationSeconds ?? callData?.duration ?? 0;
+
+          console.log("[call-log-render]", {
+            callStatus: callData?.callStatus,
+            status: callData?.status,
+            endedReason,
+            durationSeconds,
+            acceptedCount: callData?.acceptedCount,
+          });
 
           const isVideo = callType === "video";
-          const isMissed = status === "missed" || status === "rejected";
+          const typeLabel = isVideo ? "Cuộc gọi video" : "Cuộc gọi thoại";
 
-          let icon = isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />;
-          if (isMissed) {
-            icon = isVideo ? <VideoOff className="w-5 h-5" /> : <PhoneMissed className="w-5 h-5" />;
+          // Priority-based status determination:
+          // 1. durationSeconds > 0 or user_ended or disconnect_timeout → completed with duration
+          // 2. callee_rejected → rejected
+          // 3. caller_cancelled → cancelled
+          // 4. no_answer_timeout / missed / default → missed
+          const hasDuration = durationSeconds > 0 || endedReason === "user_ended" || endedReason === "disconnect_timeout";
+          const isRejected = endedReason === "callee_rejected";
+          const isCancelled = endedReason === "caller_cancelled";
+
+          let statusText: string;
+          let isNegative = false;
+
+          if (hasDuration) {
+            const m = Math.floor(durationSeconds / 60);
+            const s = durationSeconds % 60;
+            const dur = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+            statusText = `${typeLabel} · ${dur}`;
+          } else if (isRejected) {
+            statusText = `${typeLabel} · đã từ chối`;
+            isNegative = true;
+          } else if (isCancelled) {
+            statusText = `${typeLabel} · đã hủy`;
+            isNegative = true;
+          } else {
+            // no_answer_timeout, missed, or unknown
+            statusText = `${typeLabel} · không bắt máy`;
+            isNegative = true;
           }
 
-          let statusText = isVideo ? "Cuộc gọi video" : "Cuộc gọi thoại";
-          if (isMissed) {
-            statusText = isVideo ? "Cuộc gọi video nhỡ" : "Cuộc gọi thoại nhỡ";
-          }
-
-          const formatDuration = (secs: number) => {
-            const m = Math.floor(secs / 60);
-            const s = secs % 60;
-            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-          };
+          const icon = isNegative
+            ? (isVideo ? <VideoOff className="w-5 h-5" /> : <PhoneMissed className="w-5 h-5" />)
+            : (isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />);
 
           return (
             <div className="flex items-center gap-3 pr-4 py-1 w-52">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full shrink-0 ${isMissed ? "bg-red-100 text-red-500" : (isOwn ? "bg-blue-100/50 text-blue-600" : "bg-gray-100 text-gray-600")}`}>
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full shrink-0 ${isNegative ? "bg-red-100 text-red-500" : (isOwn ? "bg-blue-100/50 text-blue-600" : "bg-gray-100 text-gray-600")}`}>
                 {icon}
               </div>
               <div className="flex flex-col">
-                <span className={`font-semibold text-[15px] ${isMissed ? "text-red-500" : (isOwn ? "text-gray-900" : "text-gray-800")}`}>{statusText}</span>
-                <span className={`text-xs mt-0.5 ${isOwn ? "text-gray-600" : "text-gray-500"}`}>
-                  {duration > 0 ? formatDuration(duration) : "Không bắt máy"}
-                </span>
+                <span className={`font-semibold text-[15px] ${isNegative ? "text-red-500" : (isOwn ? "text-gray-900" : "text-gray-800")}`}>{statusText}</span>
               </div>
             </div>
           );

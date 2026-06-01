@@ -75,11 +75,73 @@ interface ChatState {
   markMessageRevoked: (messageId: string) => void;
   clearRevokedMessageId: (messageId: string) => void;
 
+  // ── Current logged in user ID ──────────────────────────────────────────
+  currentUserId: string | null;
+  setCurrentUserId: (userId: string | null) => void;
+
   // ── Reset khi logout ───────────────────────────────────────────────────
   reset: () => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
+  // ── Current logged in user ID ──────────────────────────────────────────
+  currentUserId: null,
+  setCurrentUserId: (userId) => {
+    if (!userId) {
+      set({
+        currentUserId: null,
+        conversationPreview: {},
+        groupConversationPreview: {},
+        unreadCounts: {},
+        groupUnreadCounts: {},
+      });
+      return;
+    }
+
+    let conversationPreview = {};
+    let groupConversationPreview = {};
+    let unreadCounts = {};
+    let groupUnreadCounts = {};
+
+    if (typeof window !== "undefined") {
+      try {
+        const prev = localStorage.getItem(`chat_preview_${userId}`);
+        if (prev) conversationPreview = JSON.parse(prev);
+      } catch (e) {
+        console.error("Failed to parse conversationPreview from localStorage:", e);
+      }
+
+      try {
+        const prev = localStorage.getItem(`group_preview_${userId}`);
+        if (prev) groupConversationPreview = JSON.parse(prev);
+      } catch (e) {
+        console.error("Failed to parse groupConversationPreview from localStorage:", e);
+      }
+
+      try {
+        const counts = localStorage.getItem(`unread_counts_${userId}`);
+        if (counts) unreadCounts = JSON.parse(counts);
+      } catch (e) {
+        console.error("Failed to parse unreadCounts from localStorage:", e);
+      }
+
+      try {
+        const counts = localStorage.getItem(`group_unread_counts_${userId}`);
+        if (counts) groupUnreadCounts = JSON.parse(counts);
+      } catch (e) {
+        console.error("Failed to parse groupUnreadCounts from localStorage:", e);
+      }
+    }
+
+    set({
+      currentUserId: userId,
+      conversationPreview,
+      groupConversationPreview,
+      unreadCounts,
+      groupUnreadCounts,
+    });
+  },
+
   // ── Chat mode ──────────────────────────────────────────────────────────
   chatMode: "PRIVATE",
   setChatMode: (mode) => set({ chatMode: mode }),
@@ -134,57 +196,136 @@ export const useChatStore = create<ChatState>((set) => ({
   // ── Conversation preview ────────────────────────────────────────────────
   conversationPreview: {},
   setConversationPreview: (friendId, preview) =>
-    set((state) => ({
-      conversationPreview: {
+    set((state) => {
+      const nextPreviews = {
         ...state.conversationPreview,
         [friendId]: preview,
-      },
-    })),
+      };
+      if (state.currentUserId && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `chat_preview_${state.currentUserId}`,
+            JSON.stringify(nextPreviews),
+          );
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return { conversationPreview: nextPreviews };
+    }),
 
   // ── Group conversation preview ──────────────────────────────────────────
   groupConversationPreview: {},
   setGroupConversationPreview: (groupId, preview) =>
-    set((state) => ({
-      groupConversationPreview: {
+    set((state) => {
+      const nextPreviews = {
         ...state.groupConversationPreview,
         [groupId]: preview,
-      },
-    })),
+      };
+      if (state.currentUserId && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `group_preview_${state.currentUserId}`,
+            JSON.stringify(nextPreviews),
+          );
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return { groupConversationPreview: nextPreviews };
+    }),
 
   // ── Unread counts ──────────────────────────────────────────────────────
   unreadCounts: {},
   incrementUnread: (friendId) =>
-    set((state) => ({
-      unreadCounts: {
+    set((state) => {
+      const nextCounts = {
         ...state.unreadCounts,
         [friendId]: (state.unreadCounts[friendId] || 0) + 1,
-      },
-    })),
+      };
+      if (state.currentUserId && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `unread_counts_${state.currentUserId}`,
+            JSON.stringify(nextCounts),
+          );
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return { unreadCounts: nextCounts };
+    }),
   clearUnread: (friendId) =>
-    set((state) => ({
-      unreadCounts: {
+    set((state) => {
+      const nextCounts = {
         ...state.unreadCounts,
         [friendId]: 0,
-      },
-    })),
-  resetUnread: () => set({ unreadCounts: {} }),
+      };
+      if (state.currentUserId && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `unread_counts_${state.currentUserId}`,
+            JSON.stringify(nextCounts),
+          );
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return { unreadCounts: nextCounts };
+    }),
+  resetUnread: () =>
+    set((state) => {
+      if (state.currentUserId && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `unread_counts_${state.currentUserId}`,
+            JSON.stringify({}),
+          );
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return { unreadCounts: {} };
+    }),
 
   // ── Group unread counts ──────────────────────────────────────────────
   groupUnreadCounts: {},
   incrementGroupUnread: (groupId) =>
-    set((state) => ({
-      groupUnreadCounts: {
+    set((state) => {
+      const nextCounts = {
         ...state.groupUnreadCounts,
         [groupId]: (state.groupUnreadCounts[groupId] || 0) + 1,
-      },
-    })),
+      };
+      if (state.currentUserId && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `group_unread_counts_${state.currentUserId}`,
+            JSON.stringify(nextCounts),
+          );
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return { groupUnreadCounts: nextCounts };
+    }),
   clearGroupUnread: (groupId) =>
-    set((state) => ({
-      groupUnreadCounts: {
+    set((state) => {
+      const nextCounts = {
         ...state.groupUnreadCounts,
         [groupId]: 0,
-      },
-    })),
+      };
+      if (state.currentUserId && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `group_unread_counts_${state.currentUserId}`,
+            JSON.stringify(nextCounts),
+          );
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return { groupUnreadCounts: nextCounts };
+    }),
 
   // ── Revoked messages tracking ─────────────────────────────────────────
   revokedMessageIds: new Set<string>(),
@@ -204,6 +345,7 @@ export const useChatStore = create<ChatState>((set) => ({
   // ── Reset ──────────────────────────────────────────────────────────────
   reset: () =>
     set({
+      currentUserId: null,
       chatMode: "PRIVATE",
       friends: [],
       isLoadingFriends: false,

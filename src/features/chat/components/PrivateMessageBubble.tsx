@@ -7,6 +7,13 @@ import { ReplyReference } from "./ReplyComponents";
 import type { GroupChatMessage } from "../hooks/useGroupChat";
 import { formatTime, isPureEmoji } from "../utils/messageUtils";
 import LocationMessage from "../../../components/chat/LocationMessage";
+import { SenderAvatar } from "./Avatar";
+import {
+  BOT_AVATAR_URL,
+  BOT_DISPLAY_NAME,
+  isBotSender,
+  renderBotMentionHighlight,
+} from "../utils/botMention";
 
 interface PrivateMessageBubbleProps {
   msg: GroupChatMessage;
@@ -30,6 +37,7 @@ interface PrivateMessageBubbleProps {
 export function PrivateMessageBubble({
   msg,
   friendName,
+  friendAvatarUrl,
   authUserId,
   onContextMenu,
   onReply,
@@ -37,8 +45,14 @@ export function PrivateMessageBubble({
   focusedMessageId,
   isFocusBlue,
 }: PrivateMessageBubbleProps) {
-
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
+  const isBot = isBotSender(msg.senderId);
+  const incomingName = isBot
+    ? msg.senderDisplayName || BOT_DISPLAY_NAME
+    : msg.senderDisplayName || friendName;
+  const incomingAvatarUrl = isBot
+    ? msg.senderAvatarUrl || BOT_AVATAR_URL
+    : msg.senderAvatarUrl || friendAvatarUrl;
 
   const handleReplyClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -122,14 +136,24 @@ export function PrivateMessageBubble({
 
   return (
     <div
-      className={`flex flex-col ${isOwn ? "items-end" : "items-start"} mb-0`}
+      className={`flex ${!isOwn && isBot ? "items-start gap-2" : "flex-col"} ${isOwn ? "items-end" : "items-start"} mb-0`}
       data-message-id={String(msg.id)}
     >
+      {!isOwn && isBot && (
+        <SenderAvatar
+          avatarUrl={incomingAvatarUrl}
+          name={incomingName}
+          size={36}
+        />
+      )}
+
       {/* Main bubble — w-fit so it hugs content, max-w-[70%] to cap width */}
       <div
         className={`relative group w-fit max-w-[70%] flex flex-col px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
             ? "bg-blue-200 text-gray-900 border-blue-200 rounded-br-sm"
-            : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
+            : isBot
+              ? "bg-gradient-to-br from-slate-50 to-blue-50 text-slate-900 border-blue-100 rounded-bl-sm"
+              : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
           } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""} ${
             String(msg.id) === focusedMessageId
               ? isFocusBlue 
@@ -172,10 +196,17 @@ export function PrivateMessageBubble({
         )}
 
         {!isOwn && (
-          <div
-            className={`text-xs font-medium mb-0.5 ${isOwn ? "text-blue-200" : "text-gray-400"}`}
-          >
-            {friendName}
+          <div className="mb-0.5 flex items-center gap-1.5">
+            <div
+              className={`text-xs font-medium ${isBot ? "text-slate-700" : "text-gray-400"}`}
+            >
+              {incomingName}
+            </div>
+            {isBot && (
+              <span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-600">
+                BOT
+              </span>
+            )}
           </div>
         )}
 
@@ -324,7 +355,9 @@ export function PrivateMessageBubble({
           <div
             className={`whitespace-pre-wrap wrap-break-word ${pureEmoji ? "text-3xl leading-none" : ""}`}
           >
-            {msg.content || "[Không có nội dung]"}
+            {msg.content
+              ? renderBotMentionHighlight(msg.content, `private-bot-${msg.id}`)
+              : "[Không có nội dung]"}
           </div>
         )}
 

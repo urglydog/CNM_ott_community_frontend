@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Mic, Send, Square, X } from "lucide-react";
+import { Bot, Loader2, Mic, Send, Square, X } from "lucide-react";
 import { useChatStore } from "../store/chatStore";
+import { BOT_AGENT_ID, BOT_AGENT_NAME } from "../utils/botMention";
 
 interface ChatInputProps {
   inputValue: string;
@@ -48,6 +49,7 @@ export function ChatInput({
   const [mentionFilter, setMentionFilter] = useState("");
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const friends = useChatStore((state) => state.friends || []);
+  const botOption = { userId: BOT_AGENT_ID, displayName: BOT_AGENT_NAME };
 
   // Auto-resize textarea
   useEffect(() => {
@@ -59,6 +61,7 @@ export function ChatInput({
 
   const getDisplayIdentifier = (userId: any) => {
     if (userId === "all") return "Tất cả mọi người";
+    if (userId === BOT_AGENT_ID || userId === "__bot__") return BOT_AGENT_NAME;
     const friend = friends.find((f) => String(f.friend_id || f.id || f.userId) === String(userId));
     if (friend?.nickname) {
       return friend.nickname;
@@ -81,8 +84,21 @@ export function ChatInput({
   const allOption = { userId: "all", displayName: "Tất cả mọi người" };
   const query = mentionFilter.toLowerCase();
   const includesAll = "tất cả mọi người".includes(query) || "all".includes(query);
+  const includesBot =
+    query.length === 0 ||
+    "bot".includes(query) ||
+    "botai".includes(query) ||
+    "trợ lý ai".includes(query) ||
+    "tro ly ai".includes(query) ||
+    "@bot".includes(query) ||
+    "@trợ lý ai".includes(query) ||
+    "@tro ly ai".includes(query);
 
-  const dropdownItems = includesAll ? [allOption, ...filteredMembers] : filteredMembers;
+  const dropdownItems = [
+    ...(includesBot ? [botOption] : []),
+    ...(mentionUsers.length > 0 && includesAll ? [allOption] : []),
+    ...filteredMembers,
+  ];
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -107,6 +123,7 @@ export function ChatInput({
       onInputChange(newVal);
     }
     setShowMentionMenu(false);
+    textareaRef?.current?.focus();
   };
 
   if (isRecording || audioBlob) {
@@ -186,12 +203,14 @@ export function ChatInput({
       {/* Center: textarea input */}
       <div className="flex-1 relative">
         {showMentionMenu && dropdownItems.length > 0 && (
-          <div className="absolute bottom-full left-0 mb-2 w-64 max-h-48 bg-white border border-gray-200 rounded-lg shadow-xl overflow-y-auto z-50">
+          <div className="absolute bottom-full left-0 mb-2 w-[min(20rem,calc(100vw-2rem))] max-h-56 overflow-y-auto overscroll-contain rounded-2xl border border-gray-200 bg-white shadow-2xl z-50">
             <div className="p-2 text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-100">
               Nhắc tên thành viên
             </div>
             {dropdownItems.map((member) => {
               const displayName = getDisplayIdentifier(member.userId);
+              const isBotOption =
+                member.userId === BOT_AGENT_ID || member.userId === "__bot__";
               return (
                 <button
                   key={member.userId}
@@ -199,7 +218,11 @@ export function ChatInput({
                   onClick={() => handleSelectMention(member)}
                   className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-blue-50 transition-colors text-sm"
                 >
-                  {member.avatarUrl ? (
+                  {isBotOption ? (
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-500 via-blue-500 to-indigo-500 flex items-center justify-center text-white shrink-0 shadow-sm">
+                      <Bot className="w-3.5 h-3.5" />
+                    </div>
+                  ) : member.avatarUrl ? (
                     <img
                       src={member.avatarUrl}
                       alt={displayName}
@@ -210,9 +233,20 @@ export function ChatInput({
                       {String(displayName || "U").charAt(0).toUpperCase()}
                     </div>
                   )}
-                  <span className="font-medium text-gray-700 truncate">
+                  <span
+                    className={`truncate ${
+                      isBotOption
+                        ? "font-bold text-slate-900"
+                        : "font-medium text-gray-700"
+                    }`}
+                  >
                     {displayName}
                   </span>
+                  {isBotOption && (
+                    <span className="ml-auto rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-600">
+                      AI
+                    </span>
+                  )}
                 </button>
               );
             })}

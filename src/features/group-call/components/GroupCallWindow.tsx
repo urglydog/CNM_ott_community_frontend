@@ -10,7 +10,6 @@ import {
   Phone,
   Loader2,
 } from "lucide-react";
-import { useAuth } from "../../../contexts/AuthContext";
 import { useGroupCallStore } from "../groupCallStore";
 import { useGroupCallManager } from "../useGroupCallManager";
 import { useGroupAgoraRtc } from "../useGroupAgoraRtc";
@@ -20,20 +19,16 @@ import type { RemoteParticipant } from "../groupCallTypes";
  * Main group call window.
  *
  * Lifecycle coordination:
- *  1. When credentials appear in groupCallStore → call rtc.join()
- *  2. When rtc joins successfully → call manager.setActive()
- *  3. When phase becomes "ended" → call rtc.leave()
+ *  1. When credentials appear in groupCallStore -> call rtc.join()
+ *  2. When rtc joins successfully -> call manager.setActive()
+ *  3. When phase becomes "ended" -> call rtc.leave()
  *
- * Renders:
- *  - Video grid of remote participants
- *  - Local video PiP
- *  - Controls (mic, camera, leave/end)
- *  - Duration timer
+ * Group calls always use leave semantics on the red button. The backend
+ * decides when the room should actually end, including when the last
+ * participant leaves.
  */
 export function GroupCallWindow() {
-  const { user } = useAuth();
   const phase = useGroupCallStore((s) => s.phase);
-  const callSession = useGroupCallStore((s) => s.callSession);
   const callType = useGroupCallStore((s) => s.callType);
   const credentials = useGroupCallStore((s) => s.credentials);
   const remoteParticipants = useGroupCallStore((s) => s.remoteParticipants);
@@ -50,12 +45,7 @@ export function GroupCallWindow() {
   const [duration, setDuration] = useState(0);
 
   const isVideo = callType === "video";
-  const isHost =
-    callSession != null &&
-    user?.id != null &&
-    String(callSession.initiatorId) === String(user.id);
 
-  // ── Join Agora when credentials become available ──────────────────────
   useEffect(() => {
     if (!credentials) return;
     if (hasJoinedRef.current) return;
@@ -72,17 +62,15 @@ export function GroupCallWindow() {
         hasJoinedRef.current = false;
       }
     })();
-  }, [credentials, phase, isVideo]);
+  }, [credentials, phase, isVideo, manager, rtc]);
 
-  // ── Leave Agora when phase becomes "ended" ────────────────────────────
   useEffect(() => {
     if (phase === "ended" && hasJoinedRef.current) {
       hasJoinedRef.current = false;
       rtc.leave();
     }
-  }, [phase]);
+  }, [phase, rtc]);
 
-  // ── Duration timer ────────────────────────────────────────────────────
   useEffect(() => {
     if (phase === "active") {
       durationRef.current = 0;
@@ -92,6 +80,7 @@ export function GroupCallWindow() {
         setDuration(durationRef.current);
       }, 1000);
     }
+
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -100,7 +89,6 @@ export function GroupCallWindow() {
     };
   }, [phase]);
 
-  // ── Local video binding ───────────────────────────────────────────────
   useEffect(() => {
     const el = localVideoRef.current;
     if (!el) return;
@@ -111,28 +99,24 @@ export function GroupCallWindow() {
         rtc.stopLocalVideo();
       };
     }
-  }, [rtc.isJoined, rtc.isCameraEnabled, isVideo]);
+  }, [rtc.isJoined, rtc.isCameraEnabled, isVideo, rtc]);
 
-  // ── Auto-dismiss ended ────────────────────────────────────────────────
   useEffect(() => {
     if (phase === "ended") {
       const t = setTimeout(() => manager.dismissEnded(), 3000);
       return () => clearTimeout(t);
     }
-  }, [phase]);
+  }, [phase, manager]);
 
-  // Don't render if idle or ringing without credentials (host starts with credentials)
   if (phase === "idle") return null;
   if (popupOpened) return null;
-
   if (phase === "ringing" && !credentials) return null;
 
-  // ── Ended state ───────────────────────────────────────────────────────
   if (phase === "ended") {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
         <div className="bg-gray-800 rounded-xl shadow-2xl px-6 py-4 flex flex-col items-center gap-3">
-          <p className="text-white text-sm">Cuộc gọi nhóm đã kết thúc</p>
+          <p className="text-white text-sm">Cuoc goi nhom da ket thuc</p>
           {lastError && (
             <p className="text-red-400 text-xs">{lastError.message}</p>
           )}
@@ -141,49 +125,41 @@ export function GroupCallWindow() {
     );
   }
 
-  // ── Connecting / Active state ─────────────────────────────────────────
   const statusText =
     phase === "ringing"
-      ? "Đang chờ tham gia..."
+      ? "Dang cho tham gia..."
       : phase === "joining"
-        ? "Đang kết nối..."
+        ? "Dang ket noi..."
         : formatDuration(duration);
 
-  // Convert remote participants Map to array for rendering
   const participants = Array.from(remoteParticipants.values());
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-gray-900">
-      {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-800">
         <div className="flex items-center gap-2">
           <Phone className="w-4 h-4 text-green-400" />
-          <span className="text-white text-sm font-medium">
-            Cuộc gọi nhóm
-          </span>
+          <span className="text-white text-sm font-medium">Cuoc goi nhom</span>
           <span className="text-gray-400 text-xs">
-            {participants.length + 1} người
+            {participants.length + 1} nguoi
           </span>
         </div>
         <div className="flex items-center gap-2 text-gray-400 text-xs">
-          {phase !== "active" && (
-            <Loader2 className="w-3 h-3 animate-spin" />
-          )}
+          {phase !== "active" && <Loader2 className="w-3 h-3 animate-spin" />}
           <span>{statusText}</span>
         </div>
       </div>
 
-      {/* ── Media warning ───────────────────────────────────────────────── */}
       {rtc.localMediaWarning && (
         <div className="bg-yellow-600/90 text-white text-xs text-center px-3 py-2">
           <div>{rtc.localMediaWarning}</div>
           <div className="mt-1 text-[11px] text-yellow-100">
-            Gợi ý: bấm vào biểu tượng ổ khóa cạnh thanh địa chỉ để mở quyền micro/camera, hoặc đóng tab/app khác đang dùng thiết bị.
+            Goi y: mo quyen micro/camera tren trinh duyet hoac dong ung dung
+            khac dang su dung thiet bi.
           </div>
         </div>
       )}
 
-      {/* ── Video grid ──────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto p-2">
         <div
           className="grid gap-2 h-full"
@@ -198,30 +174,27 @@ export function GroupCallWindow() {
             )}, 1fr)`,
           }}
         >
-          {/* Local video tile */}
           <div className="relative bg-gray-800 rounded-lg overflow-hidden min-h-[120px]">
             {isVideo && rtc.isCameraEnabled ? (
               <div ref={localVideoRef} className="w-full h-full scale-x-[-1]" />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center">
                 <div className="w-16 h-16 rounded-full bg-blue-500 flex items-center justify-center text-white text-xl font-bold">
-                  Bạn
+                  Ban
                 </div>
               </div>
             )}
             <div className="absolute bottom-1 left-1 bg-black/60 text-white text-xs px-2 py-0.5 rounded">
-              Bạn{rtc.isMicMuted ? " (muted)" : ""}
+              Ban{rtc.isMicMuted ? " (muted)" : ""}
             </div>
           </div>
 
-          {/* Remote participant tiles */}
           {participants.map((p) => (
             <RemoteVideoTile key={p.uid} participant={p} />
           ))}
         </div>
       </div>
 
-      {/* ── Controls ────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-center gap-4 py-4 bg-gray-800">
         <button
           type="button"
@@ -232,7 +205,7 @@ export function GroupCallWindow() {
               ? "bg-red-500/80 text-white"
               : "bg-white/20 text-white hover:bg-white/30"
           }`}
-          title={rtc.isMicMuted ? "Bật mic" : "Tắt mic"}
+          title={rtc.isMicMuted ? "Bat mic" : "Tat mic"}
         >
           {rtc.isMicMuted ? (
             <MicOff className="w-5 h-5" />
@@ -251,7 +224,7 @@ export function GroupCallWindow() {
                 ? "bg-red-500/80 text-white"
                 : "bg-white/20 text-white hover:bg-white/30"
             }`}
-            title={rtc.isCameraEnabled ? "Tắt camera" : "Bật camera"}
+            title={rtc.isCameraEnabled ? "Tat camera" : "Bat camera"}
           >
             {rtc.isCameraEnabled ? (
               <Video className="w-5 h-5" />
@@ -261,37 +234,22 @@ export function GroupCallWindow() {
           </button>
         )}
 
-        {/* Host: End call for everyone | Member: Leave call */}
-        {isHost ? (
-          <button
-            type="button"
-            onClick={() => manager.endGroupCall()}
-            className="w-14 h-12 rounded-full flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-colors cursor-pointer"
-            title="Kết thúc cuộc gọi cho tất cả"
-          >
-            <PhoneOff className="w-5 h-5" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => manager.leaveGroupCall()}
-            className="w-14 h-12 rounded-full flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-colors cursor-pointer"
-            title="Rời cuộc gọi"
-          >
-            <PhoneOff className="w-5 h-5" />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => manager.leaveGroupCall()}
+          className="w-14 h-12 rounded-full flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-colors cursor-pointer"
+          title="Roi cuoc goi"
+        >
+          <PhoneOff className="w-5 h-5" />
+        </button>
       </div>
     </div>
   );
 }
 
-// ── Remote video tile ───────────────────────────────────────────────────────
-
 function RemoteVideoTile({ participant }: { participant: RemoteParticipant }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Bind video track to DOM element
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -311,7 +269,9 @@ function RemoteVideoTile({ participant }: { participant: RemoteParticipant }) {
 
   const displayName =
     participant.displayName ||
-    (participant.userId ? `User ${participant.userId}` : `Người dùng ${String(participant.uid).slice(-4)}`);
+    (participant.userId
+      ? `User ${participant.userId}`
+      : `Nguoi dung ${String(participant.uid).slice(-4)}`);
 
   return (
     <div className="relative bg-gray-800 rounded-lg overflow-hidden min-h-[120px]">
@@ -331,8 +291,6 @@ function RemoteVideoTile({ participant }: { participant: RemoteParticipant }) {
     </div>
   );
 }
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);

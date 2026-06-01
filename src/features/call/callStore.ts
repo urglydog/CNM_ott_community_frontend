@@ -57,6 +57,9 @@ interface CallState {
   /** Stored URL for manual open when popup was blocked by browser */
   pendingCallWindowUrl: string | null;
 
+  /** True when the popup was explicitly closed and the main page should not auto-take over */
+  callWindowClosed: boolean;
+
   // ── Error state ────────────────────────────────────────────────────────
   /** Last call error message (for UI display) */
   errorMessage: string | null;
@@ -138,6 +141,9 @@ interface CallState {
   /** Store a URL for manual popup open when browser blocked the initial attempt */
   setPendingCallWindowUrl: (url: string | null) => void;
 
+  /** Mark whether the popup was explicitly closed by the user/browser */
+  setCallWindowClosed: (closed: boolean) => void;
+
   // ── Derived getters (convenience) ─────────────────────────────────────
 
   /** Get the callId of the current call, or null */
@@ -175,6 +181,7 @@ const initialState = {
   callWindowOpening: false,
   callWindowJoined: false,
   pendingCallWindowUrl: null as string | null,
+  callWindowClosed: false,
 };
 
 // ── Store ──────────────────────────────────────────────────────────────────
@@ -192,6 +199,7 @@ export const useCallStore = create<CallState>((set, get) => ({
       channelName: callSession.channelName,
       errorMessage: null,
       errorCode: null,
+      callWindowClosed: false,
     }),
 
   setIncoming: (callSession) =>
@@ -202,18 +210,21 @@ export const useCallStore = create<CallState>((set, get) => ({
       channelName: callSession.channelName,
       errorMessage: null,
       errorCode: null,
+      callWindowClosed: false,
     }),
 
   setConnecting: (callSession) =>
     set({
       phase: "connecting",
       callSession,
+      callWindowClosed: false,
     }),
 
   setActive: (callSession) =>
     set({
       phase: "active",
       callSession,
+      callWindowClosed: false,
     }),
 
   updateSession: (callSession) => {
@@ -238,6 +249,7 @@ export const useCallStore = create<CallState>((set, get) => ({
     set({
       phase: "reconnecting",
       callSession,
+      callWindowClosed: false,
     }),
 
   setEnded: (callSession) =>
@@ -264,11 +276,13 @@ export const useCallStore = create<CallState>((set, get) => ({
       callWindowOpening: false,
       callWindowJoined: false,
       pendingCallWindowUrl: null,
+      callWindowClosed: false,
     }),
 
   setCallWindowOpening: (opening) => set({ callWindowOpening: opening }),
   setCallWindowJoined: (joined) => set({ callWindowJoined: joined }),
   setPendingCallWindowUrl: (url) => set({ pendingCallWindowUrl: url }),
+  setCallWindowClosed: (closed) => set({ callWindowClosed: closed }),
 
   // ── Derived getters ────────────────────────────────────────────────────
 

@@ -38,6 +38,7 @@ function CallWindowContent() {
   const searchParams = useSearchParams();
   const hasJoinedRef = useRef(false);
   const pendingJoinRef = useRef(false);
+  const closeActionRef = useRef<"end-call" | "sync-only">("end-call");
   const [phase, setPhase] = useState<"ringing" | "connecting" | "active" | "ended">("connecting");
   const [duration, setDuration] = useState(0);
   const [isMicMuted, setIsMicMuted] = useState(false);
@@ -260,7 +261,8 @@ function CallWindowContent() {
           rtc.leaveChannel().catch(() => {});
         }
         setPhase("ended");
-        sendMessage({ type: "call-window:closed", callId });
+        closeActionRef.current = "sync-only";
+        sendMessage({ type: "call-window:closed", callId, action: "sync-only" });
         setTimeout(() => {
           window.close();
         }, 2000);
@@ -274,7 +276,11 @@ function CallWindowContent() {
 
   useEffect(() => {
     const handleBeforeUnload = () => {
-      sendMessage({ type: "call-window:closed", callId });
+      sendMessage({
+        type: "call-window:closed",
+        callId,
+        action: closeActionRef.current,
+      });
       if (rtc.isJoined()) {
         rtc.leaveChannel().catch(() => {});
       }
@@ -315,7 +321,8 @@ function CallWindowContent() {
       // ignore
     }
     sendMessage({ type: "call-window:rejected", callId });
-    sendMessage({ type: "call-window:closed", callId });
+    closeActionRef.current = "sync-only";
+    sendMessage({ type: "call-window:closed", callId, action: "sync-only" });
     setPhase("ended");
     setEndedText("Đã từ chối cuộc gọi");
     setTimeout(() => window.close(), 1500);
@@ -331,9 +338,14 @@ function CallWindowContent() {
       handleReject();
       return;
     } else {
+      try {
+        const { endCall } = await import("../../../features/call/callApi");
+        if (callId) await endCall(callId);
+      } catch { /* ignore */ }
       try { await rtc.leaveChannel(); } catch { /* ignore */ }
     }
-    sendMessage({ type: "call-window:closed", callId });
+    closeActionRef.current = "sync-only";
+    sendMessage({ type: "call-window:closed", callId, action: "sync-only" });
     setPhase("ended");
     setEndedText(mode === "outgoing" && phase === "ringing" ? "Đã hủy cuộc gọi" : "Cuộc gọi đã kết thúc");
     setTimeout(() => window.close(), 1500);

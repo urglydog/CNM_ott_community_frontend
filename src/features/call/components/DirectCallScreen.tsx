@@ -51,6 +51,7 @@ export function DirectCallScreen() {
   // Call window (popup) state — from callStore
   const callWindowOpening = useCallStore((s) => s.callWindowOpening);
   const callWindowJoined = useCallStore((s) => s.callWindowJoined);
+  const callWindowClosed = useCallStore((s) => (s as any).callWindowClosed);
 
   // Start/stop call duration timer when phase becomes "active"
   useEffect(() => {
@@ -92,12 +93,16 @@ export function DirectCallScreen() {
   if (!callSession) return null;
 
   // ── Call window (popup) is handling the call — show minimal indicator ──
-  if (callWindowOpening || callWindowJoined) {
+  if (callWindowOpening || callWindowJoined || callWindowClosed) {
     const remoteName =
       (callSession as any).remoteName ||
       (isInitiator
         ? (callSession as any).recipientName || "Đối phương"
         : (callSession as any).initiatorName || "Đối phương");
+
+    if (callWindowClosed) {
+      return null;
+    }
 
     return (
       <div className="fixed bottom-4 right-4 z-50 animate-slideUp">

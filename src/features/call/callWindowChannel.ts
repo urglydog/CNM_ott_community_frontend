@@ -30,6 +30,7 @@ export interface CallWindowOpenedMsg {
 export interface CallWindowClosedMsg {
   type: "call-window:closed";
   callId: string;
+  action?: "end-call" | "sync-only";
 }
 
 export interface CallWindowStatusMsg {

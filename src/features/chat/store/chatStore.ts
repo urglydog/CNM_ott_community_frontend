@@ -34,7 +34,10 @@ interface ChatState {
   // ── AI chat mode ───────────────────────────────────────────────────────
   isAiChatOpen: boolean;
   pendingAiPrompt: string;
-  openAiChat: (prompt?: string) => void;
+  openAiChat: (
+    prompt?: string,
+    options?: { preserveContext?: boolean },
+  ) => void;
   closeAiChat: () => void;
   clearPendingAiPrompt: () => void;
 
@@ -177,14 +180,14 @@ export const useChatStore = create<ChatState>((set) => ({
   // ── AI chat state ──────────────────────────────────────────────────────
   isAiChatOpen: false,
   pendingAiPrompt: "",
-  openAiChat: (prompt = "") =>
-    set({
+  openAiChat: (prompt = "", options = {}) =>
+    set((state) => ({
       isAiChatOpen: true,
       pendingAiPrompt: prompt,
-      selectedFriend: null,
-      selectedGroup: null,
-      chatMode: "PRIVATE",
-    }),
+      selectedFriend: options.preserveContext ? state.selectedFriend : null,
+      selectedGroup: options.preserveContext ? state.selectedGroup : null,
+      chatMode: options.preserveContext ? state.chatMode : "PRIVATE",
+    })),
   closeAiChat: () => set({ isAiChatOpen: false }),
   clearPendingAiPrompt: () => set({ pendingAiPrompt: "" }),
 

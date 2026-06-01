@@ -13,6 +13,12 @@ import { useChatStore } from "../store/chatStore";
 import { useState } from "react";
 import { useGroupCallManager } from "../../group-call/useGroupCallManager";
 import { useGroupCallStore } from "../../group-call/groupCallStore";
+import {
+  BOT_AVATAR_URL,
+  BOT_DISPLAY_NAME,
+  isBotSender,
+  renderBotMentionHighlight,
+} from "../utils/botMention";
 
 /** Tin nhắn hệ thống (hiển thị giữa màn hình) */
 export function SystemMessageBubble({ msg }: { msg: GroupChatMessage }) {
@@ -97,7 +103,12 @@ const renderMentionContent = (content: string, groupMembers: any[] = [], friends
 
   while ((match = regex.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(content.substring(lastIndex, match.index));
+      parts.push(
+        renderBotMentionHighlight(
+          content.substring(lastIndex, match.index),
+          `group-bot-${match.index}`,
+        ),
+      );
     }
 
     const userId = match[1];
@@ -137,10 +148,17 @@ const renderMentionContent = (content: string, groupMembers: any[] = [], friends
   }
 
   if (lastIndex < content.length) {
-    parts.push(content.substring(lastIndex));
+    parts.push(
+      renderBotMentionHighlight(
+        content.substring(lastIndex),
+        `group-bot-tail-${lastIndex}`,
+      ),
+    );
   }
 
-  return parts.length > 0 ? parts : content;
+  return parts.length > 0
+    ? parts
+    : renderBotMentionHighlight(content, "group-bot-plain");
 };
 
 function MessageBubbleContent({
@@ -155,6 +173,7 @@ function MessageBubbleContent({
   isFocusBlue,
 }: MessageBubbleProps & { senderName: string; groupMembers?: any[]; authUserId: string | number }) {
   const isOwn: boolean = isOwnProp ?? false;
+  const isBot = isBotSender(msg.senderId);
   const friends = useChatStore((state) => state.friends || []);
   const isMentioned = Array.isArray(msg.mentions) && (msg.mentions.map(String).includes(String(authUserId)) || msg.mentions.includes("all"));
   const groupCallManager = useGroupCallManager();
@@ -201,6 +220,8 @@ function MessageBubbleContent({
       className={`relative group w-fit max-w-full flex flex-col px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${
         isMentioned
           ? "bg-yellow-100 border-yellow-500 border-l-4 text-gray-900"
+          : isBot && !isOwn
+          ? "bg-gradient-to-br from-slate-50 to-blue-50 text-slate-900 border-blue-100 rounded-bl-sm"
           : isOwn
           ? "bg-blue-200 text-gray-900 border-blue-200 rounded-br-sm"
           : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
@@ -491,7 +512,10 @@ export function GroupMessageBubble({
   isFocusBlue,
 }: MessageBubbleProps & { groupMembers?: any[] }) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
-  const senderName = msg.senderDisplayName || (isOwn ? "Bạn" : "Người dùng");
+  const isBot = isBotSender(msg.senderId);
+  const senderName = msg.senderDisplayName || (isBot ? BOT_DISPLAY_NAME : isOwn ? "Bạn" : "Người dùng");
+  const finalSenderAvatarUrl =
+    senderAvatarUrl ?? msg.senderAvatarUrl ?? (isBot ? BOT_AVATAR_URL : null);
 
   // Sticker special rendering
   if (msg.contentType === "sticker" && msg.stickerData?.stickerUrl) {
@@ -502,7 +526,7 @@ export function GroupMessageBubble({
       >
         {!isOwn && (
           <SenderAvatar
-            avatarUrl={senderAvatarUrl ?? msg.senderAvatarUrl}
+            avatarUrl={finalSenderAvatarUrl}
             name={senderName}
             size={36}
           />
@@ -584,13 +608,9 @@ export function GroupMessageBubble({
       data-message-id={String(msg.id)}
     >
       {/* Avatar người gửi — chỉ hiện nếu không phải mình */}
-      {!isOwn && (
-        <SenderAvatar
-          avatarUrl={senderAvatarUrl ?? msg.senderAvatarUrl}
-          name={senderName}
-          size={36}
-        />
-      )}
+        {!isOwn && (
+          <SenderAvatar avatarUrl={finalSenderAvatarUrl} name={senderName} size={36} />
+        )}
 
       {/* Wrapper capping width at 68% of chat window */}
       <div
@@ -598,16 +618,23 @@ export function GroupMessageBubble({
       >
         {/* Tên người gửi — chỉ hiện nếu không phải mình */}
         {!isOwn && (
-          <span className="text-xs text-gray-500 mb-0.5 ml-1">
-            {senderName}
-          </span>
+          <div className="mb-0.5 ml-1 flex items-center gap-1.5">
+            <span className={`text-xs ${isBot ? "font-semibold text-slate-700" : "text-gray-500"}`}>
+              {senderName}
+            </span>
+            {isBot && (
+              <span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-600">
+                BOT
+              </span>
+            )}
+          </div>
         )}
 
         {/* MessageBubbleContent already has ReplyReference nested inside */}
         <MessageBubbleContent
           msg={msg}
           authUserId={authUserId}
-          senderAvatarUrl={senderAvatarUrl}
+          senderAvatarUrl={finalSenderAvatarUrl}
           senderName={senderName}
           isOwn={isOwn}
           groupMembers={groupMembers}

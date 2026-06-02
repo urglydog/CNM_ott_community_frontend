@@ -348,12 +348,14 @@ function MessageBubbleContent({
                 {isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />}
               </div>
               <div className="flex flex-col flex-1 min-w-0">
-                <span className="font-semibold text-[14px] text-gray-900">
-                  Cuộc gọi nhóm đang diễn ra
+                <span className={`font-semibold text-[14px] ${isActive ? "text-gray-900" : "text-gray-500"}`}>
+                  {isActive ? "Cuộc gọi nhóm đang diễn ra" : "Cuộc gọi nhóm đã kết thúc"}
                 </span>
-                <span className="text-xs text-gray-500 mt-0.5">
-                  Nhấn để tham gia
-                </span>
+                {isActive && (
+                  <span className="text-xs text-gray-500 mt-0.5">
+                    Nhấn để tham gia
+                  </span>
+                )}
                 {isActive && callId && (
                   <button
                     type="button"

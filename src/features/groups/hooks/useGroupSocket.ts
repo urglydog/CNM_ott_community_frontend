@@ -3,6 +3,7 @@
 import { useEffect, useCallback } from "react";
 import { useSocket } from "@/contexts/SocketContext";
 import { useGroupsStore } from "@/features/groups/store/groupsStore";
+import type { GroupRole } from "@/features/groups/types";
 
 export function useGroupSocket() {
   const { socket, emitJoinRoom, emitLeaveRoom } = useSocket();
@@ -184,6 +185,73 @@ export function useGroupSocket() {
     emitLeaveRoom(data.groupId);
   }, [removeGroup, selectedGroup, setSelectedGroup, emitLeaveRoom]);
 
+  const handleGroupSettingsUpdated = useCallback((data: {
+    groupId: string;
+    settings?: {
+      name?: string;
+      description?: string;
+      avatarUrl?: string | null;
+      avatar_url?: string | null;
+      isApprovalRequired?: boolean;
+      allowSendLinks?: "ALL" | "ADMINS_ONLY";
+      spamFilterLevel?: number;
+    };
+    name?: string;
+    description?: string;
+    avatarUrl?: string | null;
+    avatar_url?: string | null;
+  }) => {
+    console.log("📥 [Web] Nhận socket: SERVER:GROUP_SETTINGS_UPDATED", JSON.stringify(data));
+
+    const settings = data.settings || {};
+    updateGroup(data.groupId, {
+      ...(settings.name !== undefined || data.name !== undefined ? { name: settings.name ?? data.name! } : {}),
+      ...(settings.description !== undefined || data.description !== undefined ? { description: settings.description ?? data.description } : {}),
+      ...(settings.avatarUrl !== undefined || settings.avatar_url !== undefined || data.avatarUrl !== undefined || data.avatar_url !== undefined
+        ? { avatarUrl: settings.avatarUrl ?? settings.avatar_url ?? data.avatarUrl ?? data.avatar_url ?? null }
+        : {}),
+      ...(settings.isApprovalRequired !== undefined ? { isApprovalRequired: settings.isApprovalRequired } : {}),
+      ...(settings.allowSendLinks !== undefined ? { allowSendLinks: settings.allowSendLinks } : {}),
+      ...(settings.spamFilterLevel !== undefined ? { spamFilterLevel: settings.spamFilterLevel } : {}),
+    });
+  }, [updateGroup]);
+
+  // ── SERVER:ROLE_UPDATED — realtime role change ──
+  const handleRoleUpdated = useCallback((data: {
+    groupId: string;
+    targetUserId?: string;
+    userId?: string;
+    newRole?: string;
+    role?: string;
+  }) => {
+    console.log("📥 [Web] SERVER:ROLE_UPDATED", JSON.stringify(data));
+    if (!data.groupId) return;
+    const uid = data.targetUserId || data.userId;
+    const newRole = data.newRole || data.role;
+    if (!uid || !newRole) return;
+    socketUpdateRole(uid, newRole as GroupRole);
+  }, [socketUpdateRole]);
+
+  // ── group:owner_transferred — realtime owner transfer ──
+  const handleOwnerTransferred = useCallback((data: {
+    newOwnerId: string;
+    oldOwnerId: string;
+  }) => {
+    console.log("📥 [Web] group:owner_transferred", JSON.stringify(data));
+    // Update roles in store
+    socketUpdateRole(data.oldOwnerId, "MEMBER");
+    socketUpdateRole(data.newOwnerId, "OWNER");
+  }, [socketUpdateRole]);
+
+  // ── SERVER:NEW_JOIN_REQUEST — notification for admins ──
+  const handleNewJoinRequest = useCallback((data: {
+    groupId: string;
+    userId: string;
+  }) => {
+    console.log("📥 [Web] SERVER:NEW_JOIN_REQUEST", JSON.stringify(data));
+    // Log only — no global UI. GroupDetailModal handles this locally.
+  }, []);
+
   // ── ĐĂNG KÝ SOCKET LISTENERS ──────────────────────────────────────────────
   useEffect(() => {
     if (!socket) return;
@@ -195,6 +263,10 @@ export function useGroupSocket() {
     socket.on("group:you_were_removed", handleYouWereRemoved);
     socket.on("group:you_were_added", handleYouWereAdded);
     socket.on("group:deleted", handleGroupDeleted);
+    socket.on("SERVER:GROUP_SETTINGS_UPDATED", handleGroupSettingsUpdated);
+    socket.on("SERVER:ROLE_UPDATED", handleRoleUpdated);
+    socket.on("group:owner_transferred", handleOwnerTransferred);
+    socket.on("SERVER:NEW_JOIN_REQUEST", handleNewJoinRequest);
 
     return () => {
       socket.off("group:members_added", handleMembersAdded);
@@ -204,6 +276,10 @@ export function useGroupSocket() {
       socket.off("group:you_were_removed", handleYouWereRemoved);
       socket.off("group:you_were_added", handleYouWereAdded);
       socket.off("group:deleted", handleGroupDeleted);
+      socket.off("SERVER:GROUP_SETTINGS_UPDATED", handleGroupSettingsUpdated);
+      socket.off("SERVER:ROLE_UPDATED", handleRoleUpdated);
+      socket.off("group:owner_transferred", handleOwnerTransferred);
+      socket.off("SERVER:NEW_JOIN_REQUEST", handleNewJoinRequest);
     };
   }, [
     socket,
@@ -213,6 +289,10 @@ export function useGroupSocket() {
     handleMemberLeft,
     handleYouWereRemoved,
     handleYouWereAdded,
-    handleGroupDeleted
+    handleGroupDeleted,
+    handleGroupSettingsUpdated,
+    handleRoleUpdated,
+    handleOwnerTransferred,
+    handleNewJoinRequest,
   ]);
 }

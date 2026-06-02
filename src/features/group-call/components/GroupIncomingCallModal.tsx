@@ -1,8 +1,10 @@
 "use client";
+import { useEffect } from "react";
 
 import { Phone, PhoneOff, Video, PhoneCall, Users } from "lucide-react";
 import { useGroupCallStore } from "../groupCallStore";
 import { useGroupCallManager } from "../useGroupCallManager";
+import { playIncomingRingtone, stopRingtone } from "../../../utils/audioUtils";
 
 /**
  * Full-screen centered modal for incoming group calls.
@@ -26,8 +28,21 @@ export function GroupIncomingCallModal() {
   const popupOpened = useGroupCallStore((s) => s.popupOpened);
   const { acceptGroupCall, rejectGroupCall } = useGroupCallManager();
 
+  const visible = phase === "ringing" && !!callSession && !credentials && !popupOpened;
+
+  useEffect(() => {
+    if (visible) {
+      playIncomingRingtone();
+    } else {
+      stopRingtone();
+    }
+    return () => {
+      stopRingtone();
+    };
+  }, [visible]);
+
   // Only render when ringing AND no credentials AND popup not open
-  if (phase !== "ringing" || !callSession || credentials || popupOpened) return null;
+  if (!visible) return null;
 
   const isVideo = callSession.callType === "video";
   const initiatorName =

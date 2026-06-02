@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Loader2, Reply, Phone, PhoneMissed, Video, VideoOff } from "lucide-react";
+import { FileText, Loader2, Reply } from "lucide-react";
 import AudioMessage from "./AudioMessage";
 import { ReadByAvatars } from "./ReadByAvatars";
 import { ReplyReference } from "./ReplyComponents";
@@ -14,6 +14,7 @@ import {
   isBotSender,
   renderBotMentionHighlight,
 } from "../utils/botMention";
+import { CallMessageCard } from "./CallMessageCard";
 
 interface PrivateMessageBubbleProps {
   msg: GroupChatMessage;
@@ -30,6 +31,7 @@ interface PrivateMessageBubbleProps {
   onJumpToMessage?: (messageId: string | number) => void;
   focusedMessageId?: string | null;
   isFocusBlue?: boolean;
+  onCall?: (callType: 'video' | 'audio') => void;
 }
 
 
@@ -44,6 +46,7 @@ export function PrivateMessageBubble({
   onJumpToMessage,
   focusedMessageId,
   isFocusBlue,
+  onCall,
 }: PrivateMessageBubbleProps) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
   const isBot = isBotSender(msg.senderId);
@@ -134,6 +137,48 @@ export function PrivateMessageBubble({
 
   const pureEmoji = isPureEmoji(msg.content ?? "");
 
+  // ── Call messages: early return WITHOUT bubble wrapper ───────────────────
+  if (msg.contentType === "call_log" || (msg as any).messageType === "call_log") {
+    const callData = (msg as any).callData;
+    if (callData) {
+      const callType = callData?.callType || "video";
+      const endedReason = callData?.endedReason || null;
+      const durationSeconds = callData?.durationSeconds ?? callData?.duration ?? 0;
+
+      let status: "ended" | "missed" | "cancelled" | "rejected" = "ended";
+      const hasDuration = durationSeconds > 0 || endedReason === "user_ended" || endedReason === "disconnect_timeout";
+      if (hasDuration) {
+        status = "ended";
+      } else if (endedReason === "callee_rejected") {
+        status = "rejected";
+      } else if (endedReason === "caller_cancelled") {
+        status = "cancelled";
+      } else {
+        status = "missed";
+      }
+
+      return (
+        <div
+          className={`flex ${!isOwn && isBot ? "items-start gap-2" : "flex-col"} ${isOwn ? "items-end" : "items-start"} mb-0`}
+          data-message-id={String(msg.id)}
+          onContextMenu={(e) => {
+            onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
+          }}
+        >
+          <CallMessageCard
+            variant="direct"
+            callType={callType as "video" | "audio"}
+            status={status}
+            durationSeconds={durationSeconds}
+            endedReason={endedReason}
+            isOwn={isOwn}
+            onCall={onCall}
+          />
+        </div>
+      );
+    }
+  }
+
   return (
     <div
       className={`flex ${!isOwn && isBot ? "items-start gap-2" : "flex-col"} ${isOwn ? "items-end" : "items-start"} mb-0`}
@@ -143,17 +188,17 @@ export function PrivateMessageBubble({
         <SenderAvatar
           avatarUrl={incomingAvatarUrl}
           name={incomingName}
-          size={36}
+          size={28}
         />
       )}
 
       {/* Main bubble — w-fit so it hugs content, max-w-[70%] to cap width */}
       <div
-        className={`relative group w-fit max-w-[70%] flex flex-col px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${isOwn
-            ? "bg-blue-200 text-gray-900 border-blue-200 rounded-br-sm"
+        className={`relative group w-fit max-w-[70%] flex flex-col px-3.5 py-2 rounded-[20px] text-[14px] shadow-sm border ${isOwn
+            ? "bg-[#dff1ff] text-gray-900 border-[#dff1ff] rounded-br-sm"
             : isBot
               ? "bg-gradient-to-br from-slate-50 to-blue-50 text-slate-900 border-blue-100 rounded-bl-sm"
-              : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
+              : "bg-white text-gray-800 border-transparent shadow-sm rounded-bl-sm"
           } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""} ${
             String(msg.id) === focusedMessageId
               ? isFocusBlue 
@@ -198,7 +243,7 @@ export function PrivateMessageBubble({
         {!isOwn && (
           <div className="mb-0.5 flex items-center gap-1.5">
             <div
-              className={`text-xs font-medium ${isBot ? "text-slate-700" : "text-gray-400"}`}
+              className={`text-[11px] font-normal ${isBot ? "text-slate-700" : "text-gray-400"}`}
             >
               {incomingName}
             </div>
@@ -289,68 +334,6 @@ export function PrivateMessageBubble({
               mapHeight={150}
             />
           </div>
-        ) : (msg.contentType === "call_log" || (msg as any).messageType === "call_log") && (msg as any).callData ? (
-          (() => {
-            const callData = (msg as any).callData;
-            const callType = callData?.callType || "video";
-            const endedReason = callData?.endedReason || null;
-            const durationSeconds = callData?.durationSeconds ?? callData?.duration ?? 0;
-
-            console.log("[call-log-render]", {
-              callStatus: callData?.callStatus,
-              status: callData?.status,
-              endedReason,
-              durationSeconds,
-              acceptedCount: callData?.acceptedCount,
-            });
-
-            const isVideo = callType === "video";
-            const typeLabel = isVideo ? "Cuộc gọi video" : "Cuộc gọi thoại";
-
-            // Priority-based status determination:
-            // 1. durationSeconds > 0 or user_ended or disconnect_timeout → completed with duration
-            // 2. callee_rejected → rejected
-            // 3. caller_cancelled → cancelled
-            // 4. no_answer_timeout / missed / default → missed
-            const hasDuration = durationSeconds > 0 || endedReason === "user_ended" || endedReason === "disconnect_timeout";
-            const isRejected = endedReason === "callee_rejected";
-            const isCancelled = endedReason === "caller_cancelled";
-
-            let statusText: string;
-            let isNegative = false;
-
-            if (hasDuration) {
-              const m = Math.floor(durationSeconds / 60);
-              const s = durationSeconds % 60;
-              const dur = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-              statusText = `${typeLabel} · ${dur}`;
-            } else if (isRejected) {
-              statusText = `${typeLabel} · đã từ chối`;
-              isNegative = true;
-            } else if (isCancelled) {
-              statusText = `${typeLabel} · đã hủy`;
-              isNegative = true;
-            } else {
-              // no_answer_timeout, missed, or unknown
-              statusText = `${typeLabel} · không bắt máy`;
-              isNegative = true;
-            }
-
-            const icon = isNegative
-              ? (isVideo ? <VideoOff className="w-5 h-5" /> : <PhoneMissed className="w-5 h-5" />)
-              : (isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />);
-
-            return (
-              <div className="flex items-center gap-3 pr-4 py-1 w-52">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full shrink-0 ${isNegative ? "bg-red-100 text-red-500" : (isOwn ? "bg-blue-100/50 text-blue-600" : "bg-gray-100 text-gray-600")}`}>
-                  {icon}
-                </div>
-                <div className="flex flex-col">
-                  <span className={`font-semibold text-[15px] ${isNegative ? "text-red-500" : (isOwn ? "text-gray-900" : "text-gray-800")}`}>{statusText}</span>
-                </div>
-              </div>
-            );
-          })()
         ) : (
           <div
             className={`whitespace-pre-wrap wrap-break-word ${pureEmoji ? "text-3xl leading-none" : ""}`}

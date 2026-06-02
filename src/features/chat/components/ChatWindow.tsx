@@ -1389,7 +1389,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   // ── Empty state ────────────────────────────────────────────────────
   if (!selectedFriend && !selectedGroup && !isAiChatOpen) {
     return (
-      <div className="flex-1 bg-[#f3f5f6] flex flex-col items-center justify-center min-w-0 text-gray-400 px-6">
+      <div className="flex-1 bg-[#eef3f8] flex flex-col items-center justify-center min-w-0 text-gray-400 px-6">
         <div className="w-16 h-16 rounded-full bg-gray-200/80 flex items-center justify-center mb-4">
           <Smile className="w-8 h-8 text-gray-500" />
         </div>
@@ -1406,7 +1406,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   return (
     <div 
-      className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0"
+      className="flex-1 bg-[#eef3f8] flex flex-col relative min-w-0"
       style={chatBgUrl ? {
         backgroundImage: `url(${chatBgUrl})`,
         backgroundSize: 'cover',
@@ -1518,13 +1518,21 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           onJumpToMessage={handleJumpToMessage}
           resolveDisplayAvatar={resolveDisplayAvatar}
           isFocusBlue={isFocusBlue}
+          onCall={(type) => {
+            if (!activeConversationId) return;
+            if (chatMode === "GROUP") {
+              groupCallManager.startGroupCall(activeConversationId, type, groupMembers.map(m => String(m.userId)));
+            } else {
+              callManager.startCall(activeConversationId, type);
+            }
+          }}
         />
 
       )}
 
       {/* Typing indicator */}
       {!isAiChatOpen && activeTypingUsers.length > 0 && (
-        <div className="px-4 py-1.5 bg-[#f3f5f6]">
+        <div className="px-4 py-1.5 bg-[#eef3f8]">
           <p className="text-xs italic text-gray-500">
             {activeTypingUsers.length === 1
               ? `${activeTypingUsers[0]} đang soạn tin...`
@@ -1534,7 +1542,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       )}
 
       {!isAiChatOpen && activeUploading && (
-        <div className="px-4 py-2 bg-[#f3f5f6] border-t border-gray-200/70">
+        <div className="px-4 py-2 bg-[#eef3f8] border-t border-gray-200/70">
           <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
             <span>Đang tải tệp lên S3...</span>
             <span>{Math.max(0, Math.min(100, activeUploadProgress))}%</span>

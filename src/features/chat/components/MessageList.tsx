@@ -40,6 +40,7 @@ interface MessageListProps {
   isFocusBlue?: boolean;
   activeGroupCall?: { callId: string; channelName: string } | null;
   onJoinActiveGroupCall?: (activeCall: { callId: string; channelName: string }) => void;
+  onCall?: (callType: 'video' | 'audio') => void;
 }
 
 export function MessageList({
@@ -63,6 +64,7 @@ export function MessageList({
   isFocusBlue,
   activeGroupCall,
   onJoinActiveGroupCall,
+  onCall,
 }: MessageListProps) {
 
   const [isJoining, setIsJoining] = useState(false);
@@ -124,15 +126,15 @@ export function MessageList({
         };
 
         return (
-          <div className="mx-4 mb-3 flex items-center gap-3 px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
-            <div className="flex items-center justify-center w-10 h-10 rounded-full shrink-0 bg-green-100 text-green-600">
+          <div className="mx-4 mb-3 flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
+            <div className="flex items-center justify-center w-10 h-10 rounded-full shrink-0 bg-blue-100 text-blue-600">
               <Video className="w-5 h-5" />
             </div>
             <div className="flex flex-col flex-1 min-w-0">
-              <span className="font-semibold text-[14px] text-green-800">
+              <span className="font-semibold text-[14px] text-blue-800">
                 Cuộc gọi nhóm đang diễn ra
               </span>
-              <span className="text-xs text-green-600 mt-0.5">
+              <span className="text-xs text-blue-600 mt-0.5">
                 Nhấn để tham gia
               </span>
             </div>
@@ -140,7 +142,7 @@ export function MessageList({
               type="button"
               disabled={isJoining}
               onClick={handleJoin}
-              className="px-4 py-2 bg-green-500 text-white text-xs font-medium rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
+              className="px-4 py-2 bg-blue-500 text-white text-xs font-medium rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
             >
               {isJoining ? "Đang tham gia..." : "Tham gia"}
             </button>
@@ -172,9 +174,9 @@ export function MessageList({
           const wrapperClass =
             focusedMessageId != null && String(msg.id) === focusedMessageId
               ? isFocusBlue
-                ? "rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20 py-2 px-2 mx-1 shadow-sm"
-                : "rounded-xl animate-flash-gold ring-2 ring-amber-400 py-2 px-2 mx-1 shadow-lg scale-[1.01] transition-all z-10"
-              : "px-2 py-2";
+                ? "rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20 py-1 px-2 mx-1 shadow-sm"
+                : "rounded-xl animate-flash-gold ring-2 ring-amber-400 py-1 px-2 mx-1 shadow-lg scale-[1.01] transition-all z-10"
+              : "px-2 py-[2px]";
 
           // System message
           if (isSystemMessage(msg)) {
@@ -225,6 +227,7 @@ export function MessageList({
                   onJumpToMessage={onJumpToMessage}
                   focusedMessageId={focusedMessageId}
                   isFocusBlue={isFocusBlue}
+                  onCall={onCall}
                 />
               </div>
             );
@@ -242,6 +245,7 @@ export function MessageList({
                 onJumpToMessage={onJumpToMessage}
                 focusedMessageId={focusedMessageId}
                 isFocusBlue={isFocusBlue}
+                onCall={onCall}
               />
             </div>
           );

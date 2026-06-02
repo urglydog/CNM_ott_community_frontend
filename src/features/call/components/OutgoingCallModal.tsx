@@ -3,6 +3,8 @@
 import { PhoneOff, PhoneOutgoing, AlertCircle, ExternalLink } from "lucide-react";
 import { useCallManager } from "../hooks/useCallManager";
 import { useCallStore } from "../callStore";
+import { useEffect } from "react";
+import { playOutgoingRingtone, stopRingtone } from "../../../utils/audioUtils";
 
 /**
  * Modal overlay shown when an outgoing call is being placed.
@@ -43,10 +45,22 @@ export function OutgoingCallModal() {
     );
   }
 
-  if (phase !== "outgoing" || !callSession) return null;
+  const shouldRing = phase === "outgoing" && !!callSession;
 
-  // Don't show modal when call window popup is open — popup handles the ringing UI
-  if (callWindowOpening || callWindowJoined) return null;
+  useEffect(() => {
+    if (shouldRing) {
+      playOutgoingRingtone();
+    } else {
+      stopRingtone();
+    }
+    return () => {
+      stopRingtone();
+    };
+  }, [shouldRing]);
+
+  const visible = phase === "outgoing" && callSession && !callWindowOpening && !callWindowJoined;
+
+  if (!visible) return null;
 
   const isVideo = callSession.callType === "video";
 

@@ -52,7 +52,7 @@ export async function authRequest(
     phone?: string;
   }
 ): Promise<AuthResponse> {
-  const endpoint = mode === "login" ? "/api/users/login" : "/api/users/register";
+  const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
   const response = await apiClient.post<AuthResponse>(endpoint, body);
   return response.data;
 }

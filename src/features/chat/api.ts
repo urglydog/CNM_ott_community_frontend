@@ -95,11 +95,38 @@ export interface BotChatResponse {
   content: string;
 }
 
-export async function askBot(message: string): Promise<BotChatResponse> {
-  const response = await apiClient.post<BotChatResponse>("/api/v1/bot/chat", {
-    message,
-  });
-  return response.data;
+export interface AskBotPayload {
+  userId: string;
+  conversationId: string;
+  message: string;
+}
+
+const AI_DEBUG_LOGS = process.env.NEXT_PUBLIC_AI_DEBUG_LOGS === "true";
+
+export async function askBot(
+  payload: AskBotPayload,
+): Promise<BotChatResponse> {
+  try {
+    const response = await apiClient.post<BotChatResponse>(
+      "/api/v1/bot/chat",
+      payload,
+    );
+    return response.data;
+  } catch (error: any) {
+    if (AI_DEBUG_LOGS) {
+      const errorDebug = {
+        request: payload,
+        status: error?.response?.status || null,
+        responseData: error?.response?.data || null,
+        message: error?.message || "Unknown error",
+      };
+
+      console.error("[askBot] Request failed");
+      console.error(JSON.stringify(errorDebug, null, 2));
+    }
+
+    throw error;
+  }
 }
 
 export type ReminderRepeat = "none" | "daily" | "weekly" | "monthly";

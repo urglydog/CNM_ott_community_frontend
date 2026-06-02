@@ -67,6 +67,7 @@ export default function MainLayout({
     setGroupConversationPreview,
     chatMode,
     reset: resetChatStore,
+    setCurrentUserId,
   } = useChatStore();
 
   const { resetPending: resetContactsStore } = useContactsStore();
@@ -98,6 +99,15 @@ export default function MainLayout({
 
   // Join DM rooms for all friends
   useJoinFriendDmRooms(friends, user?.id);
+
+  // Sync current user ID with chat store for scoped localStorage persistence
+  useEffect(() => {
+    if (isAuthenticated && user?.id) {
+      setCurrentUserId(String(user.id));
+    } else {
+      setCurrentUserId(null);
+    }
+  }, [isAuthenticated, user?.id, setCurrentUserId]);
 
   // Load pending friend count
   useEffect(() => {

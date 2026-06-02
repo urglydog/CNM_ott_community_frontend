@@ -370,8 +370,12 @@ export default function ChatListPanel({
           }`}
         >
           <div className="relative mr-3 shrink-0">
-            <div className="w-11 h-11 rounded-full bg-linear-to-br from-cyan-500 via-blue-500 to-indigo-500 text-white flex items-center justify-center shadow-sm">
-              <Sparkles className="w-5 h-5" />
+            <div className="w-11 h-11 rounded-full overflow-hidden shadow-sm bg-white">
+              <img
+                src="/botai-avatar.svg"
+                alt="BotAI"
+                className="w-full h-full object-cover"
+              />
             </div>
           </div>
 
@@ -382,7 +386,7 @@ export default function ChatListPanel({
                   isAiChatOpen ? "text-blue-800" : "text-gray-900"
                 }`}
               >
-                AI Bot
+                BotAI
               </span>
             </div>
             <p className="text-xs text-gray-500 truncate text-left">

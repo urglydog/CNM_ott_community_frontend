@@ -750,19 +750,6 @@ function GroupCallWindowContent() {
     setTimeout(() => window.close(), 1500);
   }, [callId]);
 
-  const handleEnd = useCallback(async () => {
-    if (!callId) return;
-    try {
-      const { default: apiClient } = await import("../../../lib/axios");
-      await apiClient.post(`/api/calls/group/${callId}/end`);
-    } catch {}
-    await leaveChannel().catch(() => {});
-    sendGroupMessage({ type: "group-call-window:closed", callId, reason: "end" });
-    setPhase("ended");
-    setEndedText("Cuộc gọi nhóm đã kết thúc");
-    setTimeout(() => window.close(), 1500);
-  }, [callId]);
-
   // ── Format ──────────────────────────────────────────────────────────
 
   function formatDuration(seconds: number): string {
@@ -1066,16 +1053,10 @@ function GroupCallWindowContent() {
             {/* Spacer */}
             <div className="w-px h-8 bg-white/20 mx-1" />
 
-            {/* End / Leave */}
-            {isHost ? (
-              <button type="button" onClick={handleEnd} className="w-14 h-12 rounded-full flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-colors cursor-pointer" title="Kết thúc cho tất cả">
-                <PhoneOff className="w-5 h-5" />
-              </button>
-            ) : (
-              <button type="button" onClick={handleLeave} className="w-14 h-12 rounded-full flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-colors cursor-pointer" title="Rời cuộc gọi">
-                <PhoneOff className="w-5 h-5" />
-              </button>
-            )}
+            {/* Leave — all users (host or not) leave individually; backend ends session when empty */}
+            <button type="button" onClick={handleLeave} className="w-14 h-12 rounded-full flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-colors cursor-pointer" title="Rời cuộc gọi">
+              <PhoneOff className="w-5 h-5" />
+            </button>
           </div>
         </div>
       )}

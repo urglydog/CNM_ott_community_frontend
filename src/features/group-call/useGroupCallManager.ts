@@ -474,7 +474,7 @@ export function useGroupCallManager(socketOverride?: Socket) {
     reset();
   }, [socketOverride]);
 
-  // ── Leave group call ──────────────────────────────────────────────────
+  // ── Leave group call — universal action for all users (host included) ──
 
   const leaveGroupCall = useCallback(async (): Promise<void> => {
     const id = useGroupCallStore.getState().callId;
@@ -488,19 +488,14 @@ export function useGroupCallManager(socketOverride?: Socket) {
     setPhase("ended");
   }, [socketOverride]);
 
-  // ── End group call (host) ─────────────────────────────────────────────
+  // ── End group call — DEPRECATED: all users now use leaveGroupCall ──────
+  // Kept for backward compat only. Delegates to leaveGroupCall.
+  // The backend auto-ends the session when the last participant leaves.
 
   const endGroupCall = useCallback(async (): Promise<void> => {
-    const id = useGroupCallStore.getState().callId;
-    if (!id) {
-      reset();
-      return;
-    }
-
-    console.log("[group-call-manager] endGroupCall emitting", { callId: id });
-    emitFireAndForget(GROUP_EMIT_EVENTS.END, { callId: id }, socketOverride);
-    setPhase("ended");
-  }, [socketOverride]);
+    console.log("[group-call-manager] endGroupCall → delegating to leaveGroupCall");
+    await leaveGroupCall();
+  }, [leaveGroupCall]);
 
   // ── Transition to active (called after Agora join succeeds) ───────────
 

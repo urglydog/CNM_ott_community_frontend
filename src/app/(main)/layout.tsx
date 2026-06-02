@@ -21,6 +21,7 @@ import { DirectCallScreen } from "../../features/call/components/DirectCallScree
 import { useGroupCallSocketListener } from "../../features/group-call/useGroupCallSocketListener";
 import { useGroupCallPopupSync } from "../../features/group-call/useGroupCallPopupSync";
 import { GroupIncomingCallModal } from "../../features/group-call/components/GroupIncomingCallModal";
+import { GroupOutgoingCallRingtone } from "../../features/group-call/components/GroupOutgoingCallRingtone";
 import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
@@ -264,6 +265,7 @@ export default function MainLayout({
       <DirectCallScreen />
       {/* Group incoming call modal — no Agora, just notification */}
       <GroupIncomingCallModal />
+      <GroupOutgoingCallRingtone />
       <ToastContainer />
     </div>
   );

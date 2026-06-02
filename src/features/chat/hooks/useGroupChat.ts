@@ -119,6 +119,7 @@ export function useGroupChat(
 
   const { user } = useAuth();
   const {
+    socket,
     emitJoinRoom,
     emitLeaveRoom,
     emitSendMessage,
@@ -452,6 +453,31 @@ export function useGroupChat(
       );
     });
 
+    // ── Message updated listener (e.g. group_call_active → ended) ───────
+    const handleMessageUpdated = (data: {
+      conversationId: string;
+      messageId: string;
+      content?: string;
+      callData?: any;
+      updatedAt?: string;
+    }) => {
+      if (!data.conversationId || !data.messageId) return;
+      if (data.conversationId !== currentRoomId) return;
+
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => String(m.id) === String(data.messageId));
+        if (idx === -1) return prev;
+        const updated = [...prev];
+        updated[idx] = {
+          ...updated[idx],
+          ...(data.content !== undefined ? { content: data.content } : {}),
+          ...(data.callData !== undefined ? { callData: data.callData } : {}),
+        };
+        return updated;
+      });
+    };
+    socket?.on("message:updated", handleMessageUpdated);
+
     return () => {
       unsubReceive();
       unsubRevoked();
@@ -461,11 +487,13 @@ export function useGroupChat(
       unsubLiveLocationStopped();
       unsubUpdateMsg();
       unsubPollUpdated();
+      socket?.off("message:updated", handleMessageUpdated);
       emitLeaveRoom(currentRoomId);
       // emitLeaveRoom(channelRoomId);
     };
   }, [
     currentRoomId,
+    socket,
     emitJoinRoom,
     emitLeaveRoom,
     onReceiveMessage,

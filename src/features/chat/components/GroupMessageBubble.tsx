@@ -19,6 +19,7 @@ import {
   isBotSender,
   renderBotMentionHighlight,
 } from "../utils/botMention";
+import { CallMessageCard } from "./CallMessageCard";
 
 /** Tin nhắn hệ thống (hiển thị giữa màn hình) */
 export function SystemMessageBubble({ msg }: { msg: GroupChatMessage }) {
@@ -90,6 +91,7 @@ interface MessageBubbleProps {
   onJumpToMessage?: (messageId: string | number) => void;
   focusedMessageId?: string | null;
   isFocusBlue?: boolean;
+  onCall?: (callType: 'video' | 'audio') => void;
 }
 
 
@@ -171,6 +173,7 @@ function MessageBubbleContent({
   onJumpToMessage,
   focusedMessageId,
   isFocusBlue,
+  onCall,
 }: MessageBubbleProps & { senderName: string; groupMembers?: any[]; authUserId: string | number }) {
   const isOwn: boolean = isOwnProp ?? false;
   const isBot = isBotSender(msg.senderId);
@@ -179,6 +182,78 @@ function MessageBubbleContent({
   const groupCallManager = useGroupCallManager();
   const groupCallPhase = useGroupCallStore((s) => s.phase);
   const [isJoining, setIsJoining] = useState(false);
+
+  // ── Call messages: early return WITHOUT bubble wrapper ───────────────────
+  // CallMessageCard has its own background/border/shadow — must not be wrapped
+  // in the outgoing blue bubble or incoming white bubble.
+  if (
+    msg.contentType === "group_call_active" ||
+    msg.contentType === "call_log" ||
+    (msg as any).messageType === "call_log"
+  ) {
+    const callData = (msg as any).callData || {};
+    const callMode = callData?.callMode || "direct";
+    const callType = callData?.callType || "video";
+    const isGroup = callMode === "group";
+    const isGroupActive = msg.contentType === "group_call_active" && callData?.callStatus === "active";
+    const callId = callData?.callId;
+
+    // Dedup: don't render ended group_call_active — call_log handles ended state
+    if (msg.contentType === "group_call_active" && !isGroupActive && callId) {
+      return null;
+    }
+
+    let status: "active" | "ended" | "missed" | "cancelled" | "rejected" = "ended";
+    if (isGroupActive) {
+      status = "active";
+    } else {
+      const endedReason = callData?.endedReason || null;
+      const durationSeconds = callData?.durationSeconds ?? callData?.duration ?? 0;
+      const hasDuration = durationSeconds > 0 || endedReason === "user_ended" || endedReason === "disconnect_timeout";
+      if (hasDuration) {
+        status = "ended";
+      } else if (endedReason === "callee_rejected") {
+        status = "rejected";
+      } else if (endedReason === "caller_cancelled") {
+        status = "cancelled";
+      } else {
+        status = "missed";
+      }
+    }
+
+    const handleJoin = async () => {
+      if (!callId || isJoining) return;
+      setIsJoining(true);
+      try {
+        await groupCallManager.joinExistingGroupCall(callId);
+      } finally {
+        setIsJoining(false);
+      }
+    };
+
+    return (
+      <div
+        className={`flex ${isOwn ? "justify-end" : "justify-start"} my-1`}
+        onContextMenu={(e) => {
+          onContextMenu?.(e, msg, msg.conversationId ?? "", isOwn);
+        }}
+      >
+        <CallMessageCard
+          variant={isGroup ? "group" : "direct"}
+          callType={callType as "video" | "audio"}
+          status={status}
+          durationSeconds={callData?.durationSeconds ?? callData?.duration ?? 0}
+          participantCount={callData?.participantCount}
+          endedReason={callData?.endedReason}
+          isOwn={isOwn}
+          onJoin={isGroupActive ? handleJoin : undefined}
+          onCall={onCall}
+          joinDisabled={isJoining || groupCallPhase !== "idle"}
+          joinLabel={isJoining ? "Đang tham gia..." : "Tham gia"}
+        />
+      </div>
+    );
+  }
 
   const handleReplyClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -217,14 +292,14 @@ function MessageBubbleContent({
 
   return (
     <div
-      className={`relative group w-fit max-w-full flex flex-col px-3 py-2 rounded-2xl text-[14px] shadow-sm border ${
+      className={`relative group w-fit max-w-full flex flex-col px-3.5 py-2 rounded-[20px] text-[14px] shadow-sm border ${
         isMentioned
           ? "bg-yellow-100 border-yellow-500 border-l-4 text-gray-900"
           : isBot && !isOwn
           ? "bg-gradient-to-br from-slate-50 to-blue-50 text-slate-900 border-blue-100 rounded-bl-sm"
           : isOwn
-          ? "bg-blue-200 text-gray-900 border-blue-200 rounded-br-sm"
-          : "bg-white text-gray-800 border-gray-200 rounded-bl-sm"
+          ? "bg-[#dff1ff] text-gray-900 border-[#dff1ff] rounded-br-sm"
+          : "bg-white text-gray-800 border-transparent shadow-sm rounded-bl-sm"
       } ${msg.sendStatus === "failed" ? "opacity-70 border-red-400" : ""} ${msg.contentType === "revoked" ? "bg-gray-100 border-gray-200 opacity-80 italic" : ""} ${pureEmoji ? "px-4 py-3" : ""} ${
         String(msg.id) === focusedMessageId
           ? isFocusBlue 
@@ -324,143 +399,6 @@ function MessageBubbleContent({
         <div className="py-1">
           <AudioMessage audioUrl={msg.attachments?.[0]?.url || msg.content} isOwn={isOwn} />
         </div>
-      ) : msg.contentType === "group_call_active" && (msg as any).callData ? (
-        (() => {
-          const callData = (msg as any).callData;
-          const callType = callData?.callType || "video";
-          const isVideo = callType === "video";
-          const isActive = callData?.callStatus === "active";
-          const callId = callData?.callId;
-
-          const handleJoin = async () => {
-            if (!callId || isJoining) return;
-            setIsJoining(true);
-            try {
-              await groupCallManager.joinExistingGroupCall(callId);
-            } finally {
-              setIsJoining(false);
-            }
-          };
-
-          return (
-            <div className="flex items-center gap-3 pr-4 py-2 w-64">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full shrink-0 bg-green-100 text-green-600">
-                {isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />}
-              </div>
-              <div className="flex flex-col flex-1 min-w-0">
-                <span className={`font-semibold text-[14px] ${isActive ? "text-gray-900" : "text-gray-500"}`}>
-                  {isActive ? "Cuộc gọi nhóm đang diễn ra" : "Cuộc gọi nhóm đã kết thúc"}
-                </span>
-                {isActive && (
-                  <span className="text-xs text-gray-500 mt-0.5">
-                    Nhấn để tham gia
-                  </span>
-                )}
-                {isActive && callId && (
-                  <button
-                    type="button"
-                    disabled={isJoining || groupCallPhase !== "idle"}
-                    onClick={(e) => { e.stopPropagation(); handleJoin(); }}
-                    className="mt-2 px-3 py-1.5 bg-green-500 text-white text-xs font-medium rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    {isJoining ? "Đang tham gia..." : "Tham gia"}
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })()
-      ) : (msg.contentType === "call_log" || (msg as any).messageType === "call_log") && (msg as any).callData ? (
-        (() => {
-          const callData = (msg as any).callData;
-          const callMode = callData?.callMode || "direct";
-
-          // ── Group call_log ──────────────────────────────────────────────
-          if (callMode === "group") {
-            const duration = callData?.durationSeconds || 0;
-            const formatDur = (secs: number) => {
-              const m = Math.floor(secs / 60);
-              const s = secs % 60;
-              return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-            };
-
-            return (
-              <div className="flex items-center gap-3 pr-4 py-1 w-60">
-                <div className="flex items-center justify-center w-10 h-10 rounded-full shrink-0 bg-red-100 text-red-500">
-                  <PhoneOff className="w-5 h-5" />
-                </div>
-                <div className="flex flex-col">
-                  <span className="font-semibold text-[14px] text-red-500">
-                    Cuộc gọi nhóm đã kết thúc
-                  </span>
-                  <span className="text-xs text-red-400 mt-0.5">
-                    {duration > 0 ? formatDur(duration) : "Đã kết thúc"}
-                  </span>
-                </div>
-              </div>
-            );
-          }
-
-          // ── Direct call_log (existing logic) ────────────────────────────
-          const callType = callData?.callType || "video";
-          const endedReason = callData?.endedReason || null;
-          const durationSeconds = callData?.durationSeconds ?? callData?.duration ?? 0;
-
-          console.log("[call-log-render]", {
-            callStatus: callData?.callStatus,
-            status: callData?.status,
-            endedReason,
-            durationSeconds,
-            acceptedCount: callData?.acceptedCount,
-          });
-
-          const isVideo = callType === "video";
-          const typeLabel = isVideo ? "Cuộc gọi video" : "Cuộc gọi thoại";
-
-          // Priority-based status determination:
-          // 1. durationSeconds > 0 or user_ended or disconnect_timeout → completed with duration
-          // 2. callee_rejected → rejected
-          // 3. caller_cancelled → cancelled
-          // 4. no_answer_timeout / missed / default → missed
-          const hasDuration = durationSeconds > 0 || endedReason === "user_ended" || endedReason === "disconnect_timeout";
-          const isRejected = endedReason === "callee_rejected";
-          const isCancelled = endedReason === "caller_cancelled";
-
-          let statusText: string;
-          let isNegative = false;
-
-          if (hasDuration) {
-            const m = Math.floor(durationSeconds / 60);
-            const s = durationSeconds % 60;
-            const dur = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-            statusText = `${typeLabel} · ${dur}`;
-          } else if (isRejected) {
-            statusText = `${typeLabel} · đã từ chối`;
-            isNegative = true;
-          } else if (isCancelled) {
-            statusText = `${typeLabel} · đã hủy`;
-            isNegative = true;
-          } else {
-            // no_answer_timeout, missed, or unknown
-            statusText = `${typeLabel} · không bắt máy`;
-            isNegative = true;
-          }
-
-          const icon = isNegative
-            ? (isVideo ? <VideoOff className="w-5 h-5" /> : <PhoneMissed className="w-5 h-5" />)
-            : (isVideo ? <Video className="w-5 h-5" /> : <Phone className="w-5 h-5" />);
-
-          return (
-            <div className="flex items-center gap-3 pr-4 py-1 w-52">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full shrink-0 ${isNegative ? "bg-red-100 text-red-500" : (isOwn ? "bg-blue-100/50 text-blue-600" : "bg-gray-100 text-gray-600")}`}>
-                {icon}
-              </div>
-              <div className="flex flex-col">
-                <span className={`font-semibold text-[15px] ${isNegative ? "text-red-500" : (isOwn ? "text-gray-900" : "text-gray-800")}`}>{statusText}</span>
-              </div>
-            </div>
-          );
-        })()
       ) : msg.contentType === "location" && msg.locationData ? (
         <div className="mt-1">
           <LocationMessage
@@ -512,6 +450,7 @@ export function GroupMessageBubble({
   onJumpToMessage,
   focusedMessageId,
   isFocusBlue,
+  onCall,
 }: MessageBubbleProps & { groupMembers?: any[] }) {
   const isOwn = msg.isOwn || Number(msg.senderId) === Number(authUserId);
   const isBot = isBotSender(msg.senderId);
@@ -530,12 +469,12 @@ export function GroupMessageBubble({
           <SenderAvatar
             avatarUrl={finalSenderAvatarUrl}
             name={senderName}
-            size={36}
+            size={28}
           />
         )}
         <div className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
           {!isOwn && (
-            <span className="text-xs text-gray-500 mb-0.5 ml-1">
+            <span className="text-[11px] font-normal text-gray-400 mb-0.5 ml-1">
               {senderName}
             </span>
           )}
@@ -611,7 +550,7 @@ export function GroupMessageBubble({
     >
       {/* Avatar người gửi — chỉ hiện nếu không phải mình */}
         {!isOwn && (
-          <SenderAvatar avatarUrl={finalSenderAvatarUrl} name={senderName} size={36} />
+          <SenderAvatar avatarUrl={finalSenderAvatarUrl} name={senderName} size={28} />
         )}
 
       {/* Wrapper capping width at 68% of chat window */}
@@ -621,7 +560,7 @@ export function GroupMessageBubble({
         {/* Tên người gửi — chỉ hiện nếu không phải mình */}
         {!isOwn && (
           <div className="mb-0.5 ml-1 flex items-center gap-1.5">
-            <span className={`text-xs ${isBot ? "font-semibold text-slate-700" : "text-gray-500"}`}>
+            <span className={`text-[11px] ${isBot ? "font-medium text-slate-700" : "font-normal text-gray-400"}`}>
               {senderName}
             </span>
             {isBot && (
@@ -645,6 +584,7 @@ export function GroupMessageBubble({
           onJumpToMessage={onJumpToMessage}
           focusedMessageId={focusedMessageId}
           isFocusBlue={isFocusBlue}
+          onCall={onCall}
         />
 
         {/* Reader avatars for own messages */}

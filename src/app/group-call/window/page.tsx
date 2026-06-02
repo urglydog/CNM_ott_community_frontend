@@ -48,6 +48,7 @@ import {
   type GroupCallWindowMessage,
 } from "../../../features/group-call/groupCallWindowChannel";
 
+
 // ── Inline Agora RTC (self-contained, no shared singleton) ─────────────
 
 let agoraModule: typeof import("agora-rtc-sdk-ng") | null = null;
@@ -593,6 +594,9 @@ function GroupCallWindowContent() {
       })();
     }
   }, [mode, phase, remoteUsers.size, isVideo]);
+
+  // Removed Ringtone logic here because browsers block autoplay in popups.
+  // We now play the outgoing ringtone in the main window via GroupOutgoingCallRingtone.
 
   // ── Duration timer ──────────────────────────────────────────────────
 

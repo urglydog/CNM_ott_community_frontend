@@ -184,24 +184,88 @@ export default function MainLayout({
     });
 
     return off;
-  }, [socket, isAuthenticated, onReceiveMessage, selectedFriend, selectedGroup, setConversationPreview, incrementUnread, incrementGroupUnread, setGroupConversationPreview, addToast, friends, chatMode]);
+  }, [socket, isAuthenticated, onReceiveMessage, user?.id, selectedFriend, selectedGroup, setConversationPreview, incrementUnread, incrementGroupUnread, setGroupConversationPreview, addToast, friends, chatMode]);
 
   useEffect(() => {
     if (!socket || !isAuthenticated) return;
 
     const handleReminderDue = (payload: any) => {
-      const content =
-        payload?.reminder?.content ||
-        payload?.message?.content?.split("\n")?.[1] ||
-        "Nhắc hẹn";
-      addToast(`Đến giờ nhắc hẹn: ${content}`, "message", 6000);
+      const msg = payload?.message;
+      if (!msg) {
+        // Fallback for safety if message object is not present
+        const content =
+          payload?.reminder?.content ||
+          "Nhắc hẹn";
+        addToast(`Đến giờ nhắc hẹn: ${content}`, "message", 6000);
+        return;
+      }
+
+      const cid = msg.conversationId;
+
+      // ── Xử lý DM ──────────────────────────────────────────────
+      if (!isGroupConversation(cid)) {
+        const friendId = friendIdFromConversationId(cid, user?.id);
+        if (!friendId) return;
+
+        setConversationPreview(friendId, {
+          content: msg.content,
+          createdAt: msg.createdAt,
+        });
+
+        // Bỏ qua toast và increment nếu đang chat với người này
+        const isChattingWithSender = selectedFriend?.friend_id === friendId;
+        if (!isChattingWithSender) {
+          incrementUnread(friendId);
+          const friendItem = friends.find(f => String(f.friend_id) === String(friendId));
+          const senderName = friendItem?.friend_display_name || msg.senderDisplayName || "Nhắc hẹn";
+          if (document.visibilityState === "visible") {
+            addToast(`${senderName}: ${msg.content}`, "message");
+          }
+        }
+        return;
+      }
+
+      // ── Xử lý nhóm ────────────────────────────────────────────
+      const isViewingGroup =
+        chatMode === "GROUP" &&
+        selectedGroup &&
+        String(selectedGroup.groupId) === cid;
+
+      setGroupConversationPreview(cid, {
+        content: msg.content,
+        createdAt: msg.createdAt,
+      });
+
+      if (!isViewingGroup) {
+        incrementGroupUnread(cid);
+        const groupItem = myGroups.find(g => String(g.groupId) === cid);
+        const groupName = groupItem?.name || "nhóm";
+        const senderName = msg.senderDisplayName || "Nhắc hẹn";
+        if (document.visibilityState === "visible") {
+          addToast(`${senderName} ở nhóm ${groupName}: ${msg.content}`, "message");
+        }
+      }
     };
 
     socket.on("reminder:due", handleReminderDue);
     return () => {
       socket.off("reminder:due", handleReminderDue);
     };
-  }, [socket, isAuthenticated, addToast]);
+  }, [
+    socket,
+    isAuthenticated,
+    addToast,
+    user?.id,
+    friends,
+    selectedFriend,
+    selectedGroup,
+    chatMode,
+    myGroups,
+    setConversationPreview,
+    incrementUnread,
+    setGroupConversationPreview,
+    incrementGroupUnread,
+  ]);
 
   // Handle friend socket events
   useFriendSocket(

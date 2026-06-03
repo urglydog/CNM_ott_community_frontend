@@ -14,6 +14,13 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+
+  // 🔥 Găm cứng biến môi trường vào đây để bất kể link Vercel nào cũng nhận đúng IP EC2
+  env: {
+    NEXT_PUBLIC_API_BASE_URL: 'http://15.135.91.145:4000',
+    NEXT_PUBLIC_SOCKET_URL: 'http://15.135.91.145:4000',
+    NEXT_PUBLIC_CALL_API_BASE_URL: 'http://15.135.91.145:4000',
+  }
 };
 
 export default nextConfig;

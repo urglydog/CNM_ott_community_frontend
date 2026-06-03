@@ -144,6 +144,7 @@ export function useDirectMessage(
 
   const { user } = useAuth();
   const {
+    socket,
     emitJoinRoom,
     emitLeaveRoom,
     emitSendMessage,
@@ -418,6 +419,34 @@ export function useDirectMessage(
       ));
     });
 
+    const handleReminderDue = (payload: any) => {
+      const newMsg = payload?.message;
+      if (!newMsg) return;
+      if (!isSameDmConversation(newMsg.conversationId, currentRoomId)) return;
+
+      const friendId = friendIdFromConversationId(
+        newMsg.conversationId,
+        user?.id,
+      );
+      if (friendId) {
+        setConversationPreview(friendId, {
+          content: getPreviewContent(newMsg),
+          createdAt: newMsg.createdAt,
+        });
+        if (selectedFriend?.friend_id !== friendId) {
+          incrementUnread(friendId);
+        }
+      }
+
+      setMessages((prev) => {
+        const exists = prev.some((m) => String(m.id || m.messageId) === String(newMsg.id || newMsg.messageId));
+        if (exists) return prev;
+        return [...prev, { ...newMsg, isOwn: false, sendStatus: "received" }];
+      });
+    };
+
+    socket?.on("reminder:due", handleReminderDue);
+
     return () => {
       unsubReceive();
       unsubRevoked();
@@ -425,6 +454,7 @@ export function useDirectMessage(
       unsubTyping();
       unsubStopTyping();
       unsubLiveLocationStopped();
+      socket?.off("reminder:due", handleReminderDue);
       emitLeaveRoom(currentRoomId);
     };
   }, [
@@ -441,6 +471,7 @@ export function useDirectMessage(
     selectedFriend,
     setConversationPreview,
     incrementUnread,
+    socket,
   ]);
 
   const onTypingChange = useCallback(

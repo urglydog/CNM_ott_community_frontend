@@ -478,6 +478,34 @@ export function useGroupChat(
     };
     socket?.on("message:updated", handleMessageUpdated);
 
+    const handleReminderDue = (payload: any) => {
+      const newMsg = payload?.message;
+      if (!newMsg) return;
+      if (newMsg.conversationId !== currentRoomId && newMsg.conversationId !== `channel:${currentRoomId}`) return;
+
+      setGroupConversationPreview(currentRoomId, {
+        content: getPreviewContent(newMsg),
+        createdAt: newMsg.createdAt,
+      });
+
+      const member = getSenderInfo(newMsg.senderId);
+      const enrichedMsg: GroupChatMessage = {
+        ...newMsg,
+        conversationId: currentRoomId,
+        isOwn: false,
+        sendStatus: "sent",
+        senderDisplayName: newMsg.senderDisplayName || member?.displayName || null,
+        senderAvatarUrl: newMsg.senderAvatarUrl ?? member?.avatarUrl ?? null,
+      };
+
+      setMessages((prev) => {
+        const exists = prev.some((m) => String(m.id || m.messageId) === String(newMsg.id || newMsg.messageId));
+        if (exists) return prev;
+        return [...prev, enrichedMsg];
+      });
+    };
+    socket?.on("reminder:due", handleReminderDue);
+
     return () => {
       unsubReceive();
       unsubRevoked();
@@ -488,6 +516,7 @@ export function useGroupChat(
       unsubUpdateMsg();
       unsubPollUpdated();
       socket?.off("message:updated", handleMessageUpdated);
+      socket?.off("reminder:due", handleReminderDue);
       emitLeaveRoom(currentRoomId);
       // emitLeaveRoom(channelRoomId);
     };

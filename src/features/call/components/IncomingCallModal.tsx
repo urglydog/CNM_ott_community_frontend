@@ -3,6 +3,8 @@
 import { Phone, PhoneOff, Video, PhoneCall, ExternalLink } from "lucide-react";
 import { useCallManager } from "../hooks/useCallManager";
 import { useCallStore } from "../callStore";
+import { useEffect } from "react";
+import { playIncomingRingtone, stopRingtone } from "../../../utils/audioUtils";
 
 /**
  * Modal overlay shown when a direct incoming call is received.
@@ -16,8 +18,24 @@ export function IncomingCallModal() {
   const { phase, callSession, acceptCall, rejectCall, openCallWindowManually } = useCallManager();
   const pendingCallWindowUrl = useCallStore((s) => s.pendingCallWindowUrl);
   const callWindowOpening = useCallStore((s) => s.callWindowOpening);
+  const callWindowJoined = useCallStore((s) => s.callWindowJoined);
 
-  if (phase !== "incoming" || !callSession) return null;
+  const shouldRing = phase === "incoming" && !!callSession;
+  
+  useEffect(() => {
+    if (shouldRing) {
+      playIncomingRingtone();
+    } else {
+      stopRingtone();
+    }
+    return () => {
+      stopRingtone();
+    };
+  }, [shouldRing]);
+
+  const visible = phase === "incoming" && callSession && !callWindowOpening && !callWindowJoined;
+
+  if (!visible) return null;
 
   const isVideo = callSession.callType === "video";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { MoreHorizontal, Search, Sparkles, WifiOff, Phone, Video } from "lucide-react";
+import { MoreHorizontal, Search, WifiOff, Phone, Video } from "lucide-react";
 import { GroupAvatar } from "./Avatar";
 import type { ChatMode } from "../store/chatStore";
 import type { GroupMember } from "../../groups/types";
@@ -21,6 +21,7 @@ interface ChatHeaderProps {
   onOpenSettings?: () => void;
   onStartAudioCall?: () => void;
   onStartVideoCall?: () => void;
+  onStartGroupVideoCall?: () => void;
   activeConversationId?: string | null;
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
 }
@@ -40,6 +41,7 @@ export function ChatHeader({
   onOpenSettings,
   onStartAudioCall,
   onStartVideoCall,
+  onStartGroupVideoCall,
   activeConversationId,
   resolveDisplayAvatar,
 
@@ -48,12 +50,16 @@ export function ChatHeader({
     return (
       <div className="h-17 bg-white border-b border-gray-200 flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-linear-to-br from-cyan-500 via-blue-500 to-indigo-500 text-white flex items-center justify-center shadow-sm">
-            <Sparkles className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-full overflow-hidden shadow-sm bg-white">
+            <img
+              src="/botai-avatar.svg"
+              alt="BotAI"
+              className="w-full h-full object-cover"
+            />
           </div>
           <div>
             <h2 className="font-semibold text-gray-900 text-base leading-tight">
-              AI Bot
+              BotAI
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">Trợ lý thông minh</p>
           </div>
@@ -122,6 +128,29 @@ export function ChatHeader({
 
       {/* Action buttons */}
       <div className="flex items-center gap-1">
+        {/* Group video call button — group conversations only */}
+        {(() => {
+          console.log("[group-call-button] render check", {
+            isGroup,
+            isAiChatOpen,
+            activeConversationId,
+            hasOnStartGroupVideoCall: !!onStartGroupVideoCall,
+          });
+          return null;
+        })()}
+        {isGroup && !isAiChatOpen && activeConversationId && (
+          <button
+            type="button"
+            className="p-2 hover:bg-gray-100 rounded-md cursor-pointer text-gray-600 transition-colors"
+            title="Gọi video nhóm"
+            onClick={() => {
+              console.log("[group-call-button] clicked", { onStartGroupVideoCall: !!onStartGroupVideoCall });
+              onStartGroupVideoCall?.();
+            }}
+          >
+            <Video className="w-5 h-5" />
+          </button>
+        )}
         {/* Audio call button — direct conversations only */}
         {!isGroup && !isAiChatOpen && activeConversationId && (
           <button

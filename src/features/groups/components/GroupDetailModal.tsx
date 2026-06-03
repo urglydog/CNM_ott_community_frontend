@@ -472,7 +472,7 @@ export default function GroupDetailModal({
               <h3 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wide mb-0">
                 Thành viên ({members.length})
               </h3>
-              {(currentUserRole === 'OWNER' || currentUserRole === 'DEPUTY') && (
+              {currentUserRole && (
                 <button
                   type="button"
                   onClick={() => setIsInviteModalOpen(true)}

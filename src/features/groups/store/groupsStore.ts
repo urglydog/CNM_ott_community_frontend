@@ -65,11 +65,17 @@ export const useGroupsStore = create<GroupsState>((set) => ({
       };
     }),
   updateGroup: (groupId, updates) =>
-    set((state) => ({
-      myGroups: state.myGroups.map((g) =>
-        String(g.groupId) === String(groupId) ? { ...g, ...updates } : g
-      ),
-    })),
+    set((state) => {
+      const isSelected = state.selectedGroup && String(state.selectedGroup.groupId) === String(groupId);
+      return {
+        myGroups: state.myGroups.map((g) =>
+          String(g.groupId) === String(groupId) ? { ...g, ...updates } : g
+        ),
+        selectedGroup: isSelected && state.selectedGroup
+          ? { ...state.selectedGroup, ...updates }
+          : state.selectedGroup,
+      };
+    }),
 
   isLoadingGroups: false,
   setIsLoadingGroups: (loading) => set({ isLoadingGroups: loading }),

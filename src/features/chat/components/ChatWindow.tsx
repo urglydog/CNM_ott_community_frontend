@@ -19,6 +19,7 @@ import {
   searchConversationMessages,
   searchGlobalMessages,
 } from "../../../api/client";
+import apiClient from "../../../lib/axios";
 import { useSocket } from "../../../contexts/SocketContext";
 import { useChatStore } from "../store/chatStore";
 import { useGroupsStore } from "../../groups/store/groupsStore";
@@ -31,6 +32,7 @@ import { useLiveLocation } from "../../../hooks/useLiveLocation";
 import LocationShareButton from "../../../components/chat/LocationShareButton";
 import LocationMessage from "../../../components/chat/LocationMessage";
 import LiveLocationMap from "../../../components/chat/LiveLocationMap";
+import { BOT_AGENT_NAME, BOT_DISPLAY_NAME } from "../utils/botMention";
 
 // Components
 import { GroupAvatar } from "./Avatar";
@@ -55,6 +57,9 @@ import ChatSettingsSidebar from "./ChatSettingsSidebar";
 import { usePinnedMessages } from "../hooks/usePinnedMessages";
 import { useChatBackground } from "../hooks/useChatBackground";
 import { useCallManager } from "../../call/hooks/useCallManager";
+import { useGroupCallManager } from "../../group-call/useGroupCallManager";
+import { getActiveGroupCallForConversation } from "../../group-call/groupCallApi";
+import { useGroupCallStore } from "../../group-call/groupCallStore";
 
 interface ChatWindowProps {
   authUser: AuthUser;
@@ -74,6 +79,23 @@ interface MessageSearchRow {
 }
 
 const AI_HISTORY_STORAGE_PREFIX = "ott_ai_history_v1";
+const AI_GLOBAL_CONVERSATION_PREFIX = "ai-global:";
+const AI_DEBUG_LOGS = process.env.NEXT_PUBLIC_AI_DEBUG_LOGS === "true";
+
+function extractBotPrompt(value: string) {
+  const trimmed = String(value || "").trim();
+  const aliases = [BOT_AGENT_NAME, BOT_DISPLAY_NAME, "Bot"]
+    .map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const match = trimmed.match(
+    new RegExp(`^@(?:${aliases})(?=\\s|$|[,.!?:;-])[\\s,:-]*(.+)$`, "iu"),
+  );
+  if (!match) {
+    return "";
+  }
+
+  return String(match[1] || "").trim();
+}
 
 export default function ChatWindow({ authUser }: ChatWindowProps) {
   const {
@@ -103,6 +125,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   } = useAudioRecorder();
 
   const callManager = useCallManager();
+  const groupCallManager = useGroupCallManager();
 
   const currentUserId = String((authUser as any)._id || authUser.id || "");
   const currentUserName = authUser.displayName || authUser.username || "User";
@@ -228,6 +251,43 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     return dmConversationId(currentUserId, selectedFriend.friend_id);
   }, [chatMode, currentUserId, selectedFriend?.friend_id, selectedGroup]);
 
+  const globalAiConversationId = useMemo(() => {
+    if (!currentUserId) {
+      return null;
+    }
+
+    return `${AI_GLOBAL_CONVERSATION_PREFIX}${currentUserId}`;
+  }, [currentUserId]);
+
+  // ── Active group call banner state ─────────────────────────────────────
+  const [activeGroupCall, setActiveGroupCall] = useState<{ callId: string; channelName: string } | null>(null);
+
+  // Check for active group call when conversation changes
+  useEffect(() => {
+    if (chatMode !== "GROUP" || !activeConversationId) {
+      setActiveGroupCall(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const result = await getActiveGroupCallForConversation(activeConversationId);
+      if (!cancelled) {
+        setActiveGroupCall(result);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [chatMode, activeConversationId]);
+
+  // Clear active group call banner when call ends
+  const groupCallPhase = useGroupCallStore((s) => s.phase);
+  useEffect(() => {
+    if (groupCallPhase === "ended" || groupCallPhase === "idle") {
+      setActiveGroupCall(null);
+    }
+  }, [groupCallPhase]);
+
   // ── Pinned messages state & logic ───────────────────────────────────────
   const initialPinned = useMemo(() => {
     if (chatMode === "GROUP") return selectedGroup?.pinnedMessages || [];
@@ -280,23 +340,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
             ? { groupId: activeConversationId, type: "LOCATION", location: { lat, lng } }
             : { conversationId: activeConversationId, locationData: { lat, lng } };
 
-          const res = await fetch(
-            `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/messages/location`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${authUser.token}`,
-              },
-              body: JSON.stringify(payload),
-            },
-          );
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.message || "Gửi vị trí thất bại");
-          }
-          // Lấy tin nhắn từ response và thêm vào state local của người gửi (bên A)
-          const savedMsg = await res.json();
+          const response = await apiClient.post("/api/messages/location", payload);
+          const savedMsg = response.data;
           const localMsg = {
             ...savedMsg,
             isOwn: true,
@@ -388,19 +433,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
                 };
 
             // Gửi tin nhắn live_location vào chat qua API
-            const res = await fetch(
-              `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/messages/location`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${authUser.token}`,
-                },
-                body: JSON.stringify(payload),
-              },
-            );
-            if (res.ok) {
-              const savedMsg = await res.json();
+            const response = await apiClient.post("/api/messages/location", payload);
+            if (response?.data) {
+              const savedMsg = response.data;
               const localMsg = {
                 ...savedMsg,
                 isOwn: true,
@@ -806,39 +841,100 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     resolvedAvatarUrls,
   ]);
 
-  async function submitAiQuestion(rawQuestion: string) {
+  async function submitAiQuestion(
+    rawQuestion: string,
+    options?: { appendToAiPanel?: boolean; conversationId?: string },
+  ) {
     const trimmed = rawQuestion.trim();
     if (!trimmed || isAskingAI) return;
+    const appendToAiPanel = options?.appendToAiPanel !== false;
+    const targetConversationId = options?.conversationId || globalAiConversationId;
+    if (!currentUserId) {
+      const message = "Thiếu userId đăng nhập để gửi yêu cầu BotAI.";
+      if (AI_DEBUG_LOGS) {
+        console.error("[AI Bot] Missing currentUserId", {
+          currentUserId,
+          activeConversationId,
+          question: trimmed,
+        });
+      }
+      setAiError(message);
+      return;
+    }
+    if (!targetConversationId) {
+      const message = "Không thể xác định ngữ cảnh BotAI cho người dùng hiện tại.";
+      if (AI_DEBUG_LOGS) {
+        console.error("[AI Bot] Missing targetConversationId", {
+          currentUserId,
+          activeConversationId,
+          question: trimmed,
+        });
+      }
+      setAiError(message);
+      return;
+    }
 
     const turnId = `${Date.now()}`;
     setAiError("");
     setAiQuestion("");
-    setAiConversation((prev) => {
-      const next = [
-        ...prev,
-        { id: `${turnId}-u`, role: "user" as const, content: trimmed },
-      ];
-      return next.slice(-60);
-    });
-
-    try {
-      setIsAskingAI(true);
-      const response = await askBot(trimmed);
+    if (appendToAiPanel) {
       setAiConversation((prev) => {
         const next = [
           ...prev,
-          {
-            id: `${turnId}-a`,
-            role: "assistant" as const,
-            content: response.content || "AI chưa có phản hồi.",
-          },
+          { id: `${turnId}-u`, role: "user" as const, content: trimmed },
         ];
         return next.slice(-60);
       });
+    }
+
+    try {
+      setIsAskingAI(true);
+      if (AI_DEBUG_LOGS) {
+        console.log("[AI Bot] Sending request", {
+          userId: currentUserId,
+          conversationId: targetConversationId,
+          mode: targetConversationId === activeConversationId ? "contextual" : "global",
+          message: trimmed,
+        });
+      }
+      const response = await askBot({
+        userId: currentUserId,
+        conversationId: targetConversationId,
+        message: trimmed,
+      });
+      if (AI_DEBUG_LOGS) {
+        console.log("[AI Bot] Response received", response);
+      }
+      if (appendToAiPanel) {
+        setAiConversation((prev) => {
+          const next = [
+            ...prev,
+            {
+              id: `${turnId}-a`,
+              role: "assistant" as const,
+              content: response.content || "AI chưa có phản hồi.",
+            },
+          ];
+          return next.slice(-60);
+        });
+      }
     } catch (error: any) {
       const errorMessage =
-        error?.response?.data?.message || "Không thể kết nối AI Bot.";
+        error?.response?.data?.message || "Không thể kết nối BotAI.";
+      const errorDebug = {
+        userId: currentUserId,
+        conversationId: targetConversationId,
+        question: trimmed,
+        status: error?.response?.status || null,
+        responseData: error?.response?.data || null,
+        message: error?.message || null,
+      };
+      if (AI_DEBUG_LOGS) {
+        console.error("[AI Bot] submitAiQuestion failed");
+        console.error(JSON.stringify(errorDebug, null, 2));
+      }
       setAiError(errorMessage);
+      addToast(errorMessage, "error");
     } finally {
       setIsAskingAI(false);
     }
@@ -907,6 +1003,9 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
   const handleSend = useCallback(async () => {
     if (!inputValue.trim()) return;
 
+    const botPrompt = extractBotPrompt(inputValue);
+    const shouldTriggerBotInline = !isAiChatOpen && Boolean(botPrompt);
+
     if (chatMode === "GROUP" && selectedGroup) {
       const allowSendLinks = selectedGroup.allowSendLinks || 'ALL';
       if (allowSendLinks === 'ADMINS_ONLY') {
@@ -961,6 +1060,22 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       await sendDmMessage(inputValue, replyingMessage?.id || null);
     }
 
+    if (shouldTriggerBotInline) {
+      if (AI_DEBUG_LOGS) {
+        console.log("[AI Bot] Triggered from in-conversation mention", {
+          currentUserId,
+          activeConversationId,
+          prompt: botPrompt,
+          chatMode,
+        });
+      }
+      void submitAiQuestion(botPrompt, {
+        appendToAiPanel: false,
+        conversationId: activeConversationId || undefined,
+      });
+    }
+
+    activeTypingChange(false);
     setInputValue("");
     clearReplyingMessage();
     if (textareaRef.current) {
@@ -968,16 +1083,25 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
     }
     textareaRef.current?.focus();
   }, [
-    inputValue,
-    chatMode,
-    groupSending,
-    dmSending,
-    sendGroupMessage,
-    sendDmMessage,
-    replyingMessage,
-    clearReplyingMessage,
-    resolvedGroupMembers,
-  ]);
+      inputValue,
+      chatMode,
+      isAiChatOpen,
+      currentUserId,
+      activeConversationId,
+      groupSending,
+      dmSending,
+      sendGroupMessage,
+      sendDmMessage,
+      replyingMessage,
+      clearReplyingMessage,
+      resolvedGroupMembers,
+      activeTypingChange,
+      textareaRef,
+      selectedGroup,
+      groupMembers,
+      addToast,
+      friends,
+    ]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1259,13 +1383,13 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   const placeHolder =
     chatMode === "GROUP"
-      ? `Nhắn tin trong ${groupName}`
-      : `Nhắn tin cho ${friendName}`;
+      ? `Nhắn tin trong ${groupName} - gõ @Bot để hỏi AI`
+      : `Nhắn tin cho ${friendName} - gõ @Bot để hỏi AI`;
 
   // ── Empty state ────────────────────────────────────────────────────
   if (!selectedFriend && !selectedGroup && !isAiChatOpen) {
     return (
-      <div className="flex-1 bg-[#f3f5f6] flex flex-col items-center justify-center min-w-0 text-gray-400 px-6">
+      <div className="flex-1 bg-[#eef3f8] flex flex-col items-center justify-center min-w-0 text-gray-400 px-6">
         <div className="w-16 h-16 rounded-full bg-gray-200/80 flex items-center justify-center mb-4">
           <Smile className="w-8 h-8 text-gray-500" />
         </div>
@@ -1282,7 +1406,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
 
   return (
     <div 
-      className="flex-1 bg-[#f3f5f6] flex flex-col relative min-w-0"
+      className="flex-1 bg-[#eef3f8] flex flex-col relative min-w-0"
       style={chatBgUrl ? {
         backgroundImage: `url(${chatBgUrl})`,
         backgroundSize: 'cover',
@@ -1305,6 +1429,27 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onStartAudioCall={activeConversationId ? () => callManager.startCall(activeConversationId, "audio") : undefined}
         onStartVideoCall={activeConversationId ? () => callManager.startCall(activeConversationId, "video") : undefined}
+        onStartGroupVideoCall={
+          (() => {
+            const hasConvId = !!activeConversationId;
+            const memberCount = groupMembers.length;
+            console.log("[group-call-wiring] eval", { hasConvId, memberCount, chatMode });
+            if (hasConvId && memberCount > 0) {
+              return () => {
+                console.log("[group-call-wiring] onStartGroupVideoCall fired", {
+                  conversationId: activeConversationId,
+                  memberUserIds: groupMembers.map((m) => String(m.userId)),
+                });
+                groupCallManager.startGroupCall(
+                  activeConversationId!,
+                  "video",
+                  groupMembers.map((m) => String(m.userId)),
+                );
+              };
+            }
+            return undefined;
+          })()
+        }
         activeConversationId={activeConversationId}
         resolveDisplayAvatar={resolveDisplayAvatar}
       />
@@ -1362,6 +1507,8 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           friendName={friendName}
           selectedFriend={selectedFriend}
           groupMembers={resolvedGroupMembers}
+          activeGroupCall={chatMode === "GROUP" ? activeGroupCall : null}
+          onJoinActiveGroupCall={(call) => groupCallManager.joinExistingGroupCall(call.callId, call)}
           focusedMessageId={focusedMessageId}
           activeScrollRef={activeScrollRef as React.RefObject<HTMLDivElement>}
           activeSentinelRef={activeSentinelRef as React.RefObject<HTMLDivElement>}
@@ -1371,13 +1518,21 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
           onJumpToMessage={handleJumpToMessage}
           resolveDisplayAvatar={resolveDisplayAvatar}
           isFocusBlue={isFocusBlue}
+          onCall={(type) => {
+            if (!activeConversationId) return;
+            if (chatMode === "GROUP") {
+              groupCallManager.startGroupCall(activeConversationId, type, groupMembers.map(m => String(m.userId)));
+            } else {
+              callManager.startCall(activeConversationId, type);
+            }
+          }}
         />
 
       )}
 
       {/* Typing indicator */}
       {!isAiChatOpen && activeTypingUsers.length > 0 && (
-        <div className="px-4 py-1.5 bg-[#f3f5f6]">
+        <div className="px-4 py-1.5 bg-[#eef3f8]">
           <p className="text-xs italic text-gray-500">
             {activeTypingUsers.length === 1
               ? `${activeTypingUsers[0]} đang soạn tin...`
@@ -1387,7 +1542,7 @@ export default function ChatWindow({ authUser }: ChatWindowProps) {
       )}
 
       {!isAiChatOpen && activeUploading && (
-        <div className="px-4 py-2 bg-[#f3f5f6] border-t border-gray-200/70">
+        <div className="px-4 py-2 bg-[#eef3f8] border-t border-gray-200/70">
           <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
             <span>Đang tải tệp lên S3...</span>
             <span>{Math.max(0, Math.min(100, activeUploadProgress))}%</span>

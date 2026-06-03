@@ -3,6 +3,8 @@
 import { PhoneOff, PhoneOutgoing, AlertCircle, ExternalLink } from "lucide-react";
 import { useCallManager } from "../hooks/useCallManager";
 import { useCallStore } from "../callStore";
+import { useEffect } from "react";
+import { playOutgoingRingtone, stopRingtone } from "../../../utils/audioUtils";
 
 /**
  * Modal overlay shown when an outgoing call is being placed.
@@ -17,6 +19,7 @@ export function OutgoingCallModal() {
   const { phase, callSession, cancelCall, errorMessage, errorCode, clearError, openCallWindowManually } = useCallManager();
   const pendingCallWindowUrl = useCallStore((s) => s.pendingCallWindowUrl);
   const callWindowOpening = useCallStore((s) => s.callWindowOpening);
+  const callWindowJoined = useCallStore((s) => s.callWindowJoined);
 
   // Show error overlay even if phase has already transitioned
   if (errorMessage && errorCode === "CALL_BUSY") {
@@ -42,7 +45,22 @@ export function OutgoingCallModal() {
     );
   }
 
-  if (phase !== "outgoing" || !callSession) return null;
+  const shouldRing = phase === "outgoing" && !!callSession;
+
+  useEffect(() => {
+    if (shouldRing) {
+      playOutgoingRingtone();
+    } else {
+      stopRingtone();
+    }
+    return () => {
+      stopRingtone();
+    };
+  }, [shouldRing]);
+
+  const visible = phase === "outgoing" && callSession && !callWindowOpening && !callWindowJoined;
+
+  if (!visible) return null;
 
   const isVideo = callSession.callType === "video";
 

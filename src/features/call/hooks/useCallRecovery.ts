@@ -20,6 +20,27 @@ import { getActiveCall } from "../callApi";
 import { consumeRtcToken } from "./useCallRtcLifecycle";
 import type { GetActiveCallResponse } from "../types";
 
+function shouldIgnoreRecoveryError(error: any): boolean {
+  const status = error?.response?.status ?? null;
+  const code = String(error?.code || "").toUpperCase();
+  const message = String(error?.message || "").toUpperCase();
+
+  if (status === 401) {
+    return true;
+  }
+
+  if (
+    code === "ERR_NETWORK" ||
+    code === "ECONNREFUSED" ||
+    message.includes("ERR_CONNECTION_REFUSED") ||
+    message.includes("NETWORK ERROR")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Hook that checks for active calls on startup and when the tab
  * comes back to the foreground.
@@ -52,6 +73,12 @@ export function useCallRecovery(enabled: boolean): void {
       if (response.call) {
         console.log("[call-recovery] Found active call:", response.call.callId, "status:", response.call.status);
 
+        // Skip group calls — they are recovered by group-call system separately
+        if (response.call.callId?.startsWith("gc_") || response.call.callMode === "group") {
+          console.log("[call-recovery] Skipping group call:", response.call.callId);
+          return;
+        }
+
         // Determine the current user's participant state
         const store = useCallStore.getState();
         const myId = store.currentUserId;
@@ -80,8 +107,10 @@ export function useCallRecovery(enabled: boolean): void {
         }
       }
     } catch (err) {
-      // Non-critical — log and continue
-      console.warn("[call-recovery] Failed to check active call:", err);
+      if (!shouldIgnoreRecoveryError(err)) {
+        // Non-critical — log and continue
+        console.warn("[call-recovery] Failed to check active call:", err);
+      }
     } finally {
       isChecking.current = false;
     }

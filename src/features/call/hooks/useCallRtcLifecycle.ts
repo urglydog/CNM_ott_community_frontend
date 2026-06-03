@@ -97,6 +97,19 @@ export function useCallRtcLifecycle(enabled: boolean): void {
         enableVideoRef.current = callSession?.callType === "video";
       }
 
+      // ── NOTIFY POPUP: call accepted — tell popup to join Agora ──
+      if (
+        phase === "active" &&
+        prevPhase === "outgoing" &&
+        (state.callWindowOpening || state.callWindowJoined)
+      ) {
+        console.log("[call-lifecycle] Call accepted — notifying popup to join Agora");
+        sendMessage({
+          type: "main:call-accepted",
+          callId: callId || "",
+        });
+      }
+
       // ── LEAVE: call ended (ended/missed/rejected/cancelled) — ALWAYS process ──
       //    Must handle even when popup is open, so we can notify the popup via BroadcastChannel.
       if (phase === "ended") {
@@ -119,7 +132,7 @@ export function useCallRtcLifecycle(enabled: boolean): void {
       }
 
       // ── SKIP: call window (popup) is handling Agora — main page must not join/reconnect ──
-      if (state.callWindowOpening || state.callWindowJoined) {
+      if (state.callWindowOpening || state.callWindowJoined || (state as any).callWindowClosed) {
         return;
       }
 
@@ -222,6 +235,7 @@ export function useCallRtcLifecycle(enabled: boolean): void {
         cancelReconnectTimer();
         useCallStore.getState().setCallWindowJoined(true);
         useCallStore.getState().setCallWindowOpening(false);
+        useCallStore.getState().setCallWindowClosed(false);
         useCallStore.getState().setPendingCallWindowUrl(null);
 
         // If main page already joined Agora (popup was blocked initially, then
@@ -234,25 +248,57 @@ export function useCallRtcLifecycle(enabled: boolean): void {
         }
       }
 
+      if (msg.type === "call-window:accepting") {
+        console.log("[call-lifecycle] Call window accepting — transitioning to connecting");
+        const currentPhase = useCallStore.getState().phase;
+        if (currentPhase === "incoming") {
+          useCallStore.getState().setConnecting(useCallStore.getState().callSession!);
+        }
+      }
+
+      if (msg.type === "call-window:accepted") {
+        console.log("[call-lifecycle] Call window accepted — transitioning to active");
+        const currentSession = useCallStore.getState().callSession;
+        if (currentSession) {
+          useCallStore.getState().setActive(currentSession);
+        }
+      }
+
+      if (msg.type === "call-window:rejected") {
+        console.log("[call-lifecycle] Call window rejected — resetting");
+        useCallStore.getState().reset();
+      }
+
       if (msg.type === "call-window:closed") {
-        console.log("[call-lifecycle] Call window closed — cancelling reconnect, ending call");
-        // Cancel any pending reconnect immediately
+        console.log("[call-lifecycle] Call window closed", msg.action || "sync-only");
         cancelReconnectTimer();
         useCallStore.getState().setCallWindowJoined(false);
         useCallStore.getState().setCallWindowOpening(false);
+        useCallStore.getState().setCallWindowClosed(true);
 
-        // End the call if still active on the main page
-        const currentPhase = useCallStore.getState().phase;
-        if (currentPhase !== "idle" && currentPhase !== "ended") {
-          const callId = useCallStore.getState().getCallId();
-          if (callId) {
-            callApi.endCall(callId).catch(() => {});
+        if (msg.action === "end-call") {
+          const currentState = useCallStore.getState();
+          const currentCallId = currentState.callSession?.callId;
+          if (!currentCallId) {
+            return;
           }
-          const session = useCallStore.getState().callSession;
-          if (session) {
-            useCallStore.getState().setEnded(session);
-          } else {
-            useCallStore.getState().reset();
+
+          if (currentState.phase === "outgoing") {
+            callApi.cancelCall(currentCallId).catch(() => {});
+            return;
+          }
+
+          if (currentState.phase === "incoming") {
+            callApi.rejectCall(currentCallId).catch(() => {});
+            return;
+          }
+
+          if (
+            currentState.phase === "connecting" ||
+            currentState.phase === "active" ||
+            currentState.phase === "reconnecting"
+          ) {
+            callApi.endCall(currentCallId).catch(() => {});
           }
         }
       }

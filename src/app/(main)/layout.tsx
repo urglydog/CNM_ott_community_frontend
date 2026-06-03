@@ -18,6 +18,10 @@ import { useCallRtcLifecycle } from "../../features/call/hooks/useCallRtcLifecyc
 import { IncomingCallModal } from "../../features/call/components/IncomingCallModal";
 import { OutgoingCallModal } from "../../features/call/components/OutgoingCallModal";
 import { DirectCallScreen } from "../../features/call/components/DirectCallScreen";
+import { useGroupCallSocketListener } from "../../features/group-call/useGroupCallSocketListener";
+import { useGroupCallPopupSync } from "../../features/group-call/useGroupCallPopupSync";
+import { GroupIncomingCallModal } from "../../features/group-call/components/GroupIncomingCallModal";
+import { GroupOutgoingCallRingtone } from "../../features/group-call/components/GroupOutgoingCallRingtone";
 import { isGroupConversation } from "../../features/chat/hooks/useGroupChat";
 import { fetchPendingFriendRequests, getFriendsList } from "../../features/contacts/api";
 import MainSidebar from "./components/MainSidebar";
@@ -40,6 +44,14 @@ export default function MainLayout({
   // ── Call RTC lifecycle: join/leave Agora based on callStore phase ──
   useCallRtcLifecycle(isAuthenticated);
 
+  // ── Group call socket listener: bridge group:call:* events to groupCallStore ──
+  useGroupCallSocketListener(
+    isAuthenticated ? String(user?.id ?? "") : null,
+    socket,
+  );
+
+  useGroupCallPopupSync();
+
   const [pendingFriendCount, setPendingFriendCount] = useState(0);
 
   const {
@@ -56,6 +68,7 @@ export default function MainLayout({
     setGroupConversationPreview,
     chatMode,
     reset: resetChatStore,
+    setCurrentUserId,
   } = useChatStore();
 
   const { resetPending: resetContactsStore } = useContactsStore();
@@ -87,6 +100,15 @@ export default function MainLayout({
 
   // Join DM rooms for all friends
   useJoinFriendDmRooms(friends, user?.id);
+
+  // Sync current user ID with chat store for scoped localStorage persistence
+  useEffect(() => {
+    if (isAuthenticated && user?.id) {
+      setCurrentUserId(String(user.id));
+    } else {
+      setCurrentUserId(null);
+    }
+  }, [isAuthenticated, user?.id, setCurrentUserId]);
 
   // Load pending friend count
   useEffect(() => {
@@ -241,6 +263,9 @@ export default function MainLayout({
       <IncomingCallModal />
       <OutgoingCallModal />
       <DirectCallScreen />
+      {/* Group incoming call modal — no Agora, just notification */}
+      <GroupIncomingCallModal />
+      <GroupOutgoingCallRingtone />
       <ToastContainer />
     </div>
   );

@@ -22,7 +22,7 @@ function getAuthStorage(): Storage | null {
 // ── Validation Patterns ─────────────────────────────────────────────────────────
 export const VALIDATION_PATTERNS = {
   username: /^[a-zA-Z0-9_]{3,30}$/,
-  password: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/,
+  password: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{6,}$/,
   email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
   phone: /^(0[3-9])[0-9]{8}$/,
   fullName: /^.{2,50}$/,
@@ -30,7 +30,7 @@ export const VALIDATION_PATTERNS = {
 
 export const VALIDATION_MESSAGES = {
   username: "Tên đăng nhập phải từ 3-30 ký tự (chỉ chứa chữ, số và dấu gạch dưới)",
-  password: "Mật khẩu phải có ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường và số",
+  password: "Mật khẩu phải có ít nhất 6 ký tự, bao gồm chữ hoa, chữ thường và số",
   email: "Email không hợp lệ. Vui lòng nhập đúng định dạng (ví dụ: name@example.com)",
   phone: "Số điện thoại phải có 10 số, bắt đầu bằng 03, 05, 07, 08 hoặc 09 (ví dụ: 0912345678)",
   fullName: "Họ tên phải từ 2-50 ký tự",

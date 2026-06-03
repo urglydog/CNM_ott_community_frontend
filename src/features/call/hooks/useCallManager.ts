@@ -18,6 +18,7 @@ function buildCallWindowUrl(
   callSession: CallSession,
   remoteName: string,
   isInitiator: boolean,
+  mode: "outgoing" | "accepted" = "accepted",
 ): string {
   const params = new URLSearchParams({
     appId: token.appId,
@@ -28,6 +29,7 @@ function buildCallWindowUrl(
     remoteName,
     callId: callSession.callId,
     isInitiator: String(isInitiator),
+    mode,
   });
   return `/call/window?${params.toString()}`;
 }
@@ -102,6 +104,7 @@ export function useCallManager() {
           response.call,
           remoteName,
           true,
+          "outgoing",
         );
 
         // Try to open pop-out call window (from user gesture — should succeed)
@@ -158,6 +161,7 @@ export function useCallManager() {
         response.call,
         remoteName,
         false,
+        "accepted",
       );
 
       // Try to open pop-out call window (from user gesture)

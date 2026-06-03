@@ -56,17 +56,15 @@ export const CALL_EVENTS = {
   HEARTBEAT: "call:heartbeat",
 } as const;
 
-/** Server → Client events */
+/** Server → Client events (1-1 direct call only) */
 export const CALL_LISTEN_EVENTS = {
-  INCOMING: "call:incoming",
+  INCOMING: "direct-call:incoming",
   RINGING: "call:ringing",
-  ACCEPTED: "call:accepted",
-  REJECTED: "call:rejected",
+  ACCEPTED: "direct-call:accepted",
+  REJECTED: "direct-call:rejected",
   CANCELLED: "call:cancelled",
-  ENDED: "call:ended",
+  ENDED: "direct-call:ended",
   MISSED: "call:missed",
-  PARTICIPANT_JOINED: "call:participant-joined",
-  PARTICIPANT_LEFT: "call:participant-left",
   PARTICIPANT_DISCONNECTED: "call:participant-disconnected",
   PARTICIPANT_RECONNECTED: "call:participant-reconnected",
   STATE_UPDATED: "call:state-updated",
@@ -203,50 +201,7 @@ export function emitCallEnd(callId: string): Promise<CallSocketAck> {
   });
 }
 
-/**
- * Join an existing group call (late join) via socket.
- * Returns ack with token + updated callSession.
- */
-export function emitCallJoin(callId: string): Promise<CallSocketAck> {
-  return new Promise((resolve, reject) => {
-    const socket = getActiveSocket();
-    const data: CallJoinData = { callId };
-
-    socket.emit(CALL_EVENTS.JOIN, data, (ack: CallSocketAck) => {
-      if (ack?.ok) {
-        resolve(ack);
-      } else {
-        reject(new CallSocketError(ack?.error || "Failed to join call", ack));
-      }
-    });
-
-    setTimeout(() => {
-      reject(new CallSocketError("call:join timed out"));
-    }, 15000);
-  });
-}
-
-/**
- * Leave an active group call via socket.
- */
-export function emitCallLeave(callId: string): Promise<CallSocketAck> {
-  return new Promise((resolve, reject) => {
-    const socket = getActiveSocket();
-    const data: CallLeaveData = { callId };
-
-    socket.emit(CALL_EVENTS.LEAVE, data, (ack: CallSocketAck) => {
-      if (ack?.ok) {
-        resolve(ack);
-      } else {
-        reject(new CallSocketError(ack?.error || "Failed to leave call", ack));
-      }
-    });
-
-    setTimeout(() => {
-      reject(new CallSocketError("call:leave timed out"));
-    }, 15000);
-  });
-}
+// NOTE: emitCallJoin / emitCallLeave removed — group call not in 1-1 flow.
 
 /**
  * Send heartbeat to keep reconnect grace timer alive.
@@ -268,8 +223,6 @@ export interface CallEventHandlers {
   onCancelled?: (payload: CallCancelledPayload) => void;
   onEnded?: (payload: CallEndedPayload) => void;
   onMissed?: (payload: CallMissedPayload) => void;
-  onParticipantJoined?: (payload: CallParticipantJoinedPayload) => void;
-  onParticipantLeft?: (payload: CallParticipantLeftPayload) => void;
   onParticipantDisconnected?: (payload: CallParticipantDisconnectedPayload) => void;
   onParticipantReconnected?: (payload: CallParticipantReconnectedPayload) => void;
   onStateUpdated?: (payload: CallStateUpdatedPayload) => void;
@@ -297,8 +250,6 @@ export function registerCallListeners(handlers: CallEventHandlers, socketOverrid
     [CALL_LISTEN_EVENTS.CANCELLED, handlers.onCancelled],
     [CALL_LISTEN_EVENTS.ENDED, handlers.onEnded],
     [CALL_LISTEN_EVENTS.MISSED, handlers.onMissed],
-    [CALL_LISTEN_EVENTS.PARTICIPANT_JOINED, handlers.onParticipantJoined],
-    [CALL_LISTEN_EVENTS.PARTICIPANT_LEFT, handlers.onParticipantLeft],
     [CALL_LISTEN_EVENTS.PARTICIPANT_DISCONNECTED, handlers.onParticipantDisconnected],
     [CALL_LISTEN_EVENTS.PARTICIPANT_RECONNECTED, handlers.onParticipantReconnected],
     [CALL_LISTEN_EVENTS.STATE_UPDATED, handlers.onStateUpdated],

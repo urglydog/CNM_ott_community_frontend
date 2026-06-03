@@ -71,8 +71,6 @@ export {
   emitCallReject,
   emitCallCancel,
   emitCallEnd,
-  emitCallJoin,
-  emitCallLeave,
   emitCallHeartbeat,
   registerCallListeners,
   CallSocketError,

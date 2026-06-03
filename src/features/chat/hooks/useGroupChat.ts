@@ -119,6 +119,7 @@ export function useGroupChat(
 
   const { user } = useAuth();
   const {
+    socket,
     emitJoinRoom,
     emitLeaveRoom,
     emitSendMessage,
@@ -317,9 +318,10 @@ export function useGroupChat(
       // Bỏ qua tin nhắn của chính mình, NGOẠI TRỪ call_log, group_call_started VÀ poll (cần hiển thị)
       const isCallLog = (newMsg as any).contentType === "call_log" || (newMsg as any).messageType === "call_log";
       const isGroupCallStarted = (newMsg as any).contentType === "group_call_started" || (newMsg as any).messageType === "group_call_started";
+      const isGroupCallActive = (newMsg as any).contentType === "group_call_active" || (newMsg as any).messageType === "group_call_active";
       const isPoll = (newMsg as any).contentType === "poll";
       const isReminder = (newMsg as any).contentType === "reminder";
-      if (!isCallLog && !isGroupCallStarted && !isPoll && !isReminder && Number(newMsg.senderId) === Number(user?.id)) return;
+      if (!isCallLog && !isGroupCallStarted && !isGroupCallActive && !isPoll && !isReminder && Number(newMsg.senderId) === Number(user?.id)) return;
 
       // Cập nhật preview để nhóm trồi lên đầu trong ChatListPanel
       setGroupConversationPreview(currentRoomId, {
@@ -451,6 +453,31 @@ export function useGroupChat(
       );
     });
 
+    // ── Message updated listener (e.g. group_call_active → ended) ───────
+    const handleMessageUpdated = (data: {
+      conversationId: string;
+      messageId: string;
+      content?: string;
+      callData?: any;
+      updatedAt?: string;
+    }) => {
+      if (!data.conversationId || !data.messageId) return;
+      if (data.conversationId !== currentRoomId) return;
+
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => String(m.id) === String(data.messageId));
+        if (idx === -1) return prev;
+        const updated = [...prev];
+        updated[idx] = {
+          ...updated[idx],
+          ...(data.content !== undefined ? { content: data.content } : {}),
+          ...(data.callData !== undefined ? { callData: data.callData } : {}),
+        };
+        return updated;
+      });
+    };
+    socket?.on("message:updated", handleMessageUpdated);
+
     return () => {
       unsubReceive();
       unsubRevoked();
@@ -460,11 +487,13 @@ export function useGroupChat(
       unsubLiveLocationStopped();
       unsubUpdateMsg();
       unsubPollUpdated();
+      socket?.off("message:updated", handleMessageUpdated);
       emitLeaveRoom(currentRoomId);
       // emitLeaveRoom(channelRoomId);
     };
   }, [
     currentRoomId,
+    socket,
     emitJoinRoom,
     emitLeaveRoom,
     onReceiveMessage,

@@ -1,6 +1,7 @@
 "use client";
 
-import { Loader2, Smile } from "lucide-react";
+import { Loader2, Smile, Video, Phone } from "lucide-react";
+import { useState } from "react";
 import type { GroupChatMessage } from "../hooks/useGroupChat";
 import type { GroupMember } from "../../groups/types";
 import type { FriendItem } from "../../../types";
@@ -37,6 +38,9 @@ interface MessageListProps {
   onJumpToMessage?: (messageId: string | number) => void;
   resolveDisplayAvatar?: (rawUrl: string | null | undefined) => string | null;
   isFocusBlue?: boolean;
+  activeGroupCall?: { callId: string; channelName: string } | null;
+  onJoinActiveGroupCall?: (activeCall: { callId: string; channelName: string }) => void;
+  onCall?: (callType: 'video' | 'audio') => void;
 }
 
 export function MessageList({
@@ -58,8 +62,12 @@ export function MessageList({
   onJumpToMessage,
   resolveDisplayAvatar,
   isFocusBlue,
+  activeGroupCall,
+  onJoinActiveGroupCall,
+  onCall,
 }: MessageListProps) {
 
+  const [isJoining, setIsJoining] = useState(false);
   const isSystemMessage = (msg: GroupChatMessage) => msg.contentType === "system";
 
   return (
@@ -95,86 +103,154 @@ export function MessageList({
         </div>
       )}
 
-      {messages.map((msg) => {
-        const wrapperClass =
-          focusedMessageId != null && String(msg.id) === focusedMessageId
-            ? isFocusBlue
-              ? "rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20 py-2 px-2 mx-1 shadow-sm"
-              : "rounded-xl animate-flash-gold ring-2 ring-amber-400 py-2 px-2 mx-1 shadow-lg scale-[1.01] transition-all z-10"
-            : "px-2 py-2";
+      {/* Active group call banner — synthetic, not from message DB */}
+      {activeGroupCall && (() => {
+        // Don't show if messages already contain group_call_active for this callId
+        const hasActiveMessage = messages.some(
+          (m) => m.contentType === "group_call_active" && (m as any).callData?.callId === activeGroupCall.callId,
+        );
+        // Don't show if call_log ended exists for this callId
+        const hasEndedLog = messages.some(
+          (m) => m.contentType === "call_log" && (m as any).callData?.callMode === "group" && (m as any).callData?.callId === activeGroupCall.callId,
+        );
+        if (hasActiveMessage || hasEndedLog) return null;
 
-        // System message
-        if (isSystemMessage(msg)) {
+        const handleJoin = async () => {
+          if (isJoining || !onJoinActiveGroupCall) return;
+          setIsJoining(true);
+          try {
+            await onJoinActiveGroupCall(activeGroupCall);
+          } finally {
+            setIsJoining(false);
+          }
+        };
+
+        return (
+          <div className="mx-4 mb-3 flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
+            <div className="flex items-center justify-center w-10 h-10 rounded-full shrink-0 bg-blue-100 text-blue-600">
+              <Video className="w-5 h-5" />
+            </div>
+            <div className="flex flex-col flex-1 min-w-0">
+              <span className="font-semibold text-[14px] text-blue-800">
+                Cuộc gọi nhóm đang diễn ra
+              </span>
+              <span className="text-xs text-blue-600 mt-0.5">
+                Nhấn để tham gia
+              </span>
+            </div>
+            <button
+              type="button"
+              disabled={isJoining}
+              onClick={handleJoin}
+              className="px-4 py-2 bg-blue-500 text-white text-xs font-medium rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shrink-0"
+            >
+              {isJoining ? "Đang tham gia..." : "Tham gia"}
+            </button>
+          </div>
+        );
+      })()}
+
+      {(() => {
+        const endedCallIds = new Set(
+          messages
+            .filter(
+              (m) =>
+                m.contentType === "call_log" &&
+                (m as any).callData?.callMode === "group" &&
+                (m as any).callData?.callId,
+            )
+            .map((m) => (m as any).callData.callId as string),
+        );
+
+        return messages.map((msg) => {
+          // Skip group_call_active if ended call_log exists for same callId
+          if (
+            msg.contentType === "group_call_active" &&
+            endedCallIds.has((msg as any).callData?.callId)
+          ) {
+            return null;
+          }
+
+          const wrapperClass =
+            focusedMessageId != null && String(msg.id) === focusedMessageId
+              ? isFocusBlue
+                ? "rounded-xl bg-blue-500/10 ring-1 ring-blue-500/20 py-1 px-2 mx-1 shadow-sm"
+                : "rounded-xl animate-flash-gold ring-2 ring-amber-400 py-1 px-2 mx-1 shadow-lg scale-[1.01] transition-all z-10"
+              : "px-2 py-[2px]";
+
+          // System message
+          if (isSystemMessage(msg)) {
+            return (
+              <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <SystemMessageBubble msg={msg} />
+              </div>
+            );
+          }
+
+          // Reminder message
+          if (isReminderMessage(msg)) {
+            return (
+              <div key={`reminder-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <ReminderMessageBubble msg={msg} currentUserId={currentUserId} />
+              </div>
+            );
+          }
+
+          // Note message
+          if (msg.contentType === "note") {
+            return (
+              <div key={`note-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <NoteMessageBubble msg={msg} currentUserId={currentUserId} />
+              </div>
+            );
+          }
+
+          // Poll message
+          if (msg.contentType === "poll" && msg.pollData) {
+            return (
+              <div key={`poll-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <PollMessageBubble key={`poll-bubble-${msg.id}`} msg={msg} currentUserId={currentUserId} />
+              </div>
+            );
+          }
+
+          if (chatMode === "GROUP") {
+            return (
+              <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
+                <GroupMessageBubble
+                  msg={msg}
+                  authUserId={currentUserId}
+                  senderAvatarUrl={resolveDisplayAvatar?.(msg.senderAvatarUrl)}
+                  groupMembers={groupMembers}
+                  onContextMenu={onMessageContextMenu}
+                  onReply={onReplyToMessage}
+                  onJumpToMessage={onJumpToMessage}
+                  focusedMessageId={focusedMessageId}
+                  isFocusBlue={isFocusBlue}
+                  onCall={onCall}
+                />
+              </div>
+            );
+          }
+
           return (
             <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
-              <SystemMessageBubble msg={msg} />
-            </div>
-          );
-        }
-
-        // Reminder message
-        if (isReminderMessage(msg)) {
-          return (
-            <div key={`reminder-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
-              <ReminderMessageBubble msg={msg} currentUserId={currentUserId} />
-            </div>
-          );
-        }
-
-        // Note message
-        if (msg.contentType === "note") {
-          return (
-            <div key={`note-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
-              <NoteMessageBubble msg={msg} currentUserId={currentUserId} />
-            </div>
-          );
-        }
-
-        // Poll message
-        if (msg.contentType === "poll" && msg.pollData) {
-          return (
-            <div key={`poll-${msg.id}`} id={getMessageDomId(msg.id)} className={wrapperClass}>
-              <PollMessageBubble key={`poll-bubble-${msg.id}`} msg={msg} currentUserId={currentUserId} />
-            </div>
-          );
-        }
-
-        // Group message
-        if (chatMode === "GROUP") {
-          return (
-            <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
-              <GroupMessageBubble
+              <PrivateMessageBubble
                 msg={msg}
+                friendName={friendName}
+                friendAvatarUrl={selectedFriend?.friend_avatar_url ?? null}
                 authUserId={currentUserId}
-                senderAvatarUrl={resolveDisplayAvatar?.(msg.senderAvatarUrl)}
-                groupMembers={groupMembers}
                 onContextMenu={onMessageContextMenu}
                 onReply={onReplyToMessage}
                 onJumpToMessage={onJumpToMessage}
                 focusedMessageId={focusedMessageId}
                 isFocusBlue={isFocusBlue}
+                onCall={onCall}
               />
             </div>
           );
-        }
-
-        // Private message
-        return (
-          <div key={msg.id} id={getMessageDomId(msg.id)} className={wrapperClass}>
-            <PrivateMessageBubble
-              msg={msg}
-              friendName={friendName}
-              friendAvatarUrl={selectedFriend?.friend_avatar_url ?? null}
-              authUserId={currentUserId}
-              onContextMenu={onMessageContextMenu}
-              onReply={onReplyToMessage}
-              onJumpToMessage={onJumpToMessage}
-              focusedMessageId={focusedMessageId}
-              isFocusBlue={isFocusBlue}
-            />
-          </div>
-        );
-      })}
+        });
+      })()}
 
       <div ref={activeSentinelRef} />
     </div>
